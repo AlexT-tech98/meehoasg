@@ -1,0 +1,2 @@
+[functions.meehoasg-api]
+verify_jwt = true
