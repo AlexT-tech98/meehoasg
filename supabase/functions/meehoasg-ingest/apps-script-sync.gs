@@ -36,34 +36,63 @@ function syncDelta() {
 
 // ─── ĐỒNG BỘ NGƯỢC: SUPABASE → GOOGLE SHEET ───────────────
 
-// ─── HELPER LẤY CẤU HÌNH THÔNG MINH (Không phân biệt hoa/thường, tự sửa khoảng trắng) ───
+// ─── HELPER LẤY CẤU HÌNH THÔNG MINH (Tự khớp mọi biến thể tên, lọc bỏ rác) ───
 function _getIngestConfig(props) {
   props = props || PropertiesService.getScriptProperties();
   var all = props.getProperties();
-  var url = props.getProperty("SUPABASE_INGEST_URL");
-  var secret = props.getProperty("SUPABASE_INGEST_SECRET");
+  var url = "";
+  var secret = "";
 
-  // Quét toàn bộ thuộc tính để tìm key tương ứng nếu có khoảng trắng hoặc viết thường
+  // Thu thập danh sách các thuộc tính do người dùng cấu hình (bỏ qua cache CREATE_REQ_)
+  var userConfigKeys = {};
   for (var k in all) {
-    var cleanK = String(k || "").trim().toUpperCase();
-    if (cleanK === "SUPABASE_INGEST_URL" && !url) url = all[k];
-    if (cleanK === "SUPABASE_INGEST_SECRET" && !secret) secret = all[k];
-    if (cleanK === "INGEST_SECRET" && !secret) secret = all[k];
-    if (cleanK.indexOf("INGEST_URL") >= 0 && !url) url = all[k];
-    if (cleanK.indexOf("INGEST_SECRET") >= 0 && !secret) secret = all[k];
+    if (k.indexOf("CREATE_REQ_") === -1 && k.indexOf("MEE_CREATE_") === -1) {
+      userConfigKeys[k] = all[k];
+    }
   }
 
-  // URL luôn có fallback mặc định trỏ đúng project zxnfhshnavbmvdthrmrd
-  if (!url || !url.trim()) {
+  // 1. Quét tìm URL và Secret thông minh
+  for (var k in userConfigKeys) {
+    var cleanK = String(k || "").trim().toUpperCase();
+    var val = String(userConfigKeys[k] || "").trim();
+
+    // Nhận diện URL: có chữ URL hoặc giá trị là link https://
+    if (cleanK.indexOf("URL") >= 0 || val.indexOf("http") === 0) {
+      if (!url) url = val;
+    }
+
+    // Nhận diện Secret: có chữ SECRET, INGEST, TOKEN hoặc KEY (trừ GEMINI)
+    if (cleanK.indexOf("SECRET") >= 0 || cleanK.indexOf("INGEST") >= 0 || cleanK.indexOf("TOKEN") >= 0) {
+      if (cleanK.indexOf("URL") === -1 && !secret && val) {
+        secret = val;
+      }
+    }
+  }
+
+  // 2. Nếu vẫn chưa tìm thấy Secret, thử tìm bất kỳ key nào có chữ SECRET / KEY (trừ GEMINI)
+  if (!secret) {
+    for (var k in userConfigKeys) {
+      var cleanK = String(k || "").trim().toUpperCase();
+      var val = String(userConfigKeys[k] || "").trim();
+      if ((cleanK.indexOf("SECRET") >= 0 || cleanK.indexOf("KEY") >= 0) && cleanK !== "GEMINI_API_KEY" && val) {
+        secret = val;
+        break;
+      }
+    }
+  }
+
+  // Fallback URL mặc định vì endpoint Supabase cố định theo project zxnfhshnavbmvdthrmrd
+  if (!url || url.indexOf("http") !== 0) {
     url = "https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-ingest";
   }
 
   return {
-    url: String(url || "").trim(),
-    secret: String(secret || "").trim(),
-    availableKeys: Object.keys(all)
+    url: url,
+    secret: secret,
+    userConfig: userConfigKeys
   };
 }
+
 
 function syncSupabaseToSheet() {
   var props = PropertiesService.getScriptProperties();
@@ -285,8 +314,21 @@ function testSyncKhanhLinhNow() {
   _log("INFO", "=== Bắt đầu test đồng bộ đơn từ Supabase về Google Sheet ===");
   var props = PropertiesService.getScriptProperties();
   var cfg = _getIngestConfig(props);
-  _log("INFO", "Script Properties hiện có: " + JSON.stringify(cfg.availableKeys));
-  _log("INFO", "URL: " + cfg.url + ", Secret: " + (cfg.secret ? ("Đã nhận (" + cfg.secret.length + " ký tự)") : "CHƯA TÌM THẤY"));
+
+  var summary = [];
+  for (var k in cfg.userConfig) {
+    var v = String(cfg.userConfig[k] || "");
+    var masked = v.length > 8 ? (v.slice(0, 4) + "..." + v.slice(-4) + " (" + v.length + " ký tự)") : (v ? (v.length + " ký tự") : "RỖNG");
+    summary.push(k + ": " + masked);
+  }
+  _log("INFO", "Thuộc tính cấu hình tìm thấy trong Cài đặt: " + JSON.stringify(summary));
+
+  if (!cfg.secret) {
+    _log("WARN", "CHƯA TÌM THẤY SECRET! Vui lòng xem danh sách thuộc tính ở trên để kiểm tra tên hoặc giá trị của Secret.");
+    return;
+  }
+
+  _log("INFO", "Đã nhận Secret thành công! URL: " + cfg.url);
   props.deleteProperty("LAST_SUPABASE_TO_SHEET_AT"); // Xóa cursor để quét lại toàn bộ đơn gần nhất
   syncSupabaseToSheet();
 }
