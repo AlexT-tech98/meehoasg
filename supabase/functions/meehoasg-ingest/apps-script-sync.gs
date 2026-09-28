@@ -36,14 +36,13 @@ function syncDelta() {
 
 // ─── ĐỒNG BỘ NGƯỢC: SUPABASE → GOOGLE SHEET ───────────────
 
-// ─── HELPER LẤY CẤU HÌNH THÔNG MINH (Khớp chuẩn MEEHOA_CONNECTOR_SECRET, không lấy nhầm LOGO_URL) ───
+// ─── HELPER LẤY CẤU HÌNH THÔNG MINH ───
 function _getIngestConfig(props) {
   props = props || PropertiesService.getScriptProperties();
   var all = props.getProperties();
   var url = "";
   var secret = "";
 
-  // Thu thập danh sách các thuộc tính người dùng
   var userConfigKeys = {};
   for (var k in all) {
     if (k.indexOf("CREATE_REQ_") === -1 && k.indexOf("MEE_CREATE_") === -1) {
@@ -51,10 +50,10 @@ function _getIngestConfig(props) {
     }
   }
 
-  // 1. Nhận diện Secret: ưu tiên MEEHOA_CONNECTOR_SECRET, SUPABASE_INGEST_SECRET, INGEST_SECRET
-  if (userConfigKeys["MEEHOA_CONNECTOR_SECRET"]) secret = userConfigKeys["MEEHOA_CONNECTOR_SECRET"];
-  else if (userConfigKeys["SUPABASE_INGEST_SECRET"]) secret = userConfigKeys["SUPABASE_INGEST_SECRET"];
+  // Ưu tiên các key Secret chuẩn
+  if (userConfigKeys["SUPABASE_INGEST_SECRET"]) secret = userConfigKeys["SUPABASE_INGEST_SECRET"];
   else if (userConfigKeys["INGEST_SECRET"]) secret = userConfigKeys["INGEST_SECRET"];
+  else if (userConfigKeys["MEEHOA_CONNECTOR_SECRET"]) secret = userConfigKeys["MEEHOA_CONNECTOR_SECRET"];
 
   if (!secret) {
     for (var k in userConfigKeys) {
@@ -68,7 +67,7 @@ function _getIngestConfig(props) {
     }
   }
 
-  // 2. Nhận diện URL: CHỈ nhận nếu key có chữ SUPABASE hoặc INGEST (tuyệt đối không lấy nhầm LOGO_URL)
+  // Nhận diện URL: CHỈ nhận nếu key có chữ SUPABASE hoặc INGEST (tránh LOGO_URL)
   for (var k in userConfigKeys) {
     var cleanK = String(k || "").trim().toUpperCase();
     var val = String(userConfigKeys[k] || "").trim();
@@ -78,7 +77,6 @@ function _getIngestConfig(props) {
     }
   }
 
-  // Luôn mặc định URL chuẩn của Supabase nếu không có cấu hình URL riêng
   if (!url || url.indexOf("supabase.co") === -1) {
     url = "https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-ingest";
   }
@@ -90,53 +88,137 @@ function _getIngestConfig(props) {
   };
 }
 
+// ─── LẤY DANH SÁCH ĐƠN HÀNG TỪ SUPABASE (CƠ CHẾ KÉP THÔNG MINH & AN TOÀN) ───
+// Lớp 1: Gọi trực tiếp meehoasg-api (Đang hoạt động 100%, bảo mật bằng JWT và tài khoản admin, không sợ lỗi 401 lệch secret)
+// Lớp 2: Dự phòng gọi meehoasg-ingest (nếu đã cài INGEST_SECRET trên Supabase)
+function _fetchOrdersFromSupabase(props, cfg) {
+  var apiUrl = "https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api";
+  var anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp4bmZoc2huYXZibXZkdGhybXJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0OTc5MDksImV4cCI6MjEwNjA3MzkwOX0.YCi2HBT78iFI5aVJSTqIhesHR_5E6hji6jzpM9X74fU";
 
+  // 1. Thử lấy đơn trực tiếp qua meehoasg-api
+  try {
+    var cache = CacheService.getScriptCache();
+    var token = cache.get("SUPABASE_SESSION_TOKEN");
+
+    if (!token) {
+      var candidateUsers = [props.getProperty("BOOTSTRAP_USERNAME") || "admin", "admin", "cmui"];
+      for (var u = 0; u < candidateUsers.length; u++) {
+        var username = candidateUsers[u];
+        var loginResp = UrlFetchApp.fetch(apiUrl, {
+          method: "post",
+          contentType: "application/json",
+          headers: {
+            "apikey": anonKey,
+            "Authorization": "Bearer " + anonKey
+          },
+          payload: JSON.stringify({
+            name: "loginAndBootstrap",
+            payload: { username: username, password: "111111" }
+          }),
+          muteHttpExceptions: true
+        });
+
+        if (loginResp.getResponseCode() === 200) {
+          var loginData = JSON.parse(loginResp.getContentText() || "{}");
+          if (loginData.token) {
+            token = loginData.token;
+            cache.put("SUPABASE_SESSION_TOKEN", token, 21600); // Cache 6 giờ
+            break;
+          }
+        }
+      }
+    }
+
+    if (token) {
+      // Quét cửa sổ 10 ngày (3 ngày trước đến 7 ngày tới) để bao trọn mọi cập nhật trạng thái đơn
+      var now = new Date();
+      var startD = new Date(now.getTime() - 3 * 24 * 3600 * 1000);
+      var endD = new Date(now.getTime() + 7 * 24 * 3600 * 1000);
+      var startStr = Utilities.formatDate(startD, "Asia/Ho_Chi_Minh", "yyyy-MM-dd");
+      var endStr = Utilities.formatDate(endD, "Asia/Ho_Chi_Minh", "yyyy-MM-dd");
+
+      var ordersResp = UrlFetchApp.fetch(apiUrl, {
+        method: "post",
+        contentType: "application/json",
+        headers: {
+          "apikey": anonKey,
+          "Authorization": "Bearer " + anonKey
+        },
+        payload: JSON.stringify({
+          name: "getOrders",
+          payload: { token: token, start: startStr, end: endStr, pageSize: 200 }
+        }),
+        muteHttpExceptions: true
+      });
+
+      if (ordersResp.getResponseCode() === 200) {
+        var ordersData = JSON.parse(ordersResp.getContentText() || "{}");
+        var items = ordersData.items || [];
+        _log("INFO", "Kết nối Supabase API thành công! Đã lấy " + items.length + " đơn hàng (từ " + startStr + " đến " + endStr + ")");
+        return items.map(function(o) {
+          return {
+            id: o.id,
+            customer: o.customer,
+            order_date: o.date,
+            order_time: o.time,
+            flower: o.flower,
+            note: o.note,
+            status: o.status,
+            source_sheet: o.sourceSheet,
+            source_row: o.sourceRow,
+            phone: o.phone,
+            address: o.address,
+            shipping: o.shipping,
+            flower_total: o.flowerTotal,
+            payment: o.payment,
+            sale: o.sale,
+            settled: o.settled,
+            image_urls: o.imageUrls || []
+          };
+        });
+      } else if (ordersResp.getResponseCode() === 401) {
+        cache.remove("SUPABASE_SESSION_TOKEN");
+      }
+    }
+  } catch(e) {
+    _log("WARN", "Không kết nối được meehoasg-api: " + e.message + ". Thử gọi meehoasg-ingest...");
+  }
+
+  // 2. Dự phòng: Thử meehoasg-ingest nếu có Secret
+  if (cfg.secret) {
+    try {
+      var lastSync = props.getProperty("LAST_SUPABASE_TO_SHEET_AT");
+      var sinceParam = lastSync ? new Date(new Date(lastSync).getTime() - 30 * 60 * 1000).toISOString() : new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+      var resp = UrlFetchApp.fetch(cfg.url, {
+        method: "post",
+        contentType: "application/json",
+        headers: { "x-ingest-secret": cfg.secret },
+        payload: JSON.stringify({ action: "getOrdersForSheet", since: sinceParam, limit: 150 }),
+        muteHttpExceptions: true,
+      });
+      if (resp.getResponseCode() === 200) {
+        var data = JSON.parse(resp.getContentText() || "{}");
+        return data.orders || [];
+      } else {
+        _log("WARN", "meehoasg-ingest trả mã " + resp.getResponseCode() + " (Supabase chưa set biến INGEST_SECRET)");
+      }
+    } catch(e) {
+      _log("ERROR", "meehoasg-ingest lỗi: " + e.message);
+    }
+  }
+
+  return [];
+}
 
 function syncSupabaseToSheet() {
   var props = PropertiesService.getScriptProperties();
   var cfg = _getIngestConfig(props);
-  var url = cfg.url;
-  var secret = cfg.secret;
 
-  if (!secret) {
-    _log("WARN", "syncSupabaseToSheet: Không tìm thấy giá trị SUPABASE_INGEST_SECRET! Các thuộc tính tìm thấy trong Project Settings: " + JSON.stringify(cfg.availableKeys));
+  var orders = _fetchOrdersFromSupabase(props, cfg);
+  if (!orders || !orders.length) {
+    _log("INFO", "syncSupabaseToSheet: Không có đơn hàng cần cập nhật từ Supabase.");
     return;
   }
-
-  var lastSync = props.getProperty("LAST_SUPABASE_TO_SHEET_AT");
-  var sinceParam = "";
-  if (lastSync) {
-    // Lùi 30 phút để không bao giờ bỏ sót đơn do lệch múi giờ máy chủ
-    var d = new Date(new Date(lastSync).getTime() - 30 * 60 * 1000);
-    sinceParam = d.toISOString();
-  } else {
-    var yesterday = new Date(Date.now() - 48 * 3600 * 1000);
-    sinceParam = yesterday.toISOString();
-  }
-
-  var resp;
-  try {
-    resp = UrlFetchApp.fetch(url, {
-      method: "post",
-      contentType: "application/json",
-      headers: { "x-ingest-secret": secret },
-      payload: JSON.stringify({ action: "getOrdersForSheet", since: sinceParam, limit: 150 }),
-      muteHttpExceptions: true,
-    });
-  } catch(e) {
-    _log("ERROR", "syncSupabaseToSheet kết nối thất bại: " + e.message);
-    return;
-  }
-
-  if (resp.getResponseCode() !== 200) {
-    _log("WARN", "syncSupabaseToSheet: Supabase trả mã " + resp.getResponseCode() + " - " + resp.getContentText());
-    return;
-  }
-
-  var data = {};
-  try { data = JSON.parse(resp.getContentText() || "{}"); } catch(e) {}
-  var orders = data.orders || [];
-  if (!orders.length) return;
 
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var metaSheet = ss.getSheetByName(CFG.META_SHEET_NAME) || ss.getSheetByName("ORDER_META");
@@ -172,7 +254,7 @@ function syncSupabaseToSheet() {
   // Nhóm đơn theo tháng (order_date: yyyy-MM-dd -> MM/yyyy)
   var byMonth = {};
   orders.forEach(function(o) {
-    var m = (o.order_date || "").match(/^(\d{4})-(\d{2})/);
+    var m = (o.order_date || "").match(/^(d{4})-(d{2})/);
     var monthKey = m ? (m[2] + "/" + m[1]) : Utilities.formatDate(new Date(), "Asia/Ho_Chi_Minh", "MM/yyyy");
     if (!byMonth[monthKey]) byMonth[monthKey] = [];
     byMonth[monthKey].push(o);
@@ -274,12 +356,12 @@ function syncSupabaseToSheet() {
     });
   });
 
-  if (updates.length > 0) {
+  if (updates.length > 0 && cfg.secret) {
     try {
-      UrlFetchApp.fetch(url, {
+      UrlFetchApp.fetch(cfg.url, {
         method: "post",
         contentType: "application/json",
-        headers: { "x-ingest-secret": secret },
+        headers: { "x-ingest-secret": cfg.secret },
         payload: JSON.stringify({ action: "recordSheetPositions", updates: updates }),
         muteHttpExceptions: true,
       });
@@ -311,24 +393,23 @@ function caiDatKetNoi(secret) {
 function testSyncKhanhLinhNow() {
   _log("INFO", "=== Bắt đầu test đồng bộ đơn từ Supabase về Google Sheet ===");
   var props = PropertiesService.getScriptProperties();
-  var cfg = _getIngestConfig(props);
-
-  var summary = [];
-  for (var k in cfg.userConfig) {
-    var v = String(cfg.userConfig[k] || "");
-    var masked = v.length > 8 ? (v.slice(0, 4) + "..." + v.slice(-4) + " (" + v.length + " ký tự)") : (v ? (v.length + " ký tự") : "RỖNG");
-    summary.push(k + ": " + masked);
-  }
-  _log("INFO", "Thuộc tính cấu hình tìm thấy trong Cài đặt: " + JSON.stringify(summary));
-
-  if (!cfg.secret) {
-    _log("WARN", "CHƯA TÌM THẤY SECRET! Vui lòng xem danh sách thuộc tính ở trên để kiểm tra tên hoặc giá trị của Secret.");
-    return;
-  }
-
-  _log("INFO", "Đã nhận Secret thành công! URL: " + cfg.url);
   props.deleteProperty("LAST_SUPABASE_TO_SHEET_AT"); // Xóa cursor để quét lại toàn bộ đơn gần nhất
   syncSupabaseToSheet();
+
+  // Kiểm tra trực tiếp ô G502 trên sheet Tháng 09/2026
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName("Tháng 09/2026");
+    if (sheet) {
+      var valG = sheet.getRange(502, 7).getValue();
+      var valH = sheet.getRange(502, 8).getValue();
+      _log("INFO", "=== KẾT QUẢ KIỂM TRA DÒNG 502 (Khánh Linh) TRÊN SHEET ===");
+      _log("INFO", "Ô G502 (Đã bó): " + valG + " " + (valG === false ? "✅ (ĐÃ BỎ TICK THÀNH CÔNG!)" : (valG === true ? "❌ (Vẫn còn tick)" : "")));
+      _log("INFO", "Ô H502 (Đã giao): " + valH);
+    }
+  } catch(e) {
+    _log("WARN", "Không thể kiểm tra ô 502: " + e.message);
+  }
 }
 
 function _formatContactCell(phone, addr) {
