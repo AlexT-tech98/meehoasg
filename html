@@ -156,7 +156,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
 (function () {
     'use strict';
     window.__MEE_BOOT_STAGE__ = 'main-enter';
-    var UI_BUILD = '2026.09.28-supabase-v2';
+    var UI_BUILD = '2026.09.28-supabase-v3';
     function cookieGet(k){try{var prefix=k+'=',part=String(document.cookie||'').split('; ').find(function(x){return x.indexOf(prefix)===0;});return part?decodeURIComponent(part.slice(prefix.length)):'';}catch(e){return '';}}
     function storageGet(k) { try { return localStorage.getItem(k) || cookieGet(k) || ''; } catch (e) { return cookieGet(k) || ''; } }
     function storageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { } try{document.cookie=k+'='+encodeURIComponent(v)+'; Max-Age=2592000; Path=/; SameSite=Lax; Secure';}catch(e){} }

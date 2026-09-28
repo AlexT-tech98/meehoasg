@@ -1,6 +1,6 @@
 // Supabase Edge Function replacing google.script.run. Platform JWT verification
 // stays enabled; application roles use separate opaque sessions.
-const BUILD = '2026.09.28-supabase-v2';
+const BUILD = '2026.09.28-supabase-v3';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const PASSWORD_SALT = Deno.env.get('LEGACY_PASSWORD_SALT') || 'MEE-FLOWER-V4';
@@ -114,7 +114,9 @@ function decorate(row, user, settlement) {
   const paid = paidAmount(row.payment, base, row.settled ? total : 0);
   const status = settlement?.status || 'NONE';
   const locked = !!row.settled || ['PENDING', 'APPROVED'].includes(status);
-  const owner = norm(row.sale) === norm(user.display_name);
+  // Owner check: so username (sau mapping) và display_name (đơn cũ chưa mapping)
+  const saleNorm = norm(row.sale || '');
+  const owner = saleNorm === norm(user.username) || saleNorm === norm(user.display_name);
   const canEdit = !locked && (user.role !== 'SALE' || owner);
   return {
     id: row.id, sourceSheet: row.source_sheet || '', sourceRow: row.source_row || 0,
@@ -177,7 +179,11 @@ async function getOrders(payload, user) {
   const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
   const q = norm(payload.q), page = Math.max(1, Math.floor(num(payload.page) || 1)), pageSize = Math.min(200, Math.max(20, Math.floor(num(payload.pageSize) || 80)));
   const allOrders = await decoratedRange(start, end, user);
-  const filtered = q ? allOrders.filter(o => norm([o.customer, o.phone, o.id, o.flower, o.sale].join(' ')).includes(q)) : allOrders;
+  // SALE chỉ thấy đơn của mình
+  const visibleOrders = user.role === 'SALE'
+    ? allOrders.filter(o => norm(o.sale) === norm(user.username) || norm(o.sale) === norm(user.display_name))
+    : allOrders;
+  const filtered = q ? visibleOrders.filter(o => norm([o.customer, o.phone, o.id, o.flower, o.sale].join(' ')).includes(q)) : visibleOrders;
   const items = filtered.slice((page - 1) * pageSize, page * pageSize);
   return { ok: true, range: { start, end }, page, pageSize, total: filtered.length, items, hasMore: page * pageSize < filtered.length };
 }
@@ -187,8 +193,12 @@ async function getProduction(payload, user) {
 }
 async function getDebt(payload, user) {
   const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
-  const sale = user.role === 'ADMIN' ? norm(payload.sale) : norm(user.display_name);
-  const items = (await decoratedRange(start, end, user)).filter(o => o.status === 'Đã giao' && !o.settled && (!sale || norm(o.sale) === sale));
+  const sale = user.role === 'ADMIN' ? norm(payload.sale) : null;
+  const items = (await decoratedRange(start, end, user)).filter(o => {
+    if (o.status !== 'Đã giao' || o.settled) return false;
+    if (user.role === 'ADMIN') return !sale || norm(o.sale) === sale;
+    return norm(o.sale) === norm(user.username) || norm(o.sale) === norm(user.display_name);
+  });
   return { ok: true, range: { start, end }, items, summary: { orders: items.length, debt: items.reduce((n, o) => n + o.debt, 0), shipFeePending: items.filter(o => o.shipFeePending).length }, scope: user.role === 'ADMIN' ? 'ADMIN' : 'SELF' };
 }
 async function initial(user, token) {
@@ -228,7 +238,7 @@ function orderData(d, current, user) {
     order_time: clean(d.time), flower: clean(d.flower), note: clean(d.note),
     shipping: clean(d.shipping), address: clean(d.address),
     flower_total: num(d.flowerTotal), payment: clean(d.payment),
-    sale: user.role === 'SALE' ? user.display_name : clean(d.sale || current?.sale || user.display_name),
+    sale: user.role === 'SALE' ? user.username : clean(d.sale || current?.sale || user.username),
     card: bool(d.card), card_text: clean(d.cardText), banner: bool(d.banner),
     banner_text: clean(d.bannerText), charm_fee: num(d.charmFee),
     charm_text: clean(d.charmText), paper_fee: num(d.paperFee),
@@ -440,7 +450,7 @@ async function getKpi(payload, user) {
   const penalties = await all('kpi_operations', { month: 'eq.' + month });
   const grouped = {};
   for (const o of orders) {
-    if (user.role !== 'ADMIN' && norm(o.sale) === norm('C Mụi')) continue;
+    if (user.role !== 'ADMIN' && norm(o.sale) !== norm(user.username) && norm(o.sale) !== norm(user.display_name)) continue;
     const name = o.sale || 'Chưa gán', item = grouped[name] ||= { sale: name, revenue: 0, orders: 0, bigOrders: 0 };
     item.revenue += o.flowerTotal; item.orders++; if (o.flowerTotal >= 500000) item.bigOrders++;
   }
