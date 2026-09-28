@@ -21,6 +21,9 @@
  */
 
 // ─── CẤU HÌNH ─────────────────────────────────────────────
+// ID của Google Sheet chứa đơn hàng (lấy từ URL của Sheet)
+var SPREADSHEET_ID = '1TsVOtDWrqlkjEUPGWmRudGEvGe38qLG0S62MOVDefpM';
+
 var CFG = {
   GID_ORDER_CURRENT: 1561905505,   // gid tab đơn hiện tại (Tháng 9)
   ORDER_WIDTH: 15,                  // số cột A→O
@@ -49,7 +52,7 @@ function _doSync(full) {
   var secret = props.getProperty('SUPABASE_INGEST_SECRET');
   if (!url || !secret) { _log('ERROR', 'Chưa set SUPABASE_INGEST_URL / SUPABASE_INGEST_SECRET'); return; }
 
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = _sheetByGid(ss, CFG.GID_ORDER_CURRENT);
   if (!sheet) { _log('ERROR', 'Không tìm thấy sheet gid=' + CFG.GID_ORDER_CURRENT); return; }
 
@@ -186,7 +189,7 @@ function _money(v) { if (typeof v === 'number') return isFinite(v) ? v : 0; var 
 function _bool(v) { return v === true || v === 1 || ['true','yes','1','x'].indexOf(String(v || '').trim().toLowerCase()) >= 0; }
 function _status(r) { return _bool(r[7]) ? 'Đã giao' : _bool(r[6]) ? 'Đã bó' : 'Chờ bó'; }
 function _log(level, msg) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var log = ss.getSheetByName(CFG.LOG_SHEET);
   if (!log) { log = ss.insertSheet(CFG.LOG_SHEET); log.getRange(1,1,1,3).setValues([['Thời gian','Level','Nội dung']]); }
   log.appendRow([new Date(), level, msg]);
