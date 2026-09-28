@@ -37,62 +37,94 @@ function syncDelta() {
 // ─── ĐỒNG BỘ NGƯỢC: SUPABASE → GOOGLE SHEET ───────────────
 function syncSupabaseToSheet() {
   var props = PropertiesService.getScriptProperties();
-  var url = props.getProperty('SUPABASE_INGEST_URL');
-  var secret = props.getProperty('SUPABASE_INGEST_SECRET');
+  var url = props.getProperty("SUPABASE_INGEST_URL");
+  var secret = props.getProperty("SUPABASE_INGEST_SECRET");
   if (!url || !secret) {
-    _log('WARN', 'syncSupabaseToSheet: Thiếu cấu hình SUPABASE_INGEST_URL hoặc SUPABASE_INGEST_SECRET');
+    _log("WARN", "syncSupabaseToSheet: Thiếu cấu hình SUPABASE_INGEST_URL hoặc SUPABASE_INGEST_SECRET trong Script Properties");
     return;
   }
 
-  var lastSync = props.getProperty('LAST_SUPABASE_TO_SHEET_AT');
-  if (!lastSync) {
-    var yesterday = new Date(Date.now() - 24 * 3600 * 1000);
-    lastSync = yesterday.toISOString();
+  var lastSync = props.getProperty("LAST_SUPABASE_TO_SHEET_AT");
+  var sinceParam = "";
+  if (lastSync) {
+    // Lùi 30 phút để không bao giờ bỏ sót đơn do lệch múi giờ máy chủ
+    var d = new Date(new Date(lastSync).getTime() - 30 * 60 * 1000);
+    sinceParam = d.toISOString();
+  } else {
+    var yesterday = new Date(Date.now() - 48 * 3600 * 1000);
+    sinceParam = yesterday.toISOString();
   }
 
   var resp;
   try {
     resp = UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: 'application/json',
-      headers: { 'x-ingest-secret': secret },
-      payload: JSON.stringify({ action: 'getOrdersForSheet', since: lastSync, limit: 150 }),
+      method: "post",
+      contentType: "application/json",
+      headers: { "x-ingest-secret": secret },
+      payload: JSON.stringify({ action: "getOrdersForSheet", since: sinceParam, limit: 150 }),
       muteHttpExceptions: true,
     });
   } catch(e) {
-    _log('ERROR', 'syncSupabaseToSheet fetch error: ' + e.message);
+    _log("ERROR", "syncSupabaseToSheet kết nối thất bại: " + e.message);
     return;
   }
 
   if (resp.getResponseCode() !== 200) {
-    _log('WARN', 'syncSupabaseToSheet: Supabase trả mã ' + resp.getResponseCode() + ' - ' + resp.getContentText());
+    _log("WARN", "syncSupabaseToSheet: Supabase trả mã " + resp.getResponseCode() + " - " + resp.getContentText());
     return;
   }
 
   var data = {};
-  try { data = JSON.parse(resp.getContentText() || '{}'); } catch(e) {}
+  try { data = JSON.parse(resp.getContentText() || "{}"); } catch(e) {}
   var orders = data.orders || [];
   if (!orders.length) return;
 
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var metaSheet = ss.getSheetByName(CFG.META_SHEET_NAME) || ss.getSheetByName('ORDER_META');
+  var metaSheet = ss.getSheetByName(CFG.META_SHEET_NAME) || ss.getSheetByName("ORDER_META");
   var updates = [];
   var insertedCount = 0;
   var updatedCount = 0;
 
+  // Helper tìm tab Sheet phù hợp nhất bất kể tên tab là "Tháng 09/2026", "09/2026" hay "Đơn 09/2026"
+  function _findOrderSheet(targetMonth, preferredName) {
+    if (preferredName) {
+      var s = ss.getSheetByName(preferredName);
+      if (s) return s;
+    }
+    var candidates = [
+      "Tháng " + targetMonth,
+      targetMonth,
+      "Đơn " + targetMonth,
+      "Tháng " + targetMonth.replace(/^0/, ""),
+      targetMonth.replace(/^0/, "")
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      var s = ss.getSheetByName(candidates[i]);
+      if (s) return s;
+    }
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      var name = all[i].getName();
+      if (name.indexOf(targetMonth) >= 0) return all[i];
+    }
+    return null;
+  }
+
   // Nhóm đơn theo tháng (order_date: yyyy-MM-dd -> MM/yyyy)
   var byMonth = {};
   orders.forEach(function(o) {
-    var m = (o.order_date || '').match(/^(\d{4})-(\d{2})/);
-    var monthKey = m ? (m[2] + '/' + m[1]) : Utilities.formatDate(new Date(), 'Asia/Ho_Chi_Minh', 'MM/yyyy');
+    var m = (o.order_date || "").match(/^(\d{4})-(\d{2})/);
+    var monthKey = m ? (m[2] + "/" + m[1]) : Utilities.formatDate(new Date(), "Asia/Ho_Chi_Minh", "MM/yyyy");
     if (!byMonth[monthKey]) byMonth[monthKey] = [];
     byMonth[monthKey].push(o);
   });
 
   Object.keys(byMonth).forEach(function(monthKey) {
-    var sheet = ss.getSheetByName(monthKey);
+    var monthOrders = byMonth[monthKey];
+    var sampleOrder = monthOrders[0] || {};
+    var sheet = _findOrderSheet(monthKey, sampleOrder.source_sheet);
     if (!sheet) {
-      _log('WARN', 'Không tìm thấy tab sheet tháng: ' + monthKey);
+      _log("WARN", "Không tìm thấy tab sheet cho tháng: " + monthKey);
       return;
     }
 
@@ -101,74 +133,80 @@ function syncSupabaseToSheet() {
     if (lastRow >= 2) {
       var idValues = sheet.getRange(2, 15, lastRow - 1, 1).getValues();
       for (var r = 0; r < idValues.length; r++) {
-        var existingId = String(idValues[r][0] || '').trim();
+        var existingId = String(idValues[r][0] || "").trim();
         if (existingId) existingIds[existingId] = r + 2;
       }
     }
 
-    var monthOrders = byMonth[monthKey];
     monthOrders.forEach(function(o) {
       var id = o.id;
       var targetRow = existingIds[id];
+      // Nếu không tìm thấy bằng Order ID ở cột 15, sử dụng source_row làm fallback
+      if (!targetRow && o.source_row && Number(o.source_row) >= 2 && Number(o.source_row) <= lastRow) {
+        targetRow = Number(o.source_row);
+      }
 
-      var dParts = (o.order_date || '').split('-');
-      var dateVal = dParts.length === 3 ? (dParts[2] + '/' + dParts[1] + '/' + dParts[0]) : o.order_date;
-      var timeVal = o.order_time || '';
+      var dParts = (o.order_date || "").split("-");
+      var dateVal = dParts.length === 3 ? (dParts[2] + "/" + dParts[1] + "/" + dParts[0]) : o.order_date;
+      var timeVal = o.order_time || "";
       var contactVal = _formatContactCell(o.phone, o.address);
-      var doneCam = (o.status === 'Đã bó' || o.status === 'Đã giao') ? 'x' : '';
-      var doneGiao = (o.status === 'Đã giao') ? 'x' : '';
-      var settledVal = o.settled ? 'x' : '';
+
+      // Quan trọng: Checkbox trong Google Sheet dùng boolean true/false để tự động tick hoặc bỏ tick
+      var isBo = (o.status === "Đã bó" || o.status === "Đã giao");
+      var isGiao = (o.status === "Đã giao");
+      var isSettled = Boolean(o.settled);
       var saleVal = _saleDisplayName(o.sale);
 
       if (targetRow) {
-        sheet.getRange(targetRow, 7).setValue(doneCam);
-        sheet.getRange(targetRow, 8).setValue(doneGiao);
+        sheet.getRange(targetRow, 7).setValue(isBo);       // Cột G: Đã bó (boolean true/false)
+        sheet.getRange(targetRow, 8).setValue(isGiao);     // Cột H: Đã giao (boolean true/false)
+        sheet.getRange(targetRow, 14).setValue(isSettled); // Cột N: Đã tất toán (boolean true/false)
         if (o.flower_total) sheet.getRange(targetRow, 11).setValue(o.flower_total);
         if (o.payment) sheet.getRange(targetRow, 12).setValue(o.payment);
-        sheet.getRange(targetRow, 14).setValue(settledVal);
         if (contactVal) sheet.getRange(targetRow, 10).setValue(contactVal);
         updatedCount++;
+        _log("INFO", "Đã cập nhật dòng " + targetRow + " (" + (o.customer || id) + "): Trạng thái = " + o.status + " (Đã bó: " + isBo + ", Đã giao: " + isGiao + ")");
       } else {
         var newRow = [
-          o.customer || '',
+          o.customer || "",
           dateVal,
           timeVal,
-          o.flower || '',
-          (o.image_urls && o.image_urls[0]) ? o.image_urls[0] : '',
-          o.note || '',
-          doneCam,
-          doneGiao,
-          o.shipping || 'Shop book ship',
+          o.flower || "",
+          (o.image_urls && o.image_urls[0]) ? o.image_urls[0] : "",
+          o.note || "",
+          isBo,
+          isGiao,
+          o.shipping || "Shop book ship",
           contactVal,
           o.flower_total || 0,
-          o.payment || '',
+          o.payment || "",
           saleVal,
-          settledVal,
+          isSettled,
           id
         ];
         sheet.appendRow(newRow);
         var appendedRow = sheet.getLastRow();
         existingIds[id] = appendedRow;
-        updates.push({ id: id, source_sheet: monthKey, source_row: appendedRow });
+        updates.push({ id: id, source_sheet: sheet.getName(), source_row: appendedRow });
         insertedCount++;
 
         if (metaSheet) {
           try {
             metaSheet.appendRow([
               id,
-              Utilities.formatDate(new Date(), 'Asia/Ho_Chi_Minh', 'yyyy-MM-dd HH:mm:ss'),
+              Utilities.formatDate(new Date(), "Asia/Ho_Chi_Minh", "yyyy-MM-dd HH:mm:ss"),
               o.ship_fee || 0,
-              o.ship_confirmed ? 'x' : '',
-              o.card ? 'x' : '',
-              o.card_text || '',
-              o.banner ? 'x' : '',
-              o.banner_text || '',
+              o.ship_confirmed ? "x" : "",
+              o.card ? "x" : "",
+              o.card_text || "",
+              o.banner ? "x" : "",
+              o.banner_text || "",
               o.charm_fee || 0,
-              o.charm_text || '',
+              o.charm_text || "",
               o.paper_fee || 0,
-              o.paper_text || '',
+              o.paper_text || "",
               o.vat || 0,
-              o.phone || '',
+              o.phone || "",
               JSON.stringify(o.image_urls || [])
             ]);
           } catch(err) {}
@@ -180,19 +218,27 @@ function syncSupabaseToSheet() {
   if (updates.length > 0) {
     try {
       UrlFetchApp.fetch(url, {
-        method: 'post',
-        contentType: 'application/json',
-        headers: { 'x-ingest-secret': secret },
-        payload: JSON.stringify({ action: 'recordSheetPositions', updates: updates }),
+        method: "post",
+        contentType: "application/json",
+        headers: { "x-ingest-secret": secret },
+        payload: JSON.stringify({ action: "recordSheetPositions", updates: updates }),
         muteHttpExceptions: true,
       });
     } catch(e) {}
   }
 
-  props.setProperty('LAST_SUPABASE_TO_SHEET_AT', new Date().toISOString());
+  props.setProperty("LAST_SUPABASE_TO_SHEET_AT", new Date().toISOString());
   if (insertedCount > 0 || updatedCount > 0) {
-    _log('INFO', 'syncSupabaseToSheet: Đã chèn ' + insertedCount + ' đơn mới, cập nhật ' + updatedCount + ' đơn vào Google Sheet.');
+    _log("INFO", "syncSupabaseToSheet: Hoàn tất chèn " + insertedCount + " đơn mới, cập nhật " + updatedCount + " đơn vào Google Sheet.");
   }
+}
+
+// ─── HÀM TEST ĐỒNG BỘ THỦ CÔNG ĐƠN KHÁNH LINH HOẶC ĐƠN GẦN NHẤT ───
+function testSyncKhanhLinhNow() {
+  _log("INFO", "=== Bắt đầu test đồng bộ đơn từ Supabase về Google Sheet ===");
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty("LAST_SUPABASE_TO_SHEET_AT"); // Xóa mốc thời gian để quét lại toàn bộ đơn gần nhất
+  syncSupabaseToSheet();
 }
 
 function _formatContactCell(phone, addr) {
