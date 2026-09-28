@@ -234,6 +234,21 @@ function syncSupabaseToSheet() {
 }
 
 // ─── HÀM TEST ĐỒNG BỘ THỦ CÔNG ĐƠN KHÁNH LINH HOẶC ĐƠN GẦN NHẤT ───
+
+// ─── HÀM CÀI ĐẶT NHANH CẤU HÌNH VÀO SCRIPT PROPERTIES (Chạy 1 lần) ───
+// Anh chỉ cần điền chuỗi INGEST_SECRET anh đã đặt trên Supabase vào biến secret dưới đây rồi bấm Chạy (Run).
+function caiDatKetNoi(secret) {
+  secret = secret || "YOUR_SECRET_HERE";
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty("SUPABASE_INGEST_URL", "https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-ingest");
+  if (secret && secret !== "YOUR_SECRET_HERE") {
+    props.setProperty("SUPABASE_INGEST_SECRET", secret.trim());
+    _log("INFO", "Đã cấu hình thành công SUPABASE_INGEST_URL và SUPABASE_INGEST_SECRET!");
+  } else {
+    _log("WARN", "Chưa điền chuỗi secret! Vui lòng thay YOUR_SECRET_HERE bằng chuỗi secret của anh.");
+  }
+}
+
 function testSyncKhanhLinhNow() {
   _log("INFO", "=== Bắt đầu test đồng bộ đơn từ Supabase về Google Sheet ===");
   var props = PropertiesService.getScriptProperties();
