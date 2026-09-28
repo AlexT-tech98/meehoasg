@@ -13,17 +13,17 @@
     var html=await r.text();
     html=html.replace(/<head>/i,'<head><base href="/">');
     html=html.replace(/<\/head>/i,
-      '<link rel="stylesheet" href="/preview/assets/ui-v3.css?v=3.6">'+
-      '<link rel="stylesheet" href="/preview/assets/ui-v3-fix.css?v=3.6">'+
-      '<link rel="stylesheet" href="/preview/assets/ui-v3-hotfix.css?v=3.6">'+
-      '<link rel="stylesheet" href="/preview/assets/ui-v34.css?v=3.6">'+
-      '<link rel="stylesheet" href="/preview/assets/ui-v35.css?v=3.6">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v3.css?v=3.6">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v3-fix.css?v=3.6">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v3-hotfix.css?v=3.6">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v34.css?v=3.6">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v35.css?v=3.6">'+
       '<link rel="stylesheet" href="/assets/meehoa-prod-fix.css?v=3.6">'+
       '</head>');
     html=html.replace(/<\/body>/i,
-      '<script src="/preview/assets/ui-v3.js?v=3.6"><\/script>'+
-      '<script src="/preview/assets/ui-v34.js?v=3.6"><\/script>'+
-      '<script src="/preview/assets/ui-v35.js?v=3.6"><\/script>'+
+      '<script src="/assets/meehoa-v3.js?v=3.6"><\/script>'+
+      '<script src="/assets/meehoa-v34.js?v=3.6"><\/script>'+
+      '<script src="/assets/meehoa-v35.js?v=3.6"><\/script>'+
       '<script>document.body.style.visibility="visible";<\/script></body>');
     document.open();
     document.write(html);
