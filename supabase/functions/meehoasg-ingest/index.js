@@ -138,6 +138,39 @@ async function ingestOrders(rawList) {
   return { ok: true, ...stats, processed: rows.length };
 }
 
+
+async function getOrdersForSheet(payload) {
+  const since = clean(payload.since);
+  const limit = Math.min(200, Math.max(1, Number(payload.limit) || 100));
+  const query = {
+    select: 'id,customer,phone,order_date,order_time,flower,note,shipping,address,flower_total,payment,sale,status,settled,ship_fee,ship_confirmed,card,card_text,banner,banner_text,charm_fee,charm_text,paper_fee,paper_text,vat,image_urls,source_sheet,source_row,updated_at,created_at',
+    order: 'updated_at.desc',
+    limit: String(limit)
+  };
+  if (since) {
+    query.updated_at = 'gte.' + since;
+  }
+  const rows = await rest('orders', query);
+  return { ok: true, orders: rows || [] };
+}
+
+async function recordSheetPositions(payload) {
+  const updates = Array.isArray(payload.updates) ? payload.updates : [];
+  let updated = 0;
+  for (const item of updates) {
+    const id = clean(item.id);
+    if (!id) continue;
+    const patch = {};
+    if (item.source_sheet) patch.source_sheet = clean(item.source_sheet);
+    if (Number.isFinite(item.source_row)) patch.source_row = Number(item.source_row);
+    if (Object.keys(patch).length > 0) {
+      await rest('orders', { id: 'eq.' + id }, 'PATCH', patch);
+      updated++;
+    }
+  }
+  return { ok: true, updated };
+}
+
 Deno.serve(async request => {
   const headers = { 'Content-Type': 'application/json; charset=utf-8' };
   if (request.method !== 'POST') return new Response(JSON.stringify({ ok: false, message: 'POST only' }), { status: 405, headers });
@@ -147,6 +180,12 @@ Deno.serve(async request => {
     return new Response(JSON.stringify({ ok: false, message: 'Payload too large' }), { status: 413, headers });
   try {
     const body = await request.json();
+    if (body.action === 'getOrdersForSheet') {
+      return new Response(JSON.stringify(await getOrdersForSheet(body)), { headers });
+    }
+    if (body.action === 'recordSheetPositions') {
+      return new Response(JSON.stringify(await recordSheetPositions(body)), { headers });
+    }
     if (!Array.isArray(body.orders) || body.orders.length > 100) throw new Error('Tối đa 100 đơn mỗi batch.');
     return new Response(JSON.stringify(await ingestOrders(body.orders)), { headers });
   } catch (error) {

@@ -27,7 +27,198 @@ var CFG = {
 };
 
 // ─── TRIGGER CHÍNH: mỗi 1 - 5 phút ────────────────────────
-function syncDelta() { _doSync(false); }
+
+// ─── TRIGGER CHÍNH: mỗi 1 - 5 phút ────────────────────────
+function syncDelta() {
+  syncSupabaseToSheet(); // 1. Tự động kéo đơn mới/sửa từ Web Supabase ghi vào Google Sheet
+  _doSync(false);        // 2. Đồng bộ các cập nhật từ Sheet lên Supabase (nếu có ai sửa trên Sheet)
+}
+
+// ─── ĐỒNG BỘ NGƯỢC: SUPABASE → GOOGLE SHEET ───────────────
+function syncSupabaseToSheet() {
+  var props = PropertiesService.getScriptProperties();
+  var url = props.getProperty('SUPABASE_INGEST_URL');
+  var secret = props.getProperty('SUPABASE_INGEST_SECRET');
+  if (!url || !secret) {
+    _log('WARN', 'syncSupabaseToSheet: Thiếu cấu hình SUPABASE_INGEST_URL hoặc SUPABASE_INGEST_SECRET');
+    return;
+  }
+
+  var lastSync = props.getProperty('LAST_SUPABASE_TO_SHEET_AT');
+  if (!lastSync) {
+    var yesterday = new Date(Date.now() - 24 * 3600 * 1000);
+    lastSync = yesterday.toISOString();
+  }
+
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-ingest-secret': secret },
+      payload: JSON.stringify({ action: 'getOrdersForSheet', since: lastSync, limit: 150 }),
+      muteHttpExceptions: true,
+    });
+  } catch(e) {
+    _log('ERROR', 'syncSupabaseToSheet fetch error: ' + e.message);
+    return;
+  }
+
+  if (resp.getResponseCode() !== 200) {
+    _log('WARN', 'syncSupabaseToSheet: Supabase trả mã ' + resp.getResponseCode() + ' - ' + resp.getContentText());
+    return;
+  }
+
+  var data = {};
+  try { data = JSON.parse(resp.getContentText() || '{}'); } catch(e) {}
+  var orders = data.orders || [];
+  if (!orders.length) return;
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var metaSheet = ss.getSheetByName(CFG.META_SHEET_NAME) || ss.getSheetByName('ORDER_META');
+  var updates = [];
+  var insertedCount = 0;
+  var updatedCount = 0;
+
+  // Nhóm đơn theo tháng (order_date: yyyy-MM-dd -> MM/yyyy)
+  var byMonth = {};
+  orders.forEach(function(o) {
+    var m = (o.order_date || '').match(/^(d{4})-(d{2})/);
+    var monthKey = m ? (m[2] + '/' + m[1]) : Utilities.formatDate(new Date(), 'Asia/Ho_Chi_Minh', 'MM/yyyy');
+    if (!byMonth[monthKey]) byMonth[monthKey] = [];
+    byMonth[monthKey].push(o);
+  });
+
+  Object.keys(byMonth).forEach(function(monthKey) {
+    var sheet = ss.getSheetByName(monthKey);
+    if (!sheet) {
+      _log('WARN', 'Không tìm thấy tab sheet tháng: ' + monthKey);
+      return;
+    }
+
+    var lastRow = sheet.getLastRow();
+    var existingIds = {};
+    if (lastRow >= 2) {
+      var idValues = sheet.getRange(2, 15, lastRow - 1, 1).getValues();
+      for (var r = 0; r < idValues.length; r++) {
+        var existingId = String(idValues[r][0] || '').trim();
+        if (existingId) existingIds[existingId] = r + 2;
+      }
+    }
+
+    var monthOrders = byMonth[monthKey];
+    monthOrders.forEach(function(o) {
+      var id = o.id;
+      var targetRow = existingIds[id];
+
+      var dParts = (o.order_date || '').split('-');
+      var dateVal = dParts.length === 3 ? (dParts[2] + '/' + dParts[1] + '/' + dParts[0]) : o.order_date;
+      var timeVal = o.order_time || '';
+      var contactVal = _formatContactCell(o.phone, o.address);
+      var doneCam = (o.status === 'Đã bó' || o.status === 'Đã giao') ? 'x' : '';
+      var doneGiao = (o.status === 'Đã giao') ? 'x' : '';
+      var settledVal = o.settled ? 'x' : '';
+      var saleVal = _saleDisplayName(o.sale);
+
+      if (targetRow) {
+        sheet.getRange(targetRow, 7).setValue(doneCam);
+        sheet.getRange(targetRow, 8).setValue(doneGiao);
+        if (o.flower_total) sheet.getRange(targetRow, 11).setValue(o.flower_total);
+        if (o.payment) sheet.getRange(targetRow, 12).setValue(o.payment);
+        sheet.getRange(targetRow, 14).setValue(settledVal);
+        if (contactVal) sheet.getRange(targetRow, 10).setValue(contactVal);
+        updatedCount++;
+      } else {
+        var newRow = [
+          o.customer || '',
+          dateVal,
+          timeVal,
+          o.flower || '',
+          (o.image_urls && o.image_urls[0]) ? o.image_urls[0] : '',
+          o.note || '',
+          doneCam,
+          doneGiao,
+          o.shipping || 'Shop book ship',
+          contactVal,
+          o.flower_total || 0,
+          o.payment || '',
+          saleVal,
+          settledVal,
+          id
+        ];
+        sheet.appendRow(newRow);
+        var appendedRow = sheet.getLastRow();
+        existingIds[id] = appendedRow;
+        updates.push({ id: id, source_sheet: monthKey, source_row: appendedRow });
+        insertedCount++;
+
+        if (metaSheet) {
+          try {
+            metaSheet.appendRow([
+              id,
+              Utilities.formatDate(new Date(), 'Asia/Ho_Chi_Minh', 'yyyy-MM-dd HH:mm:ss'),
+              o.ship_fee || 0,
+              o.ship_confirmed ? 'x' : '',
+              o.card ? 'x' : '',
+              o.card_text || '',
+              o.banner ? 'x' : '',
+              o.banner_text || '',
+              o.charm_fee || 0,
+              o.charm_text || '',
+              o.paper_fee || 0,
+              o.paper_text || '',
+              o.vat || 0,
+              o.phone || '',
+              JSON.stringify(o.image_urls || [])
+            ]);
+          } catch(err) {}
+        }
+      }
+    });
+  });
+
+  if (updates.length > 0) {
+    try {
+      UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        headers: { 'x-ingest-secret': secret },
+        payload: JSON.stringify({ action: 'recordSheetPositions', updates: updates }),
+        muteHttpExceptions: true,
+      });
+    } catch(e) {}
+  }
+
+  props.setProperty('LAST_SUPABASE_TO_SHEET_AT', new Date().toISOString());
+  if (insertedCount > 0 || updatedCount > 0) {
+    _log('INFO', 'syncSupabaseToSheet: Đã chèn ' + insertedCount + ' đơn mới, cập nhật ' + updatedCount + ' đơn vào Google Sheet.');
+  }
+}
+
+function _formatContactCell(phone, addr) {
+  var p = String(phone || '').trim();
+  var a = String(addr || '').trim();
+  if (p && a) return 'SĐT: ' + p + '
+Địa chỉ: ' + a;
+  if (p) return 'SĐT: ' + p;
+  return a;
+}
+
+var SALE_DISPLAY_NAMES = {
+  'huynhxuyen': 'Huỳnh Xuyến',
+  'huynhthu': 'Huỳnh Thư',
+  'huynhlan': 'Huỳnh Lan',
+  'hien': 'Hiền Lê',
+  'tien': 'Minh Tiến',
+  'cmui': 'C Mụi',
+  'pu': 'Pu'
+};
+function _saleDisplayName(s) {
+  if (!s) return 'C Mụi';
+  var key = String(s).toLowerCase().trim();
+  return SALE_DISPLAY_NAMES[key] || s;
+}
+
 
 // ─── BACKFILL: chạy 1 lần thủ công để nạp lại chuẩn ────────
 function syncFull() {

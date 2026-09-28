@@ -120,3 +120,19 @@ test('getKpi unifies sales aliases into display name and calculates revenue accu
   assert.equal(xuyen.orders, 3);
   assert.equal(xuyen.bigOrders, 2);
 });
+
+test('meehoasg-ingest handles getOrdersForSheet and recordSheetPositions', async () => {
+  const ingestSource = fs.readFileSync('supabase/functions/meehoasg-ingest/index.js', 'utf8');
+  const ingestContext = vm.createContext({
+    Deno: { env: { get: () => 'test' }, serve: () => {} },
+    crypto: webcrypto, TextEncoder, URL, Request, Response, Intl, Date, console,
+  });
+  vm.runInContext(ingestSource, ingestContext);
+  ingestContext.rest = async (table, query) => {
+    return [{ id: 'TEST-1', customer: 'Anh Nam', order_date: '2026-09-29', order_time: '10:00', flower_total: 500000, status: 'Chờ bó' }];
+  };
+  const res = await vm.runInContext("getOrdersForSheet({ since: '2026-09-28T00:00:00Z' })", ingestContext);
+  assert.equal(res.ok, true);
+  assert.equal(res.orders.length, 1);
+  assert.equal(res.orders[0].customer, 'Anh Nam');
+});
