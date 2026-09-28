@@ -462,7 +462,8 @@ async function getKpi(payload, user) {
   if (!/^\d{4}-\d{2}$/.test(month)) return fail('Tháng KPI không hợp lệ.');
   const start = month + '-01', end = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
   const allOrders = await decoratedRange(start, end, user);
-  const orders = allOrders.filter(o => o.status === 'Đã giao' || o.settled);
+  // Tính trên toàn bộ đơn hàng trong tháng để khớp 100% với doanh thu Sheet sum lại
+  const orders = allOrders;
   const penalties = await all('kpi_operations', { month: 'eq.' + month });
   const users = await all('app_users', {});
   const userMap = new Map();
@@ -471,15 +472,16 @@ async function getKpi(payload, user) {
     userMap.set(norm(u.display_name), u);
   }
   const aliases = {
-    'huynh kim xuyen': 'huynhxuyen', 'huynh xuyen': 'huynhxuyen',
-    'huynh minh thu': 'huynhthu', 'huynh thu': 'huynhthu',
-    'huynh ngoc lan': 'huynhlan', 'huynh lan': 'huynhlan',
+    'huynh kim xuyen': 'huynhxuyen', 'huynh xuyen': 'huynhxuyen', 'xuyen': 'huynhxuyen',
+    'huynh minh thu': 'huynhthu', 'huynh thu': 'huynhthu', 'thu': 'huynhthu',
+    'huynh ngoc lan': 'huynhlan', 'huynh lan': 'huynhlan', 'lan': 'huynhlan',
     'hien le': 'hien', 'hien': 'hien',
     'minh tien': 'tien', 'tien': 'tien',
     'khanh': 'cmui', 'c mui': 'cmui', 'pu': 'pu'
   };
   function resolveUser(sale) {
     const raw = clean(sale), k = norm(raw);
+    if (!raw) return userMap.get('cmui') || null;
     const mapped = aliases[k] || k;
     return userMap.get(mapped) || userMap.get(k) || null;
   }
