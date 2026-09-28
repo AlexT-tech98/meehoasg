@@ -36,14 +36,14 @@ function syncDelta() {
 
 // ─── ĐỒNG BỘ NGƯỢC: SUPABASE → GOOGLE SHEET ───────────────
 
-// ─── HELPER LẤY CẤU HÌNH THÔNG MINH (Tự khớp mọi biến thể tên, lọc bỏ rác) ───
+// ─── HELPER LẤY CẤU HÌNH THÔNG MINH (Khớp chuẩn MEEHOA_CONNECTOR_SECRET, không lấy nhầm LOGO_URL) ───
 function _getIngestConfig(props) {
   props = props || PropertiesService.getScriptProperties();
   var all = props.getProperties();
   var url = "";
   var secret = "";
 
-  // Thu thập danh sách các thuộc tính do người dùng cấu hình (bỏ qua cache CREATE_REQ_)
+  // Thu thập danh sách các thuộc tính người dùng
   var userConfigKeys = {};
   for (var k in all) {
     if (k.indexOf("CREATE_REQ_") === -1 && k.indexOf("MEE_CREATE_") === -1) {
@@ -51,47 +51,45 @@ function _getIngestConfig(props) {
     }
   }
 
-  // 1. Quét tìm URL và Secret thông minh
-  for (var k in userConfigKeys) {
-    var cleanK = String(k || "").trim().toUpperCase();
-    var val = String(userConfigKeys[k] || "").trim();
+  // 1. Nhận diện Secret: ưu tiên MEEHOA_CONNECTOR_SECRET, SUPABASE_INGEST_SECRET, INGEST_SECRET
+  if (userConfigKeys["MEEHOA_CONNECTOR_SECRET"]) secret = userConfigKeys["MEEHOA_CONNECTOR_SECRET"];
+  else if (userConfigKeys["SUPABASE_INGEST_SECRET"]) secret = userConfigKeys["SUPABASE_INGEST_SECRET"];
+  else if (userConfigKeys["INGEST_SECRET"]) secret = userConfigKeys["INGEST_SECRET"];
 
-    // Nhận diện URL: có chữ URL hoặc giá trị là link https://
-    if (cleanK.indexOf("URL") >= 0 || val.indexOf("http") === 0) {
-      if (!url) url = val;
-    }
-
-    // Nhận diện Secret: có chữ SECRET, INGEST, TOKEN hoặc KEY (trừ GEMINI)
-    if (cleanK.indexOf("SECRET") >= 0 || cleanK.indexOf("INGEST") >= 0 || cleanK.indexOf("TOKEN") >= 0) {
-      if (cleanK.indexOf("URL") === -1 && !secret && val) {
-        secret = val;
-      }
-    }
-  }
-
-  // 2. Nếu vẫn chưa tìm thấy Secret, thử tìm bất kỳ key nào có chữ SECRET / KEY (trừ GEMINI)
   if (!secret) {
     for (var k in userConfigKeys) {
       var cleanK = String(k || "").trim().toUpperCase();
       var val = String(userConfigKeys[k] || "").trim();
-      if ((cleanK.indexOf("SECRET") >= 0 || cleanK.indexOf("KEY") >= 0) && cleanK !== "GEMINI_API_KEY" && val) {
+      if ((cleanK.indexOf("CONNECTOR") >= 0 || cleanK.indexOf("SECRET") >= 0 || cleanK.indexOf("INGEST") >= 0) &&
+          cleanK !== "SESSION_SECRET" && cleanK !== "PASSWORD_SALT" && val) {
         secret = val;
         break;
       }
     }
   }
 
-  // Fallback URL mặc định vì endpoint Supabase cố định theo project zxnfhshnavbmvdthrmrd
-  if (!url || url.indexOf("http") !== 0) {
+  // 2. Nhận diện URL: CHỈ nhận nếu key có chữ SUPABASE hoặc INGEST (tuyệt đối không lấy nhầm LOGO_URL)
+  for (var k in userConfigKeys) {
+    var cleanK = String(k || "").trim().toUpperCase();
+    var val = String(userConfigKeys[k] || "").trim();
+    if ((cleanK.indexOf("SUPABASE") >= 0 || cleanK.indexOf("INGEST") >= 0) && cleanK.indexOf("URL") >= 0) {
+      url = val;
+      break;
+    }
+  }
+
+  // Luôn mặc định URL chuẩn của Supabase nếu không có cấu hình URL riêng
+  if (!url || url.indexOf("supabase.co") === -1) {
     url = "https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-ingest";
   }
 
   return {
     url: url,
-    secret: secret,
+    secret: String(secret || "").trim(),
     userConfig: userConfigKeys
   };
 }
+
 
 
 function syncSupabaseToSheet() {
