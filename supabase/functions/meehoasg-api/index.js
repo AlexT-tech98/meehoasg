@@ -19,6 +19,21 @@ function num(value) {
   else raw = raw.replace(',', '.');
   const n = Number(raw); return Number.isFinite(n) ? n : 0;
 }
+function cleanTime(value) {
+  const raw = clean(value);
+  if (!raw) return "";
+  if (raw.includes("1899") || raw.includes("GMT")) {
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) {
+      const h = String(d.getHours()).padStart(2, "0");
+      const m = String(d.getMinutes()).padStart(2, "0");
+      return `${h}:${m}`;
+    }
+  }
+  const m = raw.match(/(\d{1,2}):(\d{2})/);
+  if (m) return `${m[1].padStart(2, "0")}:${m[2]}`;
+  return raw.slice(0, 5);
+}
 function bool(value) { return value === true || value === 1 || ['true', 'yes', '1', 'x'].includes(norm(value)); }
 function dateToday() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
 function publicUser(user) { return { username: user.username, name: user.display_name, role: user.role, active: user.active }; }
@@ -120,7 +135,7 @@ function decorate(row, user, settlement) {
   const canEdit = !locked && (user.role !== 'SALE' || owner);
   return {
     id: row.id, sourceSheet: row.source_sheet || '', sourceRow: row.source_row || 0,
-    customer: row.customer, phone: contact.phone, date: row.order_date, time: row.order_time,
+    customer: row.customer, phone: contact.phone, date: row.order_date, time: cleanTime(row.order_time),
     flower: row.flower, imageUrls: row.image_urls || [], driveUrls: row.image_urls || [],
     note: row.note, shipping: row.shipping, address: contact.address,
     flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
@@ -446,22 +461,62 @@ async function getKpi(payload, user) {
   const month = clean(payload.month) || dateToday().slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(month)) return fail('Tháng KPI không hợp lệ.');
   const start = month + '-01', end = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
-  const orders = (await decoratedRange(start, end, user)).filter(o => o.status === 'Đã giao' || o.settled);
+  const allOrders = await decoratedRange(start, end, user);
+  const orders = allOrders.filter(o => o.status === 'Đã giao' || o.settled);
   const penalties = await all('kpi_operations', { month: 'eq.' + month });
+  const users = await all('app_users', {});
+  const userMap = new Map();
+  for (const u of users) {
+    userMap.set(norm(u.username), u);
+    userMap.set(norm(u.display_name), u);
+  }
+  const aliases = {
+    'huynh kim xuyen': 'huynhxuyen', 'huynh xuyen': 'huynhxuyen',
+    'huynh minh thu': 'huynhthu', 'huynh thu': 'huynhthu',
+    'huynh ngoc lan': 'huynhlan', 'huynh lan': 'huynhlan',
+    'hien le': 'hien', 'hien': 'hien',
+    'minh tien': 'tien', 'tien': 'tien',
+    'khanh': 'cmui', 'c mui': 'cmui', 'pu': 'pu'
+  };
+  function resolveUser(sale) {
+    const raw = clean(sale), k = norm(raw);
+    const mapped = aliases[k] || k;
+    return userMap.get(mapped) || userMap.get(k) || null;
+  }
+
   const grouped = {};
   for (const o of orders) {
-    if (user.role !== 'ADMIN' && norm(o.sale) !== norm(user.username) && norm(o.sale) !== norm(user.display_name)) continue;
-    const name = o.sale || 'Chưa gán', item = grouped[name] ||= { sale: name, revenue: 0, orders: 0, bigOrders: 0 };
-    item.revenue += o.flowerTotal; item.orders++; if (o.flowerTotal >= 500000) item.bigOrders++;
+    const u = resolveUser(o.sale);
+    if (user.role === 'SALE') {
+      const isMe = (u && norm(u.username) === norm(user.username)) ||
+                   norm(o.sale) === norm(user.username) ||
+                   norm(o.sale) === norm(user.display_name);
+      if (!isMe) continue;
+    } else if (user.role !== 'ADMIN') {
+      if (u && norm(u.username) === 'cmui') continue;
+    }
+    const saleKey = u ? u.display_name : (o.sale || 'Chưa gán');
+    const item = grouped[saleKey] ||= { sale: saleKey, username: u ? u.username : '', revenue: 0, orders: 0, bigOrders: 0 };
+    item.revenue += o.flowerTotal;
+    item.orders++;
+    if (o.flowerTotal >= 500000) item.bigOrders++;
   }
+
   const holiday = [2, 3, 10, 11].includes(Number(month.slice(5, 7)));
   const target = holiday ? 50000000 : 38000000, bigTarget = holiday ? 20 : 16;
   for (const item of Object.values(grouped)) {
-    const penalty = penalties.filter(x => norm(x.sale_name) === norm(item.sale)).reduce((n, x) => n + num(x.total_points), 0);
+    const penalty = penalties.filter(x => {
+      const px = norm(x.sale_name || ''), pu = norm(x.sale_username || '');
+      const ix = norm(item.sale || ''), iu = norm(item.username || '');
+      return (ix && px === ix) || (iu && pu === iu) || (iu && px === iu);
+    }).reduce((n, x) => n + num(x.total_points), 0);
+
     item.operationsScore = Math.max(0, 100 - penalty);
     item.level1 = holiday ? item.revenue >= target : item.revenue > target;
-    item.bigTarget = bigTarget; item.level2 = item.level1 && item.bigOrders >= bigTarget && item.operationsScore > 80;
-    item.rate = item.level2 ? .10 : .08; item.commission = item.revenue * item.rate;
+    item.bigTarget = bigTarget;
+    item.level2 = item.level1 && item.bigOrders >= bigTarget && item.operationsScore > 80;
+    item.rate = item.level2 ? .10 : .08;
+    item.commission = item.revenue * item.rate;
     item.bonus = item.level1 ? 300000 : 0;
   }
   return { ok: true, month, holiday, items: Object.values(grouped), note: 'Mức 2 = đạt Mức 1 + target đơn ≥500.000đ + KPI vận hành >80.' };

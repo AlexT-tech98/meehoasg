@@ -24,6 +24,21 @@ function isoDate(value) {
   m = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
 }
+function cleanTime(value) {
+  const raw = clean(value);
+  if (!raw) return '';
+  if (raw.includes('1899') || raw.includes('GMT')) {
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) {
+      const h = String(d.getHours()).padStart(2, '0');
+      const m = String(d.getMinutes()).padStart(2, '0');
+      return `${h}:${m}`;
+    }
+  }
+  const m = raw.match(/(\d{1,2}):(\d{2})/);
+  if (m) return `${m[1].padStart(2, '0')}:${m[2]}`;
+  return raw.slice(0, 5);
+}
 function saleName(value) {
   const raw = clean(value), key = norm(raw);
   // Map tên thô → username (nhất quán với API v3 owner check)
@@ -48,7 +63,7 @@ function mapOrder(raw) {
     id, source_sheet: clean(raw.source_sheet) || null,
     source_row: Number(raw.source_row) || null,
     customer: clean(raw.customer), phone: clean(raw.phone),
-    order_date: orderDate, order_time: clean(raw.order_time),
+    order_date: orderDate, order_time: cleanTime(raw.order_time),
     flower: clean(raw.flower), note: clean(raw.note),
     shipping: clean(raw.shipping), address: clean(raw.address),
     flower_total: num(raw.flower_total), payment: clean(raw.payment),

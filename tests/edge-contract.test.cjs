@@ -88,3 +88,35 @@ test('one review resolves every pending request for its order', async () => {
   assert.equal(patches[0].query.status, 'eq.PENDING');
   assert.equal(patches[1].body.settled, true);
 });
+
+test('cleanTime correctly extracts HH:mm from long 1899 date string and normal time', () => {
+  assert.equal(vm.runInContext("cleanTime('Sat Dec 30 1899 08:30:00 GMT+0706 (Indochina Time)')", context), '08:30');
+  assert.equal(vm.runInContext("cleanTime('08:30')", context), '08:30');
+  assert.equal(vm.runInContext("cleanTime('8:30')", context), '08:30');
+  assert.equal(vm.runInContext("cleanTime('14:45:00')", context), '14:45');
+});
+
+test('getKpi unifies sales aliases into display name and calculates revenue accurately', async () => {
+  const users = [
+    { username: 'huynhxuyen', display_name: 'Huỳnh Xuyến', role: 'SALE' },
+    { username: 'cmui', display_name: 'C Mụi', role: 'ADMIN' },
+  ];
+  const orders = [
+    { id: 'O1', flower_total: 600000, sale: 'huynhxuyen', status: 'Đã giao', settled: false },
+    { id: 'O2', flower_total: 500000, sale: 'Huỳnh Kim Xuyến', status: 'Chờ bó', settled: true },
+    { id: 'O3', flower_total: 400000, sale: 'Huỳnh Xuyến', status: 'Đã giao', settled: false },
+  ];
+  vm.runInContext(`
+    all = async table => table === 'app_users' ? ${JSON.stringify(users)} : [];
+    decoratedRange = async () => ${JSON.stringify(orders)}.map(o => ({
+      ...o, flowerTotal: o.flower_total, date: '2026-09-15', time: '10:00', debt: 0
+    }));
+  `, context);
+  const result = await vm.runInContext("getKpi({ month: '2026-09' }, { role: 'ADMIN', username: 'admin' })", context);
+  assert.equal(result.ok, true);
+  const xuyen = result.items.find(x => x.sale === 'Huỳnh Xuyến');
+  assert.ok(xuyen, 'Phải gom về Huỳnh Xuyến');
+  assert.equal(xuyen.revenue, 1500000);
+  assert.equal(xuyen.orders, 3);
+  assert.equal(xuyen.bigOrders, 2);
+});
