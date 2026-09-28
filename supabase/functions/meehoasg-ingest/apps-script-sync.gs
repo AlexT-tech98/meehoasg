@@ -35,12 +35,44 @@ function syncDelta() {
 }
 
 // ─── ĐỒNG BỘ NGƯỢC: SUPABASE → GOOGLE SHEET ───────────────
-function syncSupabaseToSheet() {
-  var props = PropertiesService.getScriptProperties();
+
+// ─── HELPER LẤY CẤU HÌNH THÔNG MINH (Không phân biệt hoa/thường, tự sửa khoảng trắng) ───
+function _getIngestConfig(props) {
+  props = props || PropertiesService.getScriptProperties();
+  var all = props.getProperties();
   var url = props.getProperty("SUPABASE_INGEST_URL");
   var secret = props.getProperty("SUPABASE_INGEST_SECRET");
-  if (!url || !secret) {
-    _log("WARN", "syncSupabaseToSheet: Thiếu cấu hình SUPABASE_INGEST_URL hoặc SUPABASE_INGEST_SECRET trong Script Properties");
+
+  // Quét toàn bộ thuộc tính để tìm key tương ứng nếu có khoảng trắng hoặc viết thường
+  for (var k in all) {
+    var cleanK = String(k || "").trim().toUpperCase();
+    if (cleanK === "SUPABASE_INGEST_URL" && !url) url = all[k];
+    if (cleanK === "SUPABASE_INGEST_SECRET" && !secret) secret = all[k];
+    if (cleanK === "INGEST_SECRET" && !secret) secret = all[k];
+    if (cleanK.indexOf("INGEST_URL") >= 0 && !url) url = all[k];
+    if (cleanK.indexOf("INGEST_SECRET") >= 0 && !secret) secret = all[k];
+  }
+
+  // URL luôn có fallback mặc định trỏ đúng project zxnfhshnavbmvdthrmrd
+  if (!url || !url.trim()) {
+    url = "https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-ingest";
+  }
+
+  return {
+    url: String(url || "").trim(),
+    secret: String(secret || "").trim(),
+    availableKeys: Object.keys(all)
+  };
+}
+
+function syncSupabaseToSheet() {
+  var props = PropertiesService.getScriptProperties();
+  var cfg = _getIngestConfig(props);
+  var url = cfg.url;
+  var secret = cfg.secret;
+
+  if (!secret) {
+    _log("WARN", "syncSupabaseToSheet: Không tìm thấy giá trị SUPABASE_INGEST_SECRET! Các thuộc tính tìm thấy trong Project Settings: " + JSON.stringify(cfg.availableKeys));
     return;
   }
 
@@ -252,7 +284,10 @@ function caiDatKetNoi(secret) {
 function testSyncKhanhLinhNow() {
   _log("INFO", "=== Bắt đầu test đồng bộ đơn từ Supabase về Google Sheet ===");
   var props = PropertiesService.getScriptProperties();
-  props.deleteProperty("LAST_SUPABASE_TO_SHEET_AT"); // Xóa mốc thời gian để quét lại toàn bộ đơn gần nhất
+  var cfg = _getIngestConfig(props);
+  _log("INFO", "Script Properties hiện có: " + JSON.stringify(cfg.availableKeys));
+  _log("INFO", "URL: " + cfg.url + ", Secret: " + (cfg.secret ? ("Đã nhận (" + cfg.secret.length + " ký tự)") : "CHƯA TÌM THẤY"));
+  props.deleteProperty("LAST_SUPABASE_TO_SHEET_AT"); // Xóa cursor để quét lại toàn bộ đơn gần nhất
   syncSupabaseToSheet();
 }
 
@@ -293,10 +328,11 @@ function syncFull() {
 // ─── CORE ─────────────────────────────────────────────────
 function _doSync(full) {
   var props  = PropertiesService.getScriptProperties();
-  var url    = props.getProperty('SUPABASE_INGEST_URL');
-  var secret = props.getProperty('SUPABASE_INGEST_SECRET');
-  if (!url || !secret) {
-    _log('ERROR', 'Chưa set SUPABASE_INGEST_URL / SUPABASE_INGEST_SECRET');
+  var cfg    = _getIngestConfig(props);
+  var url    = cfg.url;
+  var secret = cfg.secret;
+  if (!secret) {
+    _log("ERROR", "Chưa tìm thấy SUPABASE_INGEST_SECRET trong Script Properties: " + JSON.stringify(cfg.availableKeys));
     return;
   }
 
