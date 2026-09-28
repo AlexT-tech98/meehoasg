@@ -86,26 +86,41 @@ async function login(payload) {
   return { ok: true, token: raw, user: publicUser(user) };
 }
 function accessoryTotal(order) { return (order.card ? 10000 : 0) + (order.banner ? 35000 : 0) + num(order.charm_fee) + num(order.paper_fee); }
+function contactFields(row) {
+  const contact = clean(row.address);
+  const phoneInContact = contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);
+  return {
+    phone: clean(row.phone) || (phoneInContact ? clean(phoneInContact[1]) : ''),
+    address: contact.replace(/(?:SĐT|SDT)\s*:\s*[^\n]+\n?/i, '').replace(/^Địa chỉ\s*:\s*/i, '').trim()
+  };
+}
 function paidAmount(payment, base, settled) {
-  if (settled) return base;
+  if (settled > 0) return settled;
   const text = norm(payment);
-  if (text.includes('full') || text.includes('du') || text.includes('đủ')) return base;
-  const match = String(payment || '').match(/(?:đã cọc|da coc|cọc|coc|đã thu|da thu|đã thanh toán|da thanh toan)\s*([\d.,]+)/i);
-  return match ? num(match[1]) : 0;
+  if (!text || /chua/.test(text)) return 0;
+  if (/full|đa tt|da tt|đa thanh toan|da thanh toan|thanh toan đu|thanh toan du/.test(text)) return base;
+  const match = text.replace(/\s/g, '').match(/([0-9.,]+)(k|tr|trieu)?/);
+  if (!match) return 0;
+  let amount = num(match[1]);
+  if (match[2] === 'tr' || match[2] === 'trieu') amount *= 1000000;
+  else if (match[2] === 'k' || (amount > 0 && amount <= 1000)) amount *= 1000;
+  return Math.max(0, amount);
 }
 function decorate(row, user, settlement) {
+  const contact = contactFields(row);
   const accessory = accessoryTotal(row), ship = norm(row.shipping).includes('shop') ? num(row.ship_fee) : 0;
-  const total = num(row.flower_total) + accessory + num(row.vat) + ship;
-  const paid = paidAmount(row.payment, total, row.settled);
+  const base = num(row.flower_total) + accessory + num(row.vat);
+  const total = base + ship;
+  const paid = paidAmount(row.payment, base, row.settled ? total : 0);
   const status = settlement?.status || 'NONE';
   const locked = !!row.settled || ['PENDING', 'APPROVED'].includes(status);
   const owner = norm(row.sale) === norm(user.display_name);
   const canEdit = !locked && (user.role !== 'SALE' || owner);
   return {
     id: row.id, sourceSheet: row.source_sheet || '', sourceRow: row.source_row || 0,
-    customer: row.customer, phone: row.phone, date: row.order_date, time: row.order_time,
+    customer: row.customer, phone: contact.phone, date: row.order_date, time: row.order_time,
     flower: row.flower, imageUrls: row.image_urls || [], driveUrls: row.image_urls || [],
-    note: row.note, shipping: row.shipping, address: row.address,
+    note: row.note, shipping: row.shipping, address: contact.address,
     flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
     settled: row.settled, status: row.status, shipFee: num(row.ship_fee),
     shipConfirmed: row.ship_confirmed, shipFeePending: norm(row.shipping).includes('shop') && !row.ship_confirmed,
@@ -355,52 +370,67 @@ async function settlementQueue(payload, user) {
   const rows = await all('settlement_requests', query);
   const end = payload.end ? Date.parse(payload.end + 'T23:59:59+07:00') : Infinity;
   const filtered = rows.filter(x => Date.parse(x.submitted_at) <= end);
-  const ids = [...new Set(filtered.map(x => x.order_id))];
+  const groups = new Map();
+  for (const row of filtered) {
+    const group = groups.get(row.order_id) || [];
+    group.push(row);
+    groups.set(row.order_id, group);
+  }
+  const ids = [...groups.keys()];
   const orderParts = [];
   for (let i = 0; i < ids.length; i += 30) orderParts.push(ids.slice(i, i + 30));
   const orders = (await Promise.all(orderParts.map(chunk =>
     all('orders', { id: 'in.(' + chunk.map(x => '"' + x.replaceAll('"', '') + '"').join(',') + ')' })))).flat();
   const byId = Object.fromEntries(orders.map(x => [x.id, x]));
   const items = [];
-  for (const x of filtered) {
+  for (const [orderId, requests] of groups) {
+    const x = requests[0];
+    const allBills = [...new Set(requests.flatMap(request => Array.isArray(request.bill_urls) ? request.bill_urls : []))];
     items.push({
       requestId: x.id, orderId: x.order_id, saleUsername: x.sale_username, saleName: x.sale_name,
       flowerTotal: num(x.flower_total), accessoryTotal: num(x.accessory_total), vat: num(x.vat),
-      shipFee: num(x.ship_fee), requiredAmount: num(x.required_amount), billUrls: await billDisplayUrls(x.bill_urls),
+      shipFee: num(x.ship_fee), requiredAmount: num(x.required_amount), billUrls: await billDisplayUrls(allBills),
+      requestIds: requests.map(request => request.id), duplicateCount: requests.length - 1,
       note: x.note, status: x.status, createdAt: x.submitted_at, adminUsername: x.admin_username,
       adminName: x.admin_name, reviewedAt: x.reviewed_at, reason: x.rejection_reason,
-      order: byId[x.order_id] ? decorate(await visibleOrder(byId[x.order_id]), user, x) : null
+      order: byId[orderId] ? decorate(await visibleOrder(byId[orderId]), user, x) : null
     });
   }
-  return { ok: true, status, items };
+  return { ok: true, status, range: payload.start || payload.end ? { start: payload.start || '', end: payload.end || '' } : null, items };
 }
 async function reviewSettlement(payload, user) {
   const id = clean(payload.requestId), decision = clean(payload.decision).toUpperCase();
   if (!['APPROVED', 'REJECTED'].includes(decision)) return fail('Quyết định không hợp lệ.');
   const request = await one('settlement_requests', { id: 'eq.' + id });
-  if (!request || request.status !== 'PENDING') return fail('Yêu cầu không còn chờ duyệt.');
+  if (!request) return fail('Không tìm thấy yêu cầu.');
+  const pending = await all('settlement_requests', { order_id: 'eq.' + request.order_id, status: 'eq.PENDING' });
+  if (!pending.length) return fail('Yêu cầu đã được xử lý.');
   const order = await one('orders', { id: 'eq.' + request.order_id });
   if (!order) return fail('Không tìm thấy đơn.');
   const reason = clean(payload.reason);
-  if (decision === 'REJECTED' && !reason) return fail('Cần nhập lý do từ chối.');
-  const reviewed = await db('settlement_requests', { id: 'eq.' + id, status: 'eq.PENDING' }, 'PATCH', {
+  const reviewed = await db('settlement_requests', { order_id: 'eq.' + order.id, status: 'eq.PENDING' }, 'PATCH', {
     status: decision, admin_username: user.username, admin_name: user.display_name,
     reviewed_at: new Date().toISOString(), rejection_reason: reason
   });
   if (!reviewed.length) return fail('Yêu cầu vừa được người khác xử lý.');
   if (decision === 'APPROVED') await db('orders', { id: 'eq.' + order.id }, 'PATCH', { settled: true, updated_at: new Date().toISOString() });
   await audit(user, order.id, 'REVIEW_SETTLEMENT', { status: 'PENDING' }, { status: decision, reason });
-  return { ok: true, message: decision === 'APPROVED' ? 'Đã duyệt tất toán.' : 'Đã từ chối tất toán.', orderId: order.id };
+  return { ok: true, processedRequests: reviewed.length, message: decision === 'APPROVED' ? 'Đã duyệt tất toán.' : 'Đã trả đơn cho Sale chỉnh sửa.', orderId: order.id };
 }
 async function reviewBulk(payload, user) {
   const ids = [...new Set(Array.isArray(payload.requestIds) ? payload.requestIds.map(clean).filter(Boolean) : [])].slice(0, 100);
+  if (!ids.length) return fail('Chưa chọn yêu cầu nào.');
   const failedItems = [], approvedOrderIds = [];
+  const seenOrders = new Set();
   for (const id of ids) {
+    const request = await one('settlement_requests', { id: 'eq.' + id });
+    if (request && seenOrders.has(request.order_id)) continue;
+    if (request) seenOrders.add(request.order_id);
     const result = await reviewSettlement({ requestId: id, decision: 'APPROVED' }, user);
     if (result.ok) approvedOrderIds.push(result.orderId);
     else failedItems.push({ requestId: id, reason: result.message });
   }
-  return { ok: failedItems.length === 0, approved: approvedOrderIds.length, failed: failedItems.length, failedItems, approvedOrderIds, message: 'Đã duyệt ' + approvedOrderIds.length + ' đơn.' };
+  return { ok: failedItems.length === 0, selected: ids.length, approved: approvedOrderIds.length, failed: failedItems.length, failedItems, approvedOrderIds, message: 'Đã duyệt ' + approvedOrderIds.length + ' đơn.' };
 }
 async function getKpi(payload, user) {
   const month = clean(payload.month) || dateToday().slice(0, 7);
@@ -410,7 +440,7 @@ async function getKpi(payload, user) {
   const penalties = await all('kpi_operations', { month: 'eq.' + month });
   const grouped = {};
   for (const o of orders) {
-    if (user.role !== 'ADMIN' && norm(o.sale) !== norm(user.display_name)) continue;
+    if (user.role !== 'ADMIN' && norm(o.sale) === norm('C Mụi')) continue;
     const name = o.sale || 'Chưa gán', item = grouped[name] ||= { sale: name, revenue: 0, orders: 0, bigOrders: 0 };
     item.revenue += o.flowerTotal; item.orders++; if (o.flowerTotal >= 500000) item.bigOrders++;
   }
@@ -438,21 +468,60 @@ async function saveKpi(payload, user) {
   });
   return { ok: true, id };
 }
+function flowerKey(value) { return clean(value).replace(/\s+/g, ' ').toLocaleLowerCase('vi'); }
+function canonicalFlowers(values) {
+  return [...new Map((Array.isArray(values) ? values : []).map(value => clean(value).replace(/\s+/g, ' '))
+    .filter(Boolean).map(value => [flowerKey(value), value])).values()];
+}
+async function classifyFlowers(items) {
+  const apiKey = Deno.env.get('GEMINI_API_KEY');
+  if (!apiKey) return null;
+  const models = [...new Set([Deno.env.get('GEMINI_MODEL'), 'gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-3.8-flash'].filter(Boolean))];
+  const prompt = 'Phân loại các mẫu hoa sau thành tên loài hoa chuẩn tiếng Việt. Không đếm cành, bỏ phụ kiện/bao bì/phong cách. Ly/Lily chuẩn hóa thành Lily. Nếu không xác định được loài hoa thì flowers=[] và needs_review=true. Chỉ trả JSON {"results":[{"fingerprint":"...","flowers":["..."],"needs_review":false}]}: ' + JSON.stringify(items);
+  const body = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: .1, responseMimeType: 'application/json' } };
+  for (const model of models) {
+    try {
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body)
+      });
+      if (!response.ok) continue;
+      const data = await response.json();
+      const raw = (data?.candidates?.[0]?.content?.parts || []).map(part => part.text || '').join('');
+      const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || '{}');
+      if (Array.isArray(parsed.results)) return parsed.results;
+    } catch (error) { console.error('Flower classification failed for model', model, error); }
+  }
+  return null;
+}
 async function flowers(payload, user) {
   const date = clean(payload.date) || dateToday(), orders = await decoratedRange(date, date, user);
   if (!orders.length) return { ok: true, status: 'empty', totalOrders: 0, analyzedOrders: 0, reviewCount: 0, items: [], reviewOrders: [] };
   const cacheRows = await all('flower_cache', { select: 'content,flowers,needs_review,updated_at', order: 'updated_at.asc' });
-  const key = text => clean(text).replace(/\s+/g, ' ').toLocaleLowerCase('vi');
-  const cache = new Map(cacheRows.map(row => [key(row.content), row]));
+  const cache = new Map(cacheRows.map(row => [flowerKey(row.content), row]));
+  const unique = [...new Map(orders.map(order => [flowerKey(order.flower), clean(order.flower).slice(0, 700)]).filter(([key]) => key)).entries()];
+  const pending = unique.filter(([key]) => payload.forceRefresh || !cache.has(key));
+  for (let i = 0; i < pending.length; i += 40) {
+    const batch = await Promise.all(pending.slice(i, i + 40).map(async ([key, note]) => ({ fingerprint: await sha256(key), note })));
+    const results = await classifyFlowers(batch);
+    if (!results) break;
+    const byFingerprint = new Map(results.filter(result => result?.fingerprint).map(result => [result.fingerprint, result]));
+    const rows = batch.map(item => {
+      const result = byFingerprint.get(item.fingerprint) || {};
+      return { fingerprint: item.fingerprint, content: item.note, flowers: canonicalFlowers(result.flowers),
+        needs_review: !!result.needs_review || !Array.isArray(result.flowers) || !result.flowers.length, updated_at: new Date().toISOString() };
+    });
+    await db('flower_cache', { on_conflict: 'fingerprint' }, 'POST', rows);
+    rows.forEach(row => cache.set(flowerKey(row.content), row));
+  }
   const groups = new Map(), reviewOrders = [];
   let analyzedOrders = 0;
   for (const order of orders) {
-    const entry = cache.get(key(order.flower));
-    const names = Array.isArray(entry?.flowers) ? [...new Set(entry.flowers.map(clean).filter(Boolean))] : [];
+    const entry = cache.get(flowerKey(order.flower));
+    const names = canonicalFlowers(entry?.flowers);
     if (entry) analyzedOrders++;
     if (!entry || entry.needs_review || !names.length) reviewOrders.push({ customer: order.customer, flower: order.flower, date: order.date, time: order.time });
     for (const name of names) {
-      const groupKey = key(name), group = groups.get(groupKey) || { name, orders: 0, orderList: [] };
+      const groupKey = flowerKey(name), group = groups.get(groupKey) || { name, orders: 0, orderList: [] };
       group.orders++;
       group.orderList.push({ customer: order.customer, flower: order.flower, time: order.time, id: order.id });
       groups.set(groupKey, group);
@@ -520,8 +589,9 @@ const writeRoutes = {
 };
 const adminRoutes = new Set(['listUsers', 'getSettlementQueue', 'reviewSettlement',
   'reviewSettlementsBulk', 'saveKpiOperation', 'saveUser', 'getPerformanceReport',
-  'logPerformanceBatch']);
-const opsRoutes = new Set(['updateStatus', 'updateStatusBulk', 'getFlowerInventory']);
+  'logPerformanceBatch', 'getDashboardSummary']);
+const opsRoutes = new Set(['updateStatus', 'updateStatusBulk', 'getFlowerInventory',
+  'getProductionOrders']);
 
 async function dispatch(name, payload) {
   if (name === 'loginAndBootstrap') return loginAndBootstrap(payload);
