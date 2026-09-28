@@ -26,16 +26,17 @@ function isoDate(value) {
 }
 function saleName(value) {
   const raw = clean(value), key = norm(raw);
+  // Map tên thô → username (nhất quán với API v3 owner check)
   const aliases = {
-    'huynh kim xuyen': 'Huỳnh Xuyến', 'huynh xuyen': 'Huỳnh Xuyến',
-    'huynh minh thu': 'Huỳnh Thư', 'huynh thu': 'Huỳnh Thư',
-    'huynh ngoc lan': 'Huỳnh Lan', 'huynh lan': 'Huỳnh Lan',
-    'hien le': 'Hiền', 'minh tien': 'Tiên',
-    'khanh': 'C Mụi', 'c mui': 'C Mụi', 'pu': 'Pu'
+    'huynh kim xuyen': 'huynhxuyen', 'huynh xuyen': 'huynhxuyen',
+    'huynh minh thu': 'huynhthu', 'huynh thu': 'huynhthu',
+    'huynh ngoc lan': 'huynhlan', 'huynh lan': 'huynhlan',
+    'hien le': 'hien', 'hien': 'hien',
+    'minh tien': 'tien', 'tien': 'tien',
+    'khanh': 'cmui', 'c mui': 'cmui', 'pu': 'pu'
   };
-  // Existing imported orders already attribute blank Sale cells to C Mụi.
-  if (!raw) return 'C Mụi';
-  if (['full', '62k', 'chua coc', 'da coc'].includes(key)) return '';
+  if (!raw) return 'cmui';                   // ô trống → cmui
+  if (['full', '62k', 'chua coc', 'da coc', 'chua cop', 'da cop'].includes(key)) return '';
   return aliases[key] || raw;
 }
 function mapOrder(raw) {
