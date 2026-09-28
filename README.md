@@ -1,13 +1,38 @@
-# MEEHOASG
+# MEEHOASG Operations Platform
 
-`index.html` is the GitHub Pages entry point for [meehoasg.com](https://meehoasg.com). The identical `html` file is retained as an editable copy. Both call the `meehoasg-api` Supabase Edge Function in project `zxnfhshnavbmvdthrmrd`; they do not call Google Apps Script. The old `code` file is retained only as a migration reference.
+`index.html` is the GitHub Pages entry point for [ops.meehoasg.com](https://ops.meehoasg.com). The identical `html` file is retained as an editable copy. Both call the `meehoasg-api` Supabase Edge Function in project `zxnfhshnavbmvdthrmrd`. The old Google Apps Script web app is decommissioned for daily operations and superseded by this platform.
 
-The API validates the existing usernames and SHA-256 password hashes, then issues opaque sessions stored as hashes in `app_sessions`. Supabase's legacy public `anon` JWT is used for platform Edge Function verification; it is public and carries no database privileges. The service-role credential stays in the Edge Function environment. All application tables have RLS enabled and no browser-access policies. Uploaded order images and settlement bills are private Storage objects, returned to authenticated users as time-limited signed URLs.
+## Architecture & Bi-Directional Sync
 
-The applied schema is in `supabase/schema.sql`; the Edge Function source is in `supabase/functions/meehoasg-api/index.js`. The historical import was performed directly from the two source Sheets without storing customer records or password hashes in Git. The import contained 15 users, 5,125 orders, 249 settlement requests, 2,813 activity events, 1,213 performance samples, and the available flower-classification cache. Three source rows with missing or invalid dates were excluded. Duplicate order IDs were given a source-row suffix to preserve both records.
+The system runs on a high-speed, resilient bi-directional sync loop:
 
-## Parallel trial
+```
+[Nhân viên shop]                     [Hệ thống Cloud]                   [Đối tác / Kế toán]
+Thao tác trên Web mới  ──(ngay lập tức)──►  Supabase Database  ──(tự động sync)──►  Google Sheet
+(Mượt mà, nhanh ~100ms)               (Lưu trữ an toàn)                 (Xem báo cáo quen thuộc)
+```
 
-The old [Apps Script web app](https://script.google.com/macros/s/AKfycbwKbkc_4oHGB2lQHsAK4V7efMt6KeaOxGEWNqD6HiYzpntDlM2SHrYl3Z9vWkq1GbTv0w/exec) remains the operational system. [meehoasg.com](https://meehoasg.com) runs the Supabase implementation for owner review without a trial banner or read-only restriction. Changes on either system do **not** sync automatically; reports may diverge. Before switching operational traffic, resolve the legacy-login mismatch, run a delta import, and reconcile records.
+1. **Web App ➔ Supabase (`~100ms`)**:
+   - Nhân viên thao tác trực tiếp trên giao diện [ops.meehoasg.com](https://ops.meehoasg.com).
+   - Mọi tạo mới đơn, sửa đơn, chuyển trạng thái (`Chờ bó`, `Đã bó`, `Đã giao`), cập nhật thanh toán và công nợ đều ghi tức thời vào cơ sở dữ liệu Supabase thông qua Edge Function `meehoasg-api`.
 
-The imported password hashes match all 15 rows in the source `USERS` sheet. Legacy login still needs validation against the Apps Script `PASSWORD_SALT` Script Property, which is not stored in the Sheet. The Supabase function currently uses the default `MEE-FLOWER-V4` unless `LEGACY_PASSWORD_SALT` is set. Do not replace hashes or reset users solely to work around this mismatch. Flower classifications already in the cache remain available; uncached descriptions require manual review until a new classifier is configured.
+2. **Supabase ➔ Google Sheet (`Tự động mỗi 1 phút`)**:
+   - Google Apps Script chạy trigger time-driven mỗi 1 phút (`syncDelta()`).
+   - Hàm `syncSupabaseToSheet()` tự động gọi endpoint `meehoasg-ingest/getOrdersForSheet` để lấy danh sách các đơn hàng mới tạo hoặc mới cập nhật trên Web.
+   - Script ghi tự động dòng mới vào Sheet tháng tương ứng (hoặc cập nhật lại dòng nếu đơn đã tồn tại trên Sheet) và thông báo lại tọa độ cho Supabase qua `recordSheetPositions`.
+
+3. **Google Sheet ➔ Supabase (`Đồng bộ ngược`)**:
+   - Khi có bất kỳ dữ liệu nào được chỉnh sửa trực tiếp trên Google Sheet, trigger 1 phút `syncDelta()` sẽ quét delta và đồng bộ vào Supabase Database, đảm bảo 2 hệ thống luôn khớp dữ liệu 100%.
+
+## Security & Storage
+
+The API validates existing usernames and SHA-256 password hashes, then issues opaque sessions stored as hashes in `app_sessions`. Supabase's legacy public `anon` JWT is used for platform Edge Function verification; it is public and carries no database privileges. The service-role credential stays strictly in the Edge Function environment. All application tables have RLS enabled and no browser-access policies. Uploaded order images and settlement bills are private Storage objects, returned to authenticated users as time-limited signed URLs.
+
+## Project Structure
+
+- `index.html` / `html`: Giao diện Botanical Studio & Executive Precision cho web vận hành.
+- `CNAME`: Cấu hình custom subdomain `ops.meehoasg.com`.
+- `supabase/schema.sql`: Toàn bộ cấu trúc cơ sở dữ liệu PostgreSQL trên Supabase.
+- `supabase/functions/meehoasg-api/`: API vận hành chính (xác thực, đơn hàng, công nợ, KPI, quyết toán).
+- `supabase/functions/meehoasg-ingest/`: API trung gian hỗ trợ đồng bộ dữ liệu với Google Sheet.
+- `supabase/functions/meehoasg-ingest/apps-script-sync.gs`: Mã nguồn Google Apps Script triển khai trên Google Sheets để đồng bộ 2 chiều tự động.
