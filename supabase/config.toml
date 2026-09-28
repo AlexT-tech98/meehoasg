@@ -1,2 +1,6 @@
 [functions.meehoasg-api]
 verify_jwt = true
+
+# Apps Script authenticates with a separate high-entropy INGEST_SECRET header.
+[functions.meehoasg-ingest]
+verify_jwt = false

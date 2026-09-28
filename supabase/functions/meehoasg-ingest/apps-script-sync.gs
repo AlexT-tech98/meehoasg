@@ -1,257 +1,144 @@
 /**
- * MEEHOASG — Đồng bộ Sheet → Supabase
- * Dán toàn bộ file này vào Apps Script project cũ (tab mới, không xóa code cũ).
- * Sau đó bật trigger: syncNewOrdersToSupabase chạy mỗi 5 phút.
- *
- * Script Properties cần set (Project Settings → Script Properties):
- *   SUPABASE_INGEST_URL  = https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-ingest
- *   SUPABASE_INGEST_SECRET = <chuỗi bí mật — đặt cùng với INGEST_SECRET bên Supabase>
- *
- * Không ghi URL hay secret vào code. Không commit file này lên Git.
+ * Add this file to the EXISTING Meehoa Manager Apps Script project. It uses
+ * Code.gs's production sheet selectors and order parser. Existing deployment
+ * and employee login are unaffected until the trigger is enabled.
+ * Script properties: SUPABASE_INGEST_URL and SUPABASE_INGEST_SECRET.
  */
+var MEE_SYNC_BATCH = 80;
+var MEE_SYNC_DEADLINE_MS = 4 * 60 * 1000;
 
-// ─── Hằng số ────────────────────────────────────────────────
-var SYNC_PROP_LAST_ROW   = 'SYNC_LAST_ROW_';   // prefix + sheetName
-var SYNC_PROP_LAST_TIME  = 'SYNC_LAST_RUN';
-var SYNC_LOG_SHEET       = 'SYNC_LOG';
-var ORDER_SHEET_GID      = 1561905505;           // tab Tháng 9/2026
-var ORDER_WIDTH          = 15;                   // cột A→O
-var INGEST_BATCH         = 100;                  // đơn/request
-var LOOKBACK_ROWS        = 50;                   // quét lại N dòng để bắt update
+function syncNewOrdersToSupabase() { return meeSyncOrders_(false); }
+function backfillAllOrders() { return meeSyncOrders_(true); }
 
-// ─── Hàm chính: chạy bởi trigger ────────────────────────────
-function syncNewOrdersToSupabase() {
-  var props   = PropertiesService.getScriptProperties();
-  var url     = props.getProperty('SUPABASE_INGEST_URL');
-  var secret  = props.getProperty('SUPABASE_INGEST_SECRET');
-  if (!url || !secret) {
-    logSync_('ERROR', 'Chưa set SUPABASE_INGEST_URL hoặc SUPABASE_INGEST_SECRET.');
-    return;
-  }
-
-  // Đọc sheet đơn hàng tháng 9
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = getSheetByGid_(ss, ORDER_SHEET_GID);
-  if (!sheet) {
-    logSync_('ERROR', 'Không tìm thấy sheet gid=' + ORDER_SHEET_GID);
-    return;
-  }
-
-  var sheetName = sheet.getName();
-  var lastRow   = sheet.getLastRow();
-  if (lastRow < 2) { logSync_('INFO', sheetName + ': không có dữ liệu.'); return; }
-
-  // Tìm dòng bắt đầu quét (lấy từ property, trừ LOOKBACK_ROWS để bắt update)
-  var propKey    = SYNC_PROP_LAST_ROW + sheetName;
-  var savedLast  = Number(props.getProperty(propKey) || '1');
-  var startRow   = Math.max(2, savedLast - LOOKBACK_ROWS + 1);
-  var rowCount   = lastRow - startRow + 1;
-  if (rowCount <= 0) { logSync_('INFO', sheetName + ': không có dòng mới.'); return; }
-
-  // Đọc dữ liệu chính (A:O) và ORDER_META
-  var values   = sheet.getRange(startRow, 1, rowCount, ORDER_WIDTH).getValues();
-  var metaMap  = buildMetaMap_(ss);
-
-  // Cũng cần đọc rich text ảnh từ cột E nếu có
-  var richCol5 = null;
-  try { richCol5 = sheet.getRange(startRow, 5, rowCount, 1).getRichTextValues(); } catch(e) {}
-
-  var orders = [];
-  for (var i = 0; i < values.length; i++) {
-    var r   = values[i];
-    var id  = String(r[14] || '').trim();
-    var rawDate = r[1];
-    if (!id || rawDate === '' || rawDate === null) continue;
-
-    var d = parseDateCell_(rawDate, sheetName);
-    if (!d) continue;
-
-    var meta = metaMap[id] || {};
-    var images = meta.images || [];
-    // Thử đọc ảnh từ rich text nếu có
-    if (!images.length && richCol5 && richCol5[i]) {
-      images = extractRichUrls_(richCol5[i][0]);
-    }
-
-    orders.push({
-      id:             id,
-      source_sheet:   sheetName,
-      source_row:     startRow + i,
-      customer:       String(r[0] || '').trim(),
-      order_date:     Utilities.formatDate(d, 'Asia/Ho_Chi_Minh', 'yyyy-MM-dd'),
-      order_time:     String(r[2] || '').trim(),
-      flower:         String(r[3] || '').trim(),
-      note:           String(r[5] || '').trim(),
-      shipping:       String(r[8] || '').trim(),
-      address:        extractAddress_(r[9]),
-      phone:          extractPhone_(r[9]) || meta.phone || '',
-      flower_total:   parseMoney_(r[10]),
-      payment:        String(r[11] || '').trim(),
-      sale:           String(r[12] || '').trim(),
-      settled:        parseBool_(r[13]),
-      status:         deriveStatus_(r),
-      ship_fee:       parseMoney_(meta.shipFee),
-      ship_confirmed: parseBool_(meta.shipConfirmed),
-      card:           parseBool_(meta.card),
-      card_text:      String(meta.cardText || '').trim(),
-      banner:         parseBool_(meta.banner),
-      banner_text:    String(meta.bannerText || '').trim(),
-      charm_fee:      parseMoney_(meta.charmFee),
-      charm_text:     String(meta.charmText || '').trim(),
-      paper_fee:      parseMoney_(meta.paperFee),
-      paper_text:     String(meta.paperText || '').trim(),
-      vat:            parseMoney_(meta.vat),
-      image_urls:     images,
-    });
-  }
-
-  // Gửi theo batch
-  var sent = 0, failed = 0;
-  for (var b = 0; b < orders.length; b += INGEST_BATCH) {
-    var batch = orders.slice(b, b + INGEST_BATCH);
-    try {
-      var res = UrlFetchApp.fetch(url, {
-        method: 'post',
-        contentType: 'application/json',
-        headers: { 'x-ingest-secret': secret },
-        payload: JSON.stringify({ orders: batch }),
-        muteHttpExceptions: true,
-      });
-      var code = res.getResponseCode();
-      var body = JSON.parse(res.getContentText() || '{}');
-      if (code === 200 && body.ok) { sent += body.processed || batch.length; }
-      else { failed += batch.length; logSync_('ERROR', 'Batch lỗi ' + code + ': ' + res.getContentText().slice(0, 200)); }
-    } catch(e) {
-      failed += batch.length;
-      logSync_('ERROR', 'Fetch exception: ' + e.message);
-    }
-  }
-
-  // Cập nhật con trỏ dòng
-  props.setProperty(propKey, String(lastRow));
-  props.setProperty(SYNC_PROP_LAST_TIME, new Date().toISOString());
-  logSync_('OK', sheetName + ': quét ' + orders.length + ' đơn, gửi ' + sent + ', lỗi ' + failed + ' (rows ' + startRow + '–' + lastRow + ')');
-}
-
-// ─── Nhập bù toàn bộ một tab (chạy thủ công 1 lần) ──────────
-function backfillAllOrders() {
-  var props  = PropertiesService.getScriptProperties();
-  var ss     = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet  = getSheetByGid_(ss, ORDER_SHEET_GID);
-  if (!sheet) { logSync_('ERROR', 'Không tìm thấy sheet gid=' + ORDER_SHEET_GID); return; }
-
-  // Reset con trỏ để syncNewOrdersToSupabase quét từ dòng 2
-  var propKey = SYNC_PROP_LAST_ROW + sheet.getName();
-  props.setProperty(propKey, '1');
-  syncNewOrdersToSupabase();
-  logSync_('INFO', 'backfillAllOrders hoàn tất.');
-}
-
-// ─── Hàm phụ trợ ────────────────────────────────────────────
-function getSheetByGid_(ss, gid) {
-  var sheets = ss.getSheets();
-  for (var i = 0; i < sheets.length; i++) {
-    if (sheets[i].getSheetId() === gid) return sheets[i];
-  }
-  return null;
-}
-
-function buildMetaMap_(ss) {
-  var map = {};
+function meeSyncOrders_(full) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) throw new Error('Đồng bộ khác đang chạy.');
   try {
-    var metaSheet = ss.getSheetByName('MIG_ORDER_META_V6') ||
-                    ss.getSheetByName('ORDER_META');
-    if (!metaSheet) return map;
-    var last = metaSheet.getLastRow();
-    if (last < 2) return map;
-    // Cột: A=OrderID, B=Status, C=ShipFee, D=ShipConfirmed, E=Card, F=CardText,
-    //       G=Banner, H=BannerText, I=CharmFee, J=CharmText, K=PaperFee, L=PaperText,
-    //       M=VAT, N=Phone, O=ImagesJSON, P=UpdatedBy, Q=UpdatedAt
-    var rows = metaSheet.getRange(2, 1, last - 1, 17).getValues();
-    rows.forEach(function(r) {
-      var id = String(r[0] || '').trim();
+    var started = Date.now(), props = PropertiesService.getScriptProperties();
+    var url = props.getProperty('SUPABASE_INGEST_URL');
+    var secret = props.getProperty('SUPABASE_INGEST_SECRET');
+    if (!url || !secret) throw new Error('Thiếu SUPABASE_INGEST_URL hoặc SUPABASE_INGEST_SECRET.');
+    var allSheets = orderSheets_(); // Configured live order tabs, not backups.
+    var meta = metaMap_();          // Canonical MIG_ORDER_META_V6 in DATABASE_SPREADSHEET_ID.
+    var syncIds = meeSyncIds_(allSheets);
+    var selected = full ? allSheets : meeSyncActiveSheets_(allSheets, props);
+    var sheetCursor = full ? Number(props.getProperty('MEE_BACKFILL_SHEET') || 0) : 0;
+    var rowCursor = full ? Number(props.getProperty('MEE_BACKFILL_ROW') || 2) : 2;
+    var stats = { sent: 0, inserted: 0, updated: 0, unchanged: 0, skipped: 0, sheets: [] };
+
+    for (var si = sheetCursor; si < selected.length; si++) {
+      var sh = selected[si], last = orderDataLastRow_(sh), row = (si === sheetCursor ? rowCursor : 2);
+      if (last < 2) { stats.sheets.push(sh.getName()); continue; }
+      for (; row <= last; row += MEE_SYNC_BATCH) {
+        if (Date.now() - started > MEE_SYNC_DEADLINE_MS) {
+          if (full) meeSaveBackfillCursor_(props, si, row);
+          meeSyncLog_('PARTIAL', 'Đã gửi ' + stats.sent + ' đơn; tiếp tục tại ' + sh.getName() + ' dòng ' + row);
+          return { ok: true, done: false, stats: stats };
+        }
+        var count = Math.min(MEE_SYNC_BATCH, last - row + 1);
+        var values = sh.getRange(row, 1, count, APP.ORDER_WIDTH).getValues();
+        var rich = sh.getRange(row, 5, count, 1).getRichTextValues();
+        var orders = [];
+        for (var i = 0; i < values.length; i++) {
+          var raw = values[i], id = clean_(raw[14]), date = sheetDateValue_(raw[1]);
+          if (!id || !date) { stats.skipped++; continue; }
+          var fallback = imageUrlsFromRichText_(rich[i][0], raw[4]);
+          var order = orderObject_(raw, sh, row + i, meta, {}, fallback, date);
+          orders.push({
+            id: id, sync_id: syncIds[sh.getSheetId() + ':' + (row + i)] || id,
+            source_sheet: sh.getName(), source_row: row + i,
+            customer: order.customer, phone: order.phone,
+            order_date: order.date, order_time: order.time,
+            flower: order.flower, note: order.note,
+            shipping: order.shipping, address: order.address,
+            flower_total: order.flowerTotal, payment: order.payment,
+            sale: order.sale, status: order.status,
+            settled: order.settled, ship_fee: order.shipFee,
+            ship_confirmed: order.shipConfirmed,
+            card: order.card, card_text: order.cardText,
+            banner: order.banner, banner_text: order.bannerText,
+            charm_fee: order.charmFee, charm_text: order.charmText,
+            paper_fee: order.paperFee, paper_text: order.paperText,
+            vat: order.vat, image_urls: order.driveUrls
+          });
+        }
+        if (orders.length) {
+          var response = UrlFetchApp.fetch(url, {
+            method: 'post', contentType: 'application/json',
+            headers: { 'x-ingest-secret': secret },
+            payload: JSON.stringify({ orders: orders }), muteHttpExceptions: true
+          });
+          var body;
+          try { body = JSON.parse(response.getContentText()); } catch (e) { body = {}; }
+          if (response.getResponseCode() !== 200 || body.ok !== true || body.processed !== orders.length)
+            throw new Error('Batch ' + sh.getName() + ':' + row + ' bị từ chối (HTTP ' + response.getResponseCode() + ').');
+          stats.sent += orders.length;
+          stats.inserted += Number(body.inserted || 0);
+          stats.updated += Number(body.updated || 0);
+          stats.unchanged += Number(body.unchanged || 0);
+        }
+        if (full) meeSaveBackfillCursor_(props, si, row + count);
+      }
+      stats.sheets.push(sh.getName());
+    }
+    if (full) { props.deleteProperty('MEE_BACKFILL_SHEET'); props.deleteProperty('MEE_BACKFILL_ROW'); }
+    props.setProperty('MEE_LAST_SYNC_AT', new Date().toISOString());
+    meeSyncLog_('OK', 'Đã quét ' + stats.sheets.join(', ') + '; gửi ' + stats.sent +
+      ', thêm ' + stats.inserted + ', cập nhật ' + stats.updated + ', không đổi ' + stats.unchanged + '.');
+    return { ok: true, done: true, stats: stats };
+  } catch (error) {
+    meeSyncLog_('ERROR', String(error && error.message || error));
+    throw error;
+  } finally { lock.releaseLock(); }
+}
+
+function meeSaveBackfillCursor_(props, sheetIndex, row) {
+  props.setProperty('MEE_BACKFILL_SHEET', String(sheetIndex));
+  props.setProperty('MEE_BACKFILL_ROW', String(row));
+}
+
+function meeSyncActiveSheets_(allSheets, props) {
+  var now = new Date(), month = now.getFullYear() * 12 + now.getMonth();
+  var current = [], older = [];
+  allSheets.forEach(function(sh) {
+    var match = sh.getName().match(/(\d{1,2})\/(\d{4})/);
+    if (!match) { current.push(sh); return; }
+    var value = Number(match[2]) * 12 + Number(match[1]) - 1;
+    if (value >= month - 1) current.push(sh); else older.push(sh);
+  });
+  if (older.length) {
+    var next = Number(props.getProperty('MEE_OLDER_SHEET_CURSOR') || 0) % older.length;
+    current.push(older[next]);
+    props.setProperty('MEE_OLDER_SHEET_CURSOR', String((next + 1) % older.length));
+  }
+  return current;
+}
+
+function meeSyncIds_(sheets) {
+  var seen = {}, ids = {};
+  sheets.forEach(function(sh) {
+    var last = orderDataLastRow_(sh);
+    if (last < 2) return;
+    var values = sh.getRange(2, 15, last - 1, 1).getDisplayValues();
+    values.forEach(function(entry, index) {
+      var id = clean_(entry[0]), row = index + 2;
       if (!id) return;
-      var imgs = [];
-      try { imgs = JSON.parse(r[14] || '[]'); } catch(e) {}
-      map[id] = {
-        status:       String(r[1]  || '').trim(),
-        shipFee:      r[2],
-        shipConfirmed:r[3],
-        card:         r[4],
-        cardText:     r[5],
-        banner:       r[6],
-        bannerText:   r[7],
-        charmFee:     r[8],
-        charmText:    r[9],
-        paperFee:     r[10],
-        paperText:    r[11],
-        vat:          r[12],
-        phone:        String(r[13] || '').trim(),
-        images:       Array.isArray(imgs) ? imgs.filter(Boolean) : [],
-      };
+      ids[sh.getSheetId() + ':' + row] = seen[id] ? id + '-DUP-' + row : id;
+      seen[id] = true;
     });
-  } catch(e) { logSync_('WARN', 'buildMetaMap: ' + e.message); }
-  return map;
+  });
+  return ids;
 }
 
-function extractRichUrls_(richCell) {
-  if (!richCell) return [];
-  var urls = [];
+function meeSyncLog_(level, message) {
+  Logger.log('MEE_SYNC ' + level + ': ' + message);
   try {
-    var runs = richCell.getRuns ? richCell.getRuns() : [];
-    runs.forEach(function(run) {
-      var link = run.getLinkUrl ? run.getLinkUrl() : null;
-      if (link) urls.push(link);
-    });
-  } catch(e) {}
-  return urls;
-}
-
-function extractPhone_(contact) {
-  var m = String(contact || '').match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);
-  return m ? m[1].trim() : '';
-}
-function extractAddress_(contact) {
-  return String(contact || '')
-    .replace(/(?:SĐT|SDT)\s*:\s*[^\n]+\n?/i, '')
-    .replace(/^Địa chỉ\s*:\s*/i, '')
-    .trim();
-}
-function parseMoney_(v) {
-  if (typeof v === 'number') return isFinite(v) ? v : 0;
-  var n = Number(String(v || '0').replace(/[^\d.,-]/g, '').replace(',', '.'));
-  return isFinite(n) ? n : 0;
-}
-function parseBool_(v) {
-  return v === true || v === 1 || ['true','yes','1','x'].indexOf(String(v || '').trim().toLowerCase()) >= 0;
-}
-function deriveStatus_(r) {
-  if (parseBool_(r[7])) return 'Đã giao';
-  if (parseBool_(r[6])) return 'Đã bó';
-  return 'Chờ bó';
-}
-function parseDateCell_(v, sheetName) {
-  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
-  if (typeof v === 'number') {
-    // Google Sheets serial date
-    var d = new Date((v - 25569) * 86400 * 1000);
-    return isNaN(d.getTime()) ? null : d;
-  }
-  var s = String(v).trim();
-  var m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (m) return new Date(Number(m[3]), Number(m[2])-1, Number(m[1]));
-  return null;
-}
-
-function logSync_(level, msg) {
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var log = ss.getSheetByName(SYNC_LOG_SHEET);
-    if (!log) {
-      log = ss.insertSheet(SYNC_LOG_SHEET);
-      log.getRange(1,1,1,3).setValues([['Thời gian','Level','Nội dung']]);
+    var ss = orderSs_(), sh = ss.getSheetByName('SYNC_LOG');
+    if (!sh) {
+      sh = ss.insertSheet('SYNC_LOG');
+      sh.getRange(1, 1, 1, 3).setValues([['Thời gian', 'Level', 'Nội dung']]);
+      sh.setFrozenRows(1);
     }
-    log.appendRow([new Date(), level, msg]);
-  } catch(e) {}
-  Logger.log('[' + level + '] ' + msg);
+    sh.appendRow([new Date(), level, message]);
+  } catch (ignored) { Logger.log('MEE_SYNC logging failed: ' + ignored.message); }
 }

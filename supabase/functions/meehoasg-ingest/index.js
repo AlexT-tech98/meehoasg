@@ -1,125 +1,140 @@
-// Supabase Edge Function: meehoasg-ingest
-// Nhận dữ liệu đồng bộ từ Apps Script → upsert vào Supabase
-// Deploy: supabase functions deploy meehoasg-ingest --project-ref zxnfhshnavbmvdthrmrd
-// Secret cần set: INGEST_SECRET (cùng giá trị với Apps Script)
+// Server-to-server Sheet shadow import. Apps Script authenticates with
+// INGEST_SECRET; deploy with verify_jwt=false because it has no Supabase JWT.
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+const INGEST_SECRET = Deno.env.get('INGEST_SECRET');
+const encoder = new TextEncoder();
 
-const SUPABASE_URL   = Deno.env.get('SUPABASE_URL');
-const SERVICE_KEY    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const INGEST_SECRET  = Deno.env.get('INGEST_SECRET');
-
-function clean(v) { return String(v ?? '').trim(); }
-function num(v) {
-  const n = Number(String(v ?? '0').replace(/[^\d.,-]/g, '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
+function clean(value) { return String(value ?? '').trim(); }
+function norm(value) { return clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase(); }
+function num(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  let raw = clean(value).replace(/[^\d.,-]/g, '');
+  if (raw.includes(',') && raw.includes('.')) raw = raw.replaceAll('.', '').replace(',', '.');
+  else if (/^-?\d{1,3}(?:[.,]\d{3})+$/.test(raw)) raw = raw.replace(/[.,]/g, '');
+  else raw = raw.replace(',', '.');
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
-function bool(v) { return v === true || v === 1 || ['true','yes','1','x'].includes(String(v ?? '').trim().toLowerCase()); }
-function isoDate(v) {
-  if (!v) return null;
-  const s = String(v).trim();
-  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`;
-  const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (ymd) return s.slice(0, 10);
-  return null;
+function bool(value) { return value === true || value === 1 || ['true', 'yes', '1', 'x'].includes(norm(value)); }
+function isoDate(value) {
+  const raw = clean(value);
+  let m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
 }
-
-// Bảng mapping sale đã được xác nhận 28/09/2026
-const SALE_MAP_RAW = [
-  ['huỳnh kim xuyến','huynhxuyen'],['huynh kim xuyen','huynhxuyen'],
-  ['huỳnh minh thư','huynhthu'],['huỳnh minh thu','huynhthu'],['huynh minh thu','huynhthu'],
-  ['huỳnh ngọc lan','huynhlan'],['huynh ngoc lan','huynhlan'],
-  ['hiền lê','hien'],['hien le','hien'],
-  ['minh tiên','tien'],['minh tien','tien'],
-  ['khanh','cmui'],['','cmui'],
-];
-const SALE_MAP = new Map(SALE_MAP_RAW);
-const SALE_JUNK = new Set(['full','62k','chua cop','chua coc','chuac op','chua cop','chưa cọc','da cop','đã cọc']);
-
-function normalizeSale(raw) {
-  const s = clean(raw);
-  const key = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-  if (SALE_JUNK.has(key)) return '';
-  if (SALE_MAP.has(s.toLowerCase())) return SALE_MAP.get(s.toLowerCase());
-  if (SALE_MAP.has(key)) return SALE_MAP.get(key);
-  return s;
+function saleName(value) {
+  const raw = clean(value), key = norm(raw);
+  const aliases = {
+    'huynh kim xuyen': 'Huỳnh Xuyến', 'huynh xuyen': 'Huỳnh Xuyến',
+    'huynh minh thu': 'Huỳnh Thư', 'huynh thu': 'Huỳnh Thư',
+    'huynh ngoc lan': 'Huỳnh Lan', 'huynh lan': 'Huỳnh Lan',
+    'hien le': 'Hiền', 'minh tien': 'Tiên',
+    'khanh': 'C Mụi', 'c mui': 'C Mụi', 'pu': 'Pu'
+  };
+  // Existing imported orders already attribute blank Sale cells to C Mụi.
+  if (!raw) return 'C Mụi';
+  if (['full', '62k', 'chua coc', 'da coc'].includes(key)) return '';
+  return aliases[key] || raw;
 }
-
-function mapOrder(r) {
-  const date = isoDate(r.date || r.order_date);
-  if (!date) return null;
-  const id = clean(r.id || r.order_id);
-  if (!id) return null;
+function mapOrder(raw) {
+  const sourceId = clean(raw.id), id = clean(raw.sync_id || sourceId);
+  const orderDate = isoDate(raw.order_date || raw.date);
+  if (!sourceId || !id || !orderDate) return null;
+  const status = clean(raw.status);
   return {
-    id,
-    source_sheet:   clean(r.source_sheet || ''),
-    source_row:     r.source_row ? Number(r.source_row) : null,
-    customer:       clean(r.customer || ''),
-    order_date:     date,
-    order_time:     clean(r.order_time || r.time || ''),
-    flower:         clean(r.flower || ''),
-    note:           clean(r.note || ''),
-    shipping:       clean(r.shipping || ''),
-    address:        clean(r.address || ''),
-    phone:          clean(r.phone || ''),
-    flower_total:   num(r.flower_total || r.flowerTotal || 0),
-    payment:        clean(r.payment || ''),
-    sale:           normalizeSale(r.sale || ''),
-    status:         (['Chờ bó','Đã bó','Đã giao'].includes(clean(r.status)) ? clean(r.status) : 'Chờ bó'),
-    settled:        bool(r.settled),
-    ship_fee:       num(r.ship_fee || r.shipFee || 0),
-    ship_confirmed: bool(r.ship_confirmed || r.shipConfirmed),
-    card:           bool(r.card),
-    card_text:      clean(r.card_text || r.cardText || ''),
-    banner:         bool(r.banner),
-    banner_text:    clean(r.banner_text || r.bannerText || ''),
-    charm_fee:      num(r.charm_fee || r.charmFee || 0),
-    charm_text:     clean(r.charm_text || r.charmText || ''),
-    paper_fee:      num(r.paper_fee || r.paperFee || 0),
-    paper_text:     clean(r.paper_text || r.paperText || ''),
-    vat:            num(r.vat || 0),
-    image_urls:     Array.isArray(r.image_urls || r.imageUrls) ? (r.image_urls ?? r.imageUrls) : [],
-    updated_at:     new Date().toISOString(),
+    id, source_sheet: clean(raw.source_sheet) || null,
+    source_row: Number(raw.source_row) || null,
+    customer: clean(raw.customer), phone: clean(raw.phone),
+    order_date: orderDate, order_time: clean(raw.order_time),
+    flower: clean(raw.flower), note: clean(raw.note),
+    shipping: clean(raw.shipping), address: clean(raw.address),
+    flower_total: num(raw.flower_total), payment: clean(raw.payment),
+    sale: saleName(raw.sale),
+    status: ['Chờ bó', 'Đã bó', 'Đã giao'].includes(status) ? status : 'Chờ bó',
+    settled: bool(raw.settled), ship_fee: num(raw.ship_fee),
+    ship_confirmed: bool(raw.ship_confirmed),
+    card: bool(raw.card), card_text: clean(raw.card_text),
+    banner: bool(raw.banner), banner_text: clean(raw.banner_text),
+    charm_fee: num(raw.charm_fee), charm_text: clean(raw.charm_text),
+    paper_fee: num(raw.paper_fee), paper_text: clean(raw.paper_text),
+    vat: num(raw.vat),
+    image_urls: Array.isArray(raw.image_urls) ? [...new Set(raw.image_urls.map(clean).filter(Boolean))] : []
   };
 }
-
-async function upsertBatch(orders) {
-  if (!orders.length) return;
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
-    method: 'POST',
+async function sha256(value) {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value)));
+  return [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function sameSecret(provided) {
+  const a = encoder.encode(provided), b = encoder.encode(INGEST_SECRET || '');
+  if (!b.length || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+async function rest(table, query = {}, method = 'GET', body) {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+  const response = await fetch(url, {
+    method,
     headers: {
-      apikey: SERVICE_KEY,
-      Authorization: 'Bearer ' + SERVICE_KEY,
+      apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`,
       'Content-Type': 'application/json',
-      Prefer: 'return=minimal,resolution=merge-duplicates',
+      Prefer: method === 'POST' && query.on_conflict ? 'resolution=merge-duplicates,return=minimal' : 'return=representation'
     },
-    body: JSON.stringify(orders),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
   });
-  if (!res.ok) throw new Error('DB ' + res.status + ': ' + (await res.text()).slice(0, 300));
+  const content = await response.text();
+  if (!response.ok) throw new Error(`Database ${response.status}: ${content.slice(0, 240)}`);
+  return content ? JSON.parse(content) : [];
+}
+async function recordRun(stats, detail) {
+  await rest('sync_runs', {}, 'POST', {
+    entity: 'orders', received: stats.received, inserted: stats.inserted,
+    updated: stats.updated, unchanged: stats.unchanged,
+    skipped: stats.skipped, errors: stats.errors,
+    finished_at: new Date().toISOString(), detail
+  });
+}
+async function ingestOrders(rawList) {
+  const stats = { received: rawList.length, inserted: 0, updated: 0, unchanged: 0, skipped: 0, errors: 0 };
+  const mapped = rawList.map(mapOrder);
+  stats.skipped = mapped.filter(row => !row).length;
+  const rows = mapped.filter(Boolean);
+  if (new Set(rows.map(row => row.id)).size !== rows.length) throw new Error('Trùng ID trong cùng batch.');
+  const ids = rows.map(row => row.id);
+  const existing = ids.length ? await rest('orders', {
+    select: 'id,sync_hash', id: `in.(${ids.map(id => `"${id.replaceAll('"', '\\"')}"`).join(',')})`
+  }) : [];
+  const byId = new Map(existing.map(row => [row.id, row]));
+  const changed = [];
+  for (const row of rows) {
+    const digest = await sha256(JSON.stringify(row));
+    const prior = byId.get(row.id);
+    if (prior?.sync_hash === digest) { stats.unchanged++; continue; }
+    if (prior) stats.updated++; else stats.inserted++;
+    changed.push({ ...row, sync_hash: digest, synced_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+  }
+  if (changed.length) await rest('orders', { on_conflict: 'id' }, 'POST', changed);
+  await recordRun(stats, { source_sheets: [...new Set(rows.map(row => row.source_sheet))].filter(Boolean) });
+  return { ok: true, ...stats, processed: rows.length };
 }
 
-Deno.serve(async (req) => {
-  const cors = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-ingest-secret, content-type',
-    'Content-Type': 'application/json',
-  };
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
-  if (req.method !== 'POST') return new Response(JSON.stringify({ ok: false, message: 'POST only' }), { status: 405, headers: cors });
-
-  const secret = req.headers.get('x-ingest-secret') || '';
-  if (!INGEST_SECRET || secret !== INGEST_SECRET) {
-    return new Response(JSON.stringify({ ok: false, message: 'Unauthorized' }), { status: 401, headers: cors });
-  }
-
+Deno.serve(async request => {
+  const headers = { 'Content-Type': 'application/json; charset=utf-8' };
+  if (request.method !== 'POST') return new Response(JSON.stringify({ ok: false, message: 'POST only' }), { status: 405, headers });
+  if (!SUPABASE_URL || !SERVICE_KEY || !INGEST_SECRET) return new Response(JSON.stringify({ ok: false, message: 'Not configured' }), { status: 503, headers });
+  if (!sameSecret(request.headers.get('x-ingest-secret') || '')) return new Response(JSON.stringify({ ok: false, message: 'Unauthorized' }), { status: 401, headers });
+  if (Number(request.headers.get('content-length') || 0) > 5 * 1024 * 1024)
+    return new Response(JSON.stringify({ ok: false, message: 'Payload too large' }), { status: 413, headers });
   try {
-    const body    = await req.json();
-    const rawList = Array.isArray(body.orders) ? body.orders : [];
-    const mapped  = rawList.map(mapOrder).filter(Boolean);
-    for (let i = 0; i < mapped.length; i += 200) {
-      await upsertBatch(mapped.slice(i, i + 200));
-    }
-    return new Response(JSON.stringify({ ok: true, received: rawList.length, processed: mapped.length }), { headers: cors });
-  } catch (e) {
-    return new Response(JSON.stringify({ ok: false, message: e.message }), { status: 500, headers: cors });
+    const body = await request.json();
+    if (!Array.isArray(body.orders) || body.orders.length > 100) throw new Error('Tối đa 100 đơn mỗi batch.');
+    return new Response(JSON.stringify(await ingestOrders(body.orders)), { headers });
+  } catch (error) {
+    console.error('Meehoasg ingest failed:', error);
+    return new Response(JSON.stringify({ ok: false, message: 'Đồng bộ thất bại; vui lòng xem log máy chủ.' }), { status: 500, headers });
   }
 });

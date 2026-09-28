@@ -60,7 +60,9 @@ create table if not exists public.orders (
 );
 create index if not exists orders_date_time_idx on public.orders(order_date, order_time);
 create index if not exists orders_sale_date_idx on public.orders(sale, order_date);
-create unique index if not exists orders_source_idx on public.orders(source_sheet, source_row)
+-- Sheet rows move when older orders are inserted; the stable order ID is the
+-- identity for synchronization. Source position is a non-unique lookup hint.
+create index if not exists orders_source_idx on public.orders(source_sheet, source_row)
   where source_sheet is not null and source_row is not null;
 
 create table if not exists public.settlement_requests (
