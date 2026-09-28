@@ -83,7 +83,7 @@ function syncSupabaseToSheet() {
   // Nhóm đơn theo tháng (order_date: yyyy-MM-dd -> MM/yyyy)
   var byMonth = {};
   orders.forEach(function(o) {
-    var m = (o.order_date || '').match(/^(d{4})-(d{2})/);
+    var m = (o.order_date || '').match(/^(\d{4})-(\d{2})/);
     var monthKey = m ? (m[2] + '/' + m[1]) : Utilities.formatDate(new Date(), 'Asia/Ho_Chi_Minh', 'MM/yyyy');
     if (!byMonth[monthKey]) byMonth[monthKey] = [];
     byMonth[monthKey].push(o);
@@ -198,8 +198,7 @@ function syncSupabaseToSheet() {
 function _formatContactCell(phone, addr) {
   var p = String(phone || '').trim();
   var a = String(addr || '').trim();
-  if (p && a) return 'SĐT: ' + p + '
-Địa chỉ: ' + a;
+  if (p && a) return 'SĐT: ' + p + '\nĐịa chỉ: ' + a;
   if (p) return 'SĐT: ' + p;
   return a;
 }
