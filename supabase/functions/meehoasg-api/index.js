@@ -5,7 +5,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const PASSWORD_SALT = Deno.env.get('LEGACY_PASSWORD_SALT') || 'MEE-FLOWER-V4';
 const ALLOWED_ORIGIN = 'https://ops.meehoasg.com';
-const ALLOWED_ORIGINS = ['https://ops.meehoasg.com', 'https://meehoasg.com'];
+const ALLOWED_ORIGINS = ['https://ops.meehoasg.com', 'http://ops.meehoasg.com', 'https://meehoasg.com', 'http://meehoasg.com'];
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const encoder = new TextEncoder();
 
