@@ -205,3 +205,250 @@ tbody tr:hover{background:#fff8f6}
   .sample-with-thumb{grid-template-columns:48px minmax(0,1fr)}
   .table-thumb,.table-thumb-empty{width:48px!important;height:48px!important;min-width:48px;max-width:48px;max-height:48px}
 }
+
+/* ===== MEEHOA V2.1 — expressive flower studio pass ===== */
+:root{
+  --coral:#f17479;
+  --coral-soft:#fff0ef;
+  --butter:#ffd976;
+  --butter-soft:#fff7d9;
+  --orchid:#9c7ad6;
+  --orchid-soft:#f3edff;
+  --sky:#7fb7d9;
+  --sky-soft:#edf8ff;
+}
+
+/* Login becomes a real branded arrival screen */
+.login{
+  min-height:100dvh;
+  display:grid;
+  place-items:center;
+  padding:24px;
+  position:relative;
+  overflow:hidden;
+  background:
+    radial-gradient(circle at 18% 18%,rgba(255,217,118,.72),transparent 23rem),
+    radial-gradient(circle at 82% 15%,rgba(241,116,121,.28),transparent 26rem),
+    radial-gradient(circle at 72% 82%,rgba(127,183,217,.35),transparent 28rem),
+    linear-gradient(145deg,#fff9f2 0%,#fff2f5 47%,#eef9f5 100%);
+}
+.login:before,.login:after{
+  content:"✿";
+  position:absolute;
+  font-size:clamp(140px,22vw,320px);
+  line-height:1;
+  color:rgba(255,255,255,.5);
+  filter:blur(.2px);
+  pointer-events:none;
+}
+.login:before{left:-4vw;bottom:-7vw;transform:rotate(-18deg)}
+.login:after{right:-3vw;top:-8vw;transform:rotate(16deg)}
+.login-card{
+  width:min(440px,100%);
+  padding:34px 34px 30px!important;
+  border:1px solid rgba(255,255,255,.78)!important;
+  border-radius:30px!important;
+  background:rgba(255,255,255,.78)!important;
+  backdrop-filter:blur(24px) saturate(1.15);
+  box-shadow:0 30px 80px rgba(89,56,50,.14),inset 0 1px 0 rgba(255,255,255,.85)!important;
+  position:relative;
+  z-index:2;
+}
+.login-card:before{
+  content:"MEEHOA OPS · flower studio";
+  display:inline-flex;
+  margin:0 auto 18px;
+  padding:7px 11px;
+  border-radius:999px;
+  background:linear-gradient(90deg,var(--butter-soft),var(--coral-soft),var(--brand-green-soft));
+  color:#6f625d;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.login-card .brand-mark{
+  width:60px!important;
+  height:60px!important;
+  border-radius:20px!important;
+  font-size:25px!important;
+  background:linear-gradient(145deg,#2f6f5e 0%,#5f9b7f 42%,#f17479 100%)!important;
+  box-shadow:0 15px 32px rgba(76,92,70,.25)!important;
+}
+.login-card h2{font-size:27px!important;letter-spacing:-.035em;color:#302a28!important}
+.login-card .sub{font-size:13px!important;color:#84756e!important}
+.login-card label{margin-top:18px!important;font-size:10px!important;color:#7b6d67!important}
+.login-card input{height:50px!important;border-radius:15px!important;border-color:rgba(92,70,62,.13)!important;background:rgba(255,255,255,.9)!important;font-size:16px!important}
+.login-card .btn.primary{height:50px!important;border-radius:15px!important;background:linear-gradient(120deg,#2f6f5e 0%,#448d74 60%,#ef8a99 135%)!important;box-shadow:0 12px 25px rgba(47,111,94,.22)!important}
+
+/* Loading should look intentional, not like a broken page */
+.boot-splash,.loading{
+  background:
+    radial-gradient(circle at 30% 30%,rgba(255,217,118,.2),transparent 24rem),
+    radial-gradient(circle at 72% 65%,rgba(241,116,121,.18),transparent 28rem),
+    rgba(255,250,247,.9)!important;
+  backdrop-filter:blur(20px) saturate(1.1)!important;
+}
+.boot-splash-card,.loading-pill{
+  min-width:260px;
+  justify-content:center;
+  border:1px solid rgba(108,78,67,.08)!important;
+  border-radius:22px!important;
+  padding:18px 22px!important;
+  background:rgba(255,255,255,.9)!important;
+  box-shadow:0 20px 60px rgba(82,53,45,.12)!important;
+}
+.boot-splash-card{gap:14px!important}
+.boot-splash-card .brand-mark{animation:meeBloom 1.6s var(--ease-smooth) infinite alternate}
+.loading-pill:before{
+  content:"✿";
+  font-size:21px;
+  color:var(--coral);
+  animation:meePetal 1.15s ease-in-out infinite;
+}
+.loading-pill .spinner{display:none!important}
+@keyframes meeBloom{from{transform:scale(.96) rotate(-2deg)}to{transform:scale(1.06) rotate(3deg)}}
+@keyframes meePetal{0%,100%{transform:rotate(-8deg) scale(.9);opacity:.55}50%{transform:rotate(10deg) scale(1.12);opacity:1}}
+.page-status{
+  width:max-content;
+  max-width:100%;
+  margin:4px 0 16px;
+  padding:8px 12px!important;
+  border-radius:999px;
+  background:linear-gradient(90deg,var(--butter-soft),#fff,var(--brand-green-soft));
+  color:#6c625d!important;
+  border:1px solid rgba(91,70,62,.08);
+  font-size:12px!important;
+}
+.page-status .mini-spinner{border-top-color:var(--coral)!important}
+.page-loading{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px!important}
+.skeleton{
+  height:126px!important;
+  border-radius:20px!important;
+  background:linear-gradient(110deg,#fff0ec 8%,#fff 18%,#eef8f3 33%,#fff0ec 48%)!important;
+  background-size:260% 100%!important;
+  animation:meeShimmer 1.4s linear infinite!important;
+  border:1px solid rgba(104,78,68,.06);
+}
+@keyframes meeShimmer{to{background-position-x:-260%}}
+
+/* Stronger app personality */
+.sidebar{
+  background:linear-gradient(180deg,rgba(255,255,255,.97) 0%,rgba(255,248,246,.95) 58%,rgba(239,249,244,.96) 100%)!important;
+}
+.sidebar .brand{position:relative;padding-bottom:24px!important}
+.sidebar .brand:after{content:"";position:absolute;left:8px;right:8px;bottom:8px;height:3px;border-radius:99px;background:linear-gradient(90deg,var(--coral),var(--butter),var(--brand-green),var(--orchid));opacity:.75}
+.nav button.active{background:linear-gradient(90deg,#eaf8f1 0%,#fff1f2 62%,#fff8df 100%)!important;color:#285e50!important}
+.content{max-width:1700px!important}
+.page-header h1{font-size:29px!important;letter-spacing:-.04em!important}
+.stat{
+  min-height:132px;
+  justify-content:space-between;
+  position:relative;
+  overflow:hidden;
+  border:0!important;
+  box-shadow:0 10px 30px rgba(83,53,45,.07)!important;
+}
+.stat:after{content:"";position:absolute;width:78px;height:78px;border-radius:50%;right:-24px;bottom:-34px;background:rgba(255,255,255,.46)}
+.stat small{font-size:10.5px!important;letter-spacing:.065em!important}
+.stat strong{font-size:27px!important;letter-spacing:-.04em!important}
+.dashboard-grid{gap:22px!important}
+.dashboard-left,.dashboard-right>div{border-radius:24px!important}
+.dashboard-right>div{background:linear-gradient(160deg,#fff 0%,#fff8ef 48%,#eef8f4 100%)!important;border:0!important;box-shadow:0 14px 38px rgba(76,55,47,.08)!important}
+.table-wrap{border:0!important;box-shadow:0 10px 34px rgba(79,54,46,.065)!important}
+th{background:linear-gradient(90deg,#fff6f0,#fffaf0,#f2faf6)!important;border-bottom-color:rgba(107,78,67,.08)!important}
+td{border-bottom-color:rgba(107,78,67,.065)!important}
+
+/* Accessories must be unmistakable */
+.row-alert,
+.order.accessory,
+.ops-tile.accessory,
+.order-card-mobile.row-alert{
+  position:relative!important;
+  background:linear-gradient(100deg,#fff7da 0%,#fff 32%,#fff2f3 100%)!important;
+  border-color:#f1c85a!important;
+  box-shadow:0 10px 26px rgba(197,145,41,.14)!important;
+}
+.row-alert{box-shadow:inset 5px 0 #f0b933,0 6px 20px rgba(196,146,42,.08)!important}
+.order.accessory:before,.ops-tile.accessory:before,.order-card-mobile.row-alert:before{
+  content:"PHỤ KIỆN";
+  position:absolute;
+  top:10px;
+  right:10px;
+  padding:4px 8px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#ffd75e,#ff9ca2);
+  color:#63462d;
+  font-size:9px;
+  font-weight:900;
+  letter-spacing:.05em;
+  z-index:3;
+}
+.order.accessory .order-top,.ops-tile.accessory .order-top{padding-right:62px}
+.badge.gold{background:linear-gradient(90deg,#fff0ac,#ffd7dd)!important;color:#815324!important;border-color:#f5c954!important;font-weight:800!important}
+
+/* Calendar/date filter: deliberate component, not raw browser control */
+.date-filter-bar{margin:0!important}
+.date-filter-btn{
+  min-height:42px!important;
+  padding:0 14px!important;
+  border:1px solid rgba(95,72,64,.09)!important;
+  border-radius:14px!important;
+  background:linear-gradient(120deg,#fff,#fff8e7 55%,#f1f9f5)!important;
+  color:#534a46!important;
+  box-shadow:0 7px 18px rgba(83,55,47,.06)!important;
+  font-weight:700!important;
+}
+.calendar-modal{
+  width:min(440px,calc(100vw - 24px))!important;
+  padding:20px!important;
+  border-radius:26px!important;
+  background:linear-gradient(160deg,#fff 0%,#fff9f1 52%,#f1faf6 100%)!important;
+  box-shadow:0 28px 80px rgba(70,48,41,.2)!important;
+}
+.calendar-modal .modal-head{border-bottom:0!important;margin-bottom:10px!important}
+.calendar-shortcuts{display:flex;gap:8px;margin:2px 0 16px}
+.calendar-shortcuts .btn{height:34px!important;border-radius:999px!important;background:#fff!important}
+.calendar-head{display:grid!important;grid-template-columns:42px 1fr 42px;align-items:center;gap:8px;margin-bottom:12px}
+.calendar-head strong{text-align:center;font-size:16px;letter-spacing:-.02em}
+.calendar-nav{width:38px;height:38px;border:0;border-radius:12px;background:#fff;box-shadow:0 5px 16px rgba(76,53,45,.07);font-size:24px;color:#655750}
+.calendar-grid{display:grid!important;grid-template-columns:repeat(7,1fr)!important;gap:5px!important}
+.calendar-dow{font-size:10px!important;font-weight:800!important;text-align:center!important;color:#9a8c85!important;padding:5px 0!important}
+.calendar-day{
+  aspect-ratio:1;
+  min-width:0!important;
+  border:0!important;
+  border-radius:12px!important;
+  background:rgba(255,255,255,.72)!important;
+  color:#574d49!important;
+  font-weight:650!important;
+  transition:.18s ease!important;
+}
+.calendar-day:hover{transform:translateY(-1px);background:#fff!important;box-shadow:0 5px 14px rgba(80,55,46,.08)}
+.calendar-day.out{opacity:.26}
+.calendar-day.today{box-shadow:inset 0 0 0 2px var(--coral)!important;color:var(--coral)!important}
+.calendar-day.in-range{background:#eaf7f1!important;border-radius:8px!important}
+.calendar-day.selected{background:linear-gradient(145deg,#2f6f5e,#4f917a)!important;color:#fff!important;box-shadow:0 7px 16px rgba(47,111,94,.24)!important}
+.calendar-selection{margin-top:14px;padding:11px 12px;border-radius:14px;background:#fff;border:1px solid rgba(95,72,64,.08);display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:12px}
+.calendar-actions{display:grid!important;grid-template-columns:1fr 1.4fr;gap:8px;margin-top:12px}
+
+/* Orders get more editorial card hierarchy */
+.status-filter-tabs{padding:4px 2px 16px!important}
+.status-pill{height:40px!important;border:0!important;box-shadow:0 5px 16px rgba(76,54,46,.055)!important}
+.status-pill:nth-child(2){background:#fff0ed}.status-pill:nth-child(3){background:#edf4ff}.status-pill:nth-child(4){background:#ecf8f1}.status-pill:nth-child(5){background:#fff2f3}
+.status-pill.active{background:linear-gradient(120deg,#2f6f5e,#4f8d77)!important;color:#fff!important}
+.order-card-mobile{border:0!important;box-shadow:0 10px 28px rgba(77,53,46,.075)!important;background:rgba(255,255,255,.95)!important}
+.order-card-mobile-footer{background:#fffaf7;margin:10px -14px -14px;padding:10px 14px 12px!important;border-radius:0 0 18px 18px}
+
+@media(max-width:900px){
+  .login{padding:16px}
+  .login-card{padding:27px 20px 24px!important;border-radius:25px!important}
+  .page-loading{grid-template-columns:1fr!important}
+  .skeleton{height:100px!important}
+  .stat{min-height:118px!important}
+  .stat strong{font-size:21px!important}
+  .page-header h1{font-size:24px!important}
+  .calendar-modal{width:100%!important;max-width:none!important;border-radius:26px 26px 0 0!important;padding:20px max(14px,env(safe-area-inset-right)) calc(22px + env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))!important}
+  .calendar-day{border-radius:10px!important}
+  .order.accessory:before,.ops-tile.accessory:before,.order-card-mobile.row-alert:before{top:8px;right:8px;font-size:8px}
+}
