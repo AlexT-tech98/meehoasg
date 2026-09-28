@@ -6,6 +6,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/ui-v2.css?v=2">
 <style>
 
 /* ===== MEEHOASG BOTANICAL STUDIO DESIGN SYSTEM ===== */
@@ -1532,7 +1533,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function markMobileMore() { var b = document.getElementById('mobileMoreBtn'); if (b)
         b.classList.toggle('more-active', !['dashboard', 'production', 'orders', 'debt'].includes(S.page)); }
     function goActive() { document.querySelectorAll('[data-p]').forEach(function (x) { return x.classList.toggle('active', x.dataset.p === S.page); }); var t = document.getElementById('pageTitle'), p = pages.find(function (x) { return x[0] === S.page; }) || pages[0]; if (t)
-        t.textContent = p[1]; markMobileMore(); }
+        t.textContent = p[1]; var searchWrap = document.querySelector('.topbar-search'); if (searchWrap) searchWrap.classList.toggle('hidden', !['orders','production'].includes(S.page)); markMobileMore(); }
         function refreshPage() {
         return __awaiter(this, void 0, void 0, function () { return __generator(this, function (_a) {
             switch (_a.label) {

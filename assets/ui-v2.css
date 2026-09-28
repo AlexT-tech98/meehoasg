@@ -149,3 +149,59 @@ tbody tr:hover{background:#fff8f6}
   .order-card-mobile-thumb,.order-card-mobile-thumb-empty{width:52px;height:52px}
   .order-card-mobile-footer{gap:8px;align-items:flex-start;flex-wrap:wrap}
 }
+
+/* audit fix: order imagery must never escape its information container */
+.sample-with-thumb{
+  display:grid;
+  grid-template-columns:52px minmax(0,1fr);
+  gap:10px;
+  align-items:start;
+  min-width:0;
+}
+.table-thumb,.table-thumb-empty{
+  width:52px!important;
+  height:52px!important;
+  min-width:52px;
+  max-width:52px;
+  max-height:52px;
+  border-radius:12px;
+  object-fit:cover;
+  overflow:hidden;
+  display:grid;
+  place-items:center;
+}
+.order-preview{
+  display:block;
+  width:100%!important;
+  height:132px!important;
+  max-width:100%;
+  max-height:132px!important;
+  object-fit:cover;
+  border-radius:14px;
+  margin:9px 0 10px;
+  overflow:hidden;
+}
+.order img,.ops-tile img,.order-card-mobile img,.drawer img{
+  max-width:100%;
+}
+.order-card-mobile-thumb{
+  width:56px!important;
+  height:56px!important;
+  min-width:56px;
+  max-width:56px;
+  max-height:56px;
+  object-fit:cover;
+}
+.search-item-thumb{
+  width:44px!important;
+  height:44px!important;
+  min-width:44px;
+  max-width:44px;
+  max-height:44px;
+  object-fit:cover;
+}
+@media(max-width:900px){
+  .order-preview{height:116px!important;max-height:116px!important}
+  .sample-with-thumb{grid-template-columns:48px minmax(0,1fr)}
+  .table-thumb,.table-thumb-empty{width:48px!important;height:48px!important;min-width:48px;max-width:48px;max-height:48px}
+}
