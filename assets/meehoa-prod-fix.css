@@ -1,0 +1,20 @@
+/* MEEHOA production guard — auth visibility + viewport integrity */
+.login.hidden{display:none!important}
+.app.hidden{display:none!important}
+.login:not(.hidden){
+  display:grid!important;
+  position:fixed!important;
+  inset:0!important;
+  width:100%!important;
+  height:100dvh!important;
+  min-height:100dvh!important;
+  z-index:9999!important;
+  overflow:auto!important;
+  overscroll-behavior:contain!important;
+}
+body:has(.login:not(.hidden)){
+  overflow:hidden!important;
+  height:100dvh!important;
+}
+.login:not(.hidden)~.app{visibility:hidden!important;pointer-events:none!important}
+.login.hidden~.app{visibility:visible!important;pointer-events:auto!important}
