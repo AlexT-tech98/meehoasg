@@ -82,19 +82,23 @@
     header.insertAdjacentElement('afterend',wrap);
   }
 
-  function markPage(){
-    updateSearchVisibility();
-    addDashboardCharts();
-  }
+  function markPage(){ updateSearchVisibility(); addDashboardCharts(); }
 
-  var mo=new MutationObserver(function(){
-    clearTimeout(window.__meeV3Timer);
-    window.__meeV3Timer=setTimeout(markPage,40);
+  var timer=null;
+  var mo=new MutationObserver(function(mutations){
+    var relevant=mutations.some(function(m){return m.type==='childList' && (m.addedNodes.length||m.removedNodes.length)});
+    if(!relevant) return;
+    clearTimeout(timer);
+    timer=setTimeout(markPage,120);
   });
 
   function init(){
     ensureMenu(); markPage();
-    var target=qs('#app')||document.body; mo.observe(target,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
+    var content=qs('#content');
+    if(content) mo.observe(content,{subtree:true,childList:true});
+    document.addEventListener('click',function(e){
+      if(e.target.closest('[data-p]')) setTimeout(updateSearchVisibility,0);
+    },true);
   }
 
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init); else init();
