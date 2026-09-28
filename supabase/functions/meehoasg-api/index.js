@@ -1,15 +1,18 @@
 // Supabase Edge Function replacing google.script.run. Platform JWT verification
 // stays enabled; application roles use separate opaque sessions.
-const BUILD = '2026.09.27-supabase-v1';
+const BUILD = '2026.09.28-supabase-trial1';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const PASSWORD_SALT = Deno.env.get('LEGACY_PASSWORD_SALT') || 'MEE-FLOWER-V4';
+// Keep Sheets/Apps Script authoritative until the final data sync and cutover.
+const TRIAL_READ_ONLY = true;
 const ALLOWED_ORIGIN = 'https://meehoasg.com';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const encoder = new TextEncoder();
 
 function clean(value) { return String(value ?? '').trim(); }
 function norm(value) { return clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+function usernameNorm(value) { return norm(value).replace(/đ/g, 'd').replace(/\s+/g, ''); }
 function num(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
   let raw = String(value ?? '0').replace(/[^\d.,-]/g, '');
@@ -67,7 +70,7 @@ async function requireUser(payload, roles) {
   return user;
 }
 async function login(payload) {
-  const username = norm(payload.username), password = String(payload.password || '');
+  const username = usernameNorm(payload.username), password = String(payload.password || '');
   if (!username || !password) return fail('Sai tài khoản hoặc mật khẩu.');
   const attempt = await one('login_attempts', { username: 'eq.' + username });
   if (attempt?.blocked_until && Date.parse(attempt.blocked_until) > Date.now()) return fail('Đăng nhập quá nhiều lần. Vui lòng thử lại sau.');
@@ -461,7 +464,7 @@ async function flowers(payload, user) {
   return { ok: true, status: reviewOrders.length ? 'needs_review' : 'ready', totalOrders: orders.length, analyzedOrders, reviewCount: reviewOrders.length, items, reviewOrders: reviewOrders.slice(0, 100) };
 }
 async function saveUser(payload, admin) {
-  const u = payload.user || {}, username = norm(u.username), name = clean(u.name), role = clean(u.role).toUpperCase();
+  const u = payload.user || {}, username = usernameNorm(u.username), name = clean(u.name), role = clean(u.role).toUpperCase();
   if (!username || !name || !['ADMIN', 'THO_OPS', 'SALE'].includes(role)) return fail('Thông tin tài khoản chưa hợp lệ.');
   const found = await one('app_users', { username: 'eq.' + username });
   if (!found && String(u.password || '').length < 6) return fail('Mật khẩu mới phải có ít nhất 6 ký tự.');
@@ -533,6 +536,7 @@ async function dispatch(name, payload) {
   if (name === 'logPerformanceBatch') return logPerformanceBatch(payload, user);
   const route = readRoutes[name] || writeRoutes[name];
   if (!route) return fail('Thao tác không được hỗ trợ.');
+  if (TRIAL_READ_ONLY && writeRoutes[name]) return fail('Bản chạy thử chỉ xem dữ liệu. Vui lòng dùng web app cũ để cập nhật đơn hàng.', 'TRIAL_READ_ONLY');
   return route(payload, user);
 }
 
