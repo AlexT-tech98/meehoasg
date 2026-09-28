@@ -1,11 +1,9 @@
 // Supabase Edge Function replacing google.script.run. Platform JWT verification
 // stays enabled; application roles use separate opaque sessions.
-const BUILD = '2026.09.28-supabase-trial1';
+const BUILD = '2026.09.28-supabase-v2';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const PASSWORD_SALT = Deno.env.get('LEGACY_PASSWORD_SALT') || 'MEE-FLOWER-V4';
-// Keep Sheets/Apps Script authoritative until the final data sync and cutover.
-const TRIAL_READ_ONLY = true;
 const ALLOWED_ORIGIN = 'https://meehoasg.com';
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const encoder = new TextEncoder();
@@ -536,7 +534,6 @@ async function dispatch(name, payload) {
   if (name === 'logPerformanceBatch') return logPerformanceBatch(payload, user);
   const route = readRoutes[name] || writeRoutes[name];
   if (!route) return fail('Thao tác không được hỗ trợ.');
-  if (TRIAL_READ_ONLY && writeRoutes[name]) return fail('Bản chạy thử chỉ xem dữ liệu. Vui lòng dùng web app cũ để cập nhật đơn hàng.', 'TRIAL_READ_ONLY');
   return route(payload, user);
 }
 
