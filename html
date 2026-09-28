@@ -1,73 +1,1221 @@
 <!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MEEHOASG - Dashboard</title>
+<html lang="vi"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MEEHOASG · Operations Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--ink:#27332d;--muted:#718078;--paper:#fbfaf7;--card:#fff;--sage:#315c48;--sage2:#e7f0ea;--rose:#b94857;--gold:#d8a84e;--line:#e7e6df;--shadow:0 14px 35px #26382c18;--r:20px}*{box-sizing:border-box}html,body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:none!important}.login{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 20% 10%,#dbe9df,transparent 40%),radial-gradient(circle at 90% 90%,#f4dfe2,transparent 38%)}.login-card{width:min(430px,100%);background:#ffffffdf;backdrop-filter:blur(12px);padding:34px;border:1px solid #fff;border-radius:30px;box-shadow:var(--shadow)}.brand{display:flex;align-items:center;gap:12px}.brand-mark{width:45px;height:45px;border-radius:50% 50% 45% 55%;display:grid;place-items:center;color:#fff;background:linear-gradient(145deg,var(--rose),#e4959d);font-size:22px}.brand h1{font-family:Georgia,serif;margin:0;font-size:25px}.sub{color:var(--muted)}label{display:block;font-weight:700;margin:14px 0 6px}.input,input,select,textarea{width:100%;border:1px solid var(--line);background:#fff;border-radius:13px;padding:12px 13px;outline:none}input:focus,select:focus,textarea:focus{border-color:#6d9a81;box-shadow:0 0 0 3px #6d9a8120}textarea{min-height:80px;resize:vertical}.btn{border:0;border-radius:13px;padding:11px 15px;font-weight:800;background:var(--sage2);color:var(--sage)}.btn.primary{background:var(--sage);color:#fff}.btn.danger{background:#fff0f1;color:var(--rose)}.btn.gold{background:#fff5dc;color:#8d651a}.btn:disabled{opacity:.45;cursor:not-allowed}.full{width:100%}.app{min-height:100vh}.sidebar{position:fixed;inset:0 auto 0 0;width:244px;background:#183b2d;color:#fff;padding:26px 18px;z-index:20}.sidebar .brand{padding:0 8px 26px}.nav{display:grid;gap:7px}.nav button{border:0;background:transparent;color:#dce8e1;text-align:left;padding:12px 14px;border-radius:12px;font-weight:700}.nav button.active,.nav button:hover{background:#ffffff18;color:#fff}.side-user{position:absolute;bottom:20px;left:18px;right:18px;border-top:1px solid #ffffff20;padding-top:15px}.main{margin-left:244px;min-height:100vh}.topbar{height:74px;position:sticky;top:0;z-index:15;background:#fbfaf7e8;backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:space-between;padding:0 28px;border-bottom:1px solid var(--line)}.topbar h2{font-family:Georgia,serif;margin:0;font-size:24px}.actions{display:flex;gap:9px;align-items:center}.content{padding:25px 28px 110px;max-width:1500px;margin:auto}.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}.filters input,.filters select{width:auto;min-width:145px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}.stat{background:var(--card);padding:17px;border:1px solid var(--line);border-radius:var(--r);box-shadow:0 4px 16px #20332908}.stat small{color:var(--muted);font-weight:700}.stat strong{display:block;font-family:Georgia,serif;font-size:25px;margin-top:5px}.section{margin-top:22px}.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.section h3{font-family:Georgia,serif;font-size:19px;margin:0}.order-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}.order{background:#fff;border:1px solid var(--line);border-radius:18px;padding:15px;box-shadow:0 3px 12px #25352c08}.order.accessory{border-color:#df7883;box-shadow:inset 4px 0 var(--rose)}.order-top{display:flex;justify-content:space-between;gap:10px}.order h4{margin:0;font-size:16px}.badge{display:inline-flex;align-items:center;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:900;background:var(--sage2);color:var(--sage);white-space:nowrap}.badge.red{background:#fff0f1;color:var(--rose)}.badge.gold{background:#fff4d4;color:#8c681c}.meta{color:var(--muted);margin:8px 0}.money{font-weight:900}.order-actions{display:flex;gap:7px;margin-top:12px}.order-actions .btn{padding:8px 10px;font-size:12px}.kanban{display:grid;grid-template-columns:repeat(3,minmax(250px,1fr));gap:13px;overflow:auto;padding-bottom:8px}.lane{background:#f0f1ed;border-radius:20px;padding:12px;min-height:260px}.lane-title{display:flex;justify-content:space-between;font-weight:900;padding:4px 4px 12px}.lane .order{margin-bottom:9px}.table-wrap{overflow:auto;background:#fff;border:1px solid var(--line);border-radius:18px}table{border-collapse:collapse;width:100%;min-width:820px}th,td{text-align:left;padding:11px;border-bottom:1px solid var(--line)}th{font-size:12px;color:var(--muted);background:#fafaf8}.drawer-bg,.modal-bg{position:fixed;inset:0;background:#17271f73;z-index:40;display:flex;justify-content:flex-end}.drawer{width:min(520px,100%);height:100%;background:#fff;padding:22px;overflow:auto;box-shadow:-20px 0 40px #17271f25}.modal-bg{justify-content:center;align-items:center;padding:18px}.modal{width:min(760px,100%);max-height:94vh;overflow:auto;background:#fff;border-radius:24px;padding:23px;box-shadow:var(--shadow)}.drawer-head,.modal-head{display:flex;justify-content:space-between;align-items:center;position:sticky;top:-22px;background:#fff;padding:8px 0 14px;z-index:2}.close{border:0;background:#f1f2ef;width:38px;height:38px;border-radius:50%;font-size:20px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 13px}.span2{grid-column:1/-1}.accessory-box{border:1px solid #efc2c7;background:#fff8f8;border-radius:16px;padding:13px;margin-top:14px}.check{display:flex;gap:9px;align-items:center;font-weight:800;margin:8px 0}.check input{width:20px;height:20px}.thumbs{display:flex;gap:8px;overflow:auto}.thumbs img{width:100px;height:90px;object-fit:cover;border-radius:12px}.notice{padding:12px;border-radius:13px;background:#fff4db;color:#755319;margin:10px 0}.toast{position:fixed;right:18px;bottom:20px;z-index:80;background:#1c3b2e;color:white;padding:12px 16px;border-radius:13px;box-shadow:var(--shadow);max-width:340px}.toast.err{background:#963846}.loading{position:fixed;inset:0;z-index:90;background:#ffffffa8;backdrop-filter:blur(3px);display:grid;place-items:center;font-weight:900}.mobile-nav{display:none}.fab{position:fixed;right:24px;bottom:24px;z-index:25;border:0;background:var(--rose);color:#fff;border-radius:999px;padding:15px 20px;font-weight:900;box-shadow:0 12px 28px #a2314350}.empty{text-align:center;padding:34px;color:var(--muted)}@media(max-width:900px){.sidebar{display:none}.main{margin:0}.topbar{height:64px;padding:0 16px}.topbar h2{font-size:21px}.content{padding:16px 14px 100px}.stats{grid-template-columns:1fr 1fr}.mobile-nav{display:grid;grid-template-columns:repeat(5,1fr);position:fixed;z-index:30;bottom:0;left:0;right:0;padding:7px 5px calc(7px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line)}.mobile-nav button{border:0;background:transparent;font-size:10px;color:var(--muted);padding:6px 2px}.mobile-nav button.active{color:var(--sage);font-weight:900}.fab{right:15px;bottom:76px}.kanban{scroll-snap-type:x mandatory}.lane{min-width:84vw;scroll-snap-align:start}.form-grid{grid-template-columns:1fr}.span2{grid-column:auto}.drawer{padding:18px}.modal{padding:18px;border-radius:20px}.filters input,.filters select{min-width:0;flex:1}.topbar .actions .secondary{display:none}}@media(max-width:450px){.stats{gap:8px}.stat{padding:13px}.stat strong{font-size:20px}.order-grid{grid-template-columns:1fr}}
-.ops-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}.ops-tile{display:grid;grid-template-columns:84px 1fr;gap:13px;background:#fff;border:1px solid var(--line);border-radius:18px;padding:12px}.ops-tile.accessory{border-color:#df7883}.ops-thumb{width:84px;height:84px;border-radius:13px;object-fit:cover;background:var(--sage2)}.ops-lines{display:grid;grid-template-columns:1fr auto;gap:5px 10px}.copyable{cursor:pointer;border-radius:7px;padding:2px 4px;margin:-2px -4px}.copyable:hover,.copyable:active{background:var(--sage2);color:var(--sage)}.target-card{background:linear-gradient(145deg,#214b39,#386d53);color:#fff}.target-card small{color:#d9e8df}.progress{height:8px;background:#e8ece8;border-radius:99px;overflow:hidden;margin-top:9px}.progress>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),#f0cc7a);border-radius:inherit}.sales-kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}.sales-kpi-card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:17px;box-shadow:0 4px 16px #20332908}.kpi-head,.kpi-meta,.payout-row{display:flex;align-items:center;justify-content:space-between;gap:10px}.kpi-track{height:9px;background:#edf0ec;border-radius:99px;overflow:hidden;margin:7px 0 14px}.kpi-fill{height:100%;background:var(--sage);border-radius:99px}.kpi-fill.gold{background:var(--gold)}.payout-box{background:#f6f7f3;border-radius:14px;padding:11px;margin-top:12px}.payout-row{padding:5px 0}.payout-total{border-top:1px solid var(--line);margin-top:4px;padding-top:9px;color:var(--rose);font-weight:900}@media(max-width:600px){.ops-grid{grid-template-columns:1fr}.ops-tile{grid-template-columns:68px 1fr}.ops-thumb{width:68px;height:68px}}
-.stat strong,.topbar h2,.brand h1,.section h3{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}.stat strong{font-weight:800;letter-spacing:-.02em}.brand-copy{line-height:1.15}.brand-copy b{display:block;letter-spacing:.08em}.brand-copy small{font-size:10px;color:#a9c2b5;letter-spacing:.12em}
 
-/* ===== FAST V3 — no-white-flash + mobile safe UI + control table ===== */
-html,body{width:100%;max-width:100%;min-height:100%;overflow-x:hidden}body{min-height:100dvh}.app,.main{max-width:100%}.content{width:100%}
-.boot-splash{position:fixed;inset:0;z-index:95;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 20% 10%,#dbe9df,transparent 40%),radial-gradient(circle at 90% 90%,#f4dfe2,transparent 38%),var(--paper)}
-.boot-splash-card{display:flex;align-items:center;gap:13px;background:#ffffffee;border:1px solid #fff;border-radius:22px;padding:16px 20px;box-shadow:var(--shadow);font-weight:800;color:var(--sage)}
-.loading{background:#183b2d1f;backdrop-filter:blur(1px);place-items:start center;padding-top:calc(14px + env(safe-area-inset-top));color:var(--sage)}
-.loading-pill{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:10px 15px;box-shadow:0 8px 24px #183b2d22}
-.spinner{width:15px;height:15px;border:2px solid #b7c9bf;border-top-color:var(--sage);border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-.control-table{min-width:1080px}.control-table thead th{position:sticky;top:0;z-index:2}.control-table tbody tr{cursor:pointer}.control-table tbody tr:hover{background:#fbfcfa}.control-table .row-alert{box-shadow:inset 4px 0 var(--rose)}.control-table .flower-cell{max-width:280px;white-space:normal}.table-actions{display:flex;gap:6px;align-items:center;white-space:nowrap}.table-actions .btn{padding:7px 9px;font-size:11px}.status-cell .badge{font-size:10px}.nowrap{white-space:nowrap}
-.mobile-menu-sheet{width:min(520px,100%);background:#fff;border-radius:24px 24px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -14px 40px #17271f2b}.mobile-menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.mobile-menu-grid button{min-height:58px;text-align:left;display:flex;align-items:center;gap:10px}.mobile-menu-grid .menu-icon{font-size:20px;width:26px;text-align:center}
-@media(max-width:900px){
-  html,body{overflow-x:hidden}.main{margin:0;width:100%;min-width:0}.topbar{height:60px;padding:0 max(12px,env(safe-area-inset-right)) 0 max(12px,env(safe-area-inset-left));gap:10px}.topbar h2{font-size:19px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.topbar .actions{flex:0 0 auto}.topbar .actions .secondary,.topbar .actions .primary{display:none!important}
-  .content{padding:14px max(11px,env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) max(11px,env(safe-area-inset-left));overflow-x:hidden}.section-head{align-items:flex-start;gap:9px;flex-wrap:wrap}.section-head>div{min-width:0;max-width:100%}.section-head select,.section-head input{max-width:100%}
-  .filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;width:100%}.filters input,.filters select{width:100%;min-width:0}.filters input:nth-child(3){grid-column:1/-1}
-  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stat{min-width:0}.stat strong{overflow-wrap:anywhere}
-  .mobile-nav{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;overflow:visible!important;position:fixed;z-index:32;bottom:0;left:0;right:0;width:100%;padding:6px max(4px,env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(4px,env(safe-area-inset-left));background:#fff;border-top:1px solid var(--line);box-shadow:0 -7px 24px #1b302616}
-  .mobile-nav button{min-width:0!important;width:auto;flex:initial!important;border:0;background:transparent;font-size:9.5px;line-height:1.15;color:var(--muted);padding:5px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-nav button>div{font-size:18px!important;line-height:1.1;margin-bottom:2px}.mobile-nav button.active{color:var(--sage);font-weight:900}.mobile-nav .more-active{color:var(--sage);font-weight:900}
-  .fab{right:calc(12px + env(safe-area-inset-right));bottom:calc(72px + env(safe-area-inset-bottom));padding:12px 15px;max-width:calc(100vw - 24px);font-size:12px;z-index:31}
-  .kanban{max-width:100%;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}.lane{min-width:min(84vw,390px)}.ops-grid{max-width:100%}.ops-tile{min-width:0}.ops-tile>div{min-width:0}.ops-lines span{min-width:0;overflow-wrap:anywhere}
-  .table-wrap{width:100%;max-width:100%;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;border-radius:14px}.control-table{min-width:980px}.control-table th,.control-table td{padding:9px 10px;font-size:12px}
-  .drawer-bg{padding:0;align-items:stretch}.drawer{width:100%;max-width:100vw;height:100dvh;padding:calc(14px + env(safe-area-inset-top)) max(14px,env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));border-radius:0}.drawer-head{top:0;margin-top:calc(-14px - env(safe-area-inset-top));padding-top:calc(14px + env(safe-area-inset-top))}
-  .modal-bg{align-items:flex-end;justify-content:center;padding:0}.modal{width:100%;max-width:none;max-height:calc(100dvh - 6px);border-radius:22px 22px 0 0;padding:18px max(14px,env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}.modal-head{top:0;margin-top:-18px;padding-top:18px}.form-grid{grid-template-columns:1fr}.span2{grid-column:auto}.thumbs{max-width:100%;-webkit-overflow-scrolling:touch}
-  .toast{left:12px;right:12px;bottom:calc(80px + env(safe-area-inset-bottom));max-width:none;text-align:center}.loading{padding-top:calc(10px + env(safe-area-inset-top))}
+/* ===== STRIPE-INSPIRED "EXECUTIVE PRECISION" DESIGN SYSTEM ===== */
+:root {
+  /* Surfaces & Backgrounds */
+  --bg-app: #F7F8FA;
+  --bg-surface: #FFFFFF;
+  --bg-subtle: #FAFBFC;
+  --bg-hover: #F3F4F6;
+  --border: #E7E9EE;
+  --border-focus: #176B52;
+
+  /* Text Colors */
+  --text-primary: #111827;
+  --text-secondary: #4B5563;
+  --text-muted: #8A94A3;
+  --text-disabled: #B8C0CC;
+
+  /* Brand Meehoa Green */
+  --brand-green: #176B52;
+  --brand-green-hover: #12543F;
+  --brand-green-soft: #EAF5F0;
+  --brand-green-border: #C8E3D7;
+
+  /* Semantic Colors */
+  --success: #168A5B;
+  --success-bg: #EAF8F1;
+  --success-border: #B7E8D0;
+
+  --warning: #B7791F;
+  --warning-bg: #FFF6E5;
+  --warning-border: #FCE6B7;
+
+  --danger: #D14343;
+  --danger-bg: #FDECEC;
+  --danger-border: #F8B4B4;
+
+  --info: #356AE6;
+  --info-bg: #EDF3FF;
+  --info-border: #BBD2FD;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* Shadows - Minimalist */
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-overlay: 0 12px 32px rgba(16, 24, 40, 0.12), 0 2px 6px rgba(16, 24, 40, 0.04);
+
+  /* Legacy variable mappings to maintain full backward compatibility */
+  --ink: var(--text-primary);
+  --muted: var(--text-muted);
+  --paper: var(--bg-app);
+  --card: var(--bg-surface);
+  --sage: var(--brand-green);
+  --sage2: var(--brand-green-soft);
+  --rose: var(--danger);
+  --gold: var(--warning);
+  --line: var(--border);
+  --shadow: var(--shadow-card);
+  --r: 12px;
 }
-@media(max-width:430px){.login{padding:14px}.login-card{padding:25px 18px;border-radius:24px}.stats{gap:8px}.stat{padding:12px}.stat strong{font-size:19px}.filters{grid-template-columns:1fr}.filters input:nth-child(3){grid-column:auto}.mobile-menu-grid{grid-template-columns:1fr 1fr}.fab{padding:11px 13px}.content{padding-left:9px;padding-right:9px}}
 
-
-.login-error{margin-top:12px;padding:10px 12px;border-radius:12px;background:#fff0f1;color:#963846;font-size:12px;font-weight:700}.build-tag{margin-top:12px;text-align:center;font-size:10px;color:var(--muted)}.fatal-error{position:fixed;left:12px;right:12px;top:12px;z-index:120;background:#963846;color:#fff;padding:12px 14px;border-radius:14px;box-shadow:var(--shadow);font-size:12px;white-space:pre-wrap}
-
-/* ===== V7 RC2 — independent views, contextual loading, mobile debt ===== */
-.page-loading{display:grid;gap:12px}.skeleton{position:relative;overflow:hidden;background:#eceeea;border-radius:14px;min-height:72px}.skeleton:after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,#ffffffaa,transparent);animation:shimmer 1.1s infinite}@keyframes shimmer{100%{transform:translateX(100%)}}
-.page-loading .skeleton:first-child{min-height:42px}.page-status{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:12px;margin:6px 0 14px}.mini-spinner{width:14px;height:14px;border:2px solid #ccd6d0;border-top-color:var(--sage);border-radius:50%;animation:spin .75s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-.debt-mobile{display:none}.debt-card{background:#fff;border:1px solid var(--line);border-radius:17px;padding:14px}.debt-card .row{display:flex;justify-content:space-between;gap:10px;padding:5px 0}.debt-card .row span:first-child{color:var(--muted)}.debt-card .debt-amount{font-size:20px;font-weight:900;color:var(--rose)}
-.filter-label{font-size:10px;font-weight:900;color:var(--muted);letter-spacing:.06em;display:block;margin:0 0 3px}.filter-group{min-width:140px}.filter-group input,.filter-group select{width:100%}.filters .grow{flex:1;min-width:220px}.inline-note{font-size:12px;color:var(--muted);padding:8px 0}.pending-banner{background:#fff4d4;color:#765819;border:1px solid #ecd699;border-radius:13px;padding:11px;margin:10px 0}.rejected-banner{background:#fff0f1;color:#8e3440;border:1px solid #efc5ca;border-radius:13px;padding:11px;margin:10px 0}.field-loading{opacity:.6;pointer-events:none}.order-detail-loading{min-height:100px;display:grid;place-items:center;color:var(--muted)}
-@media(max-width:760px){.debt-desktop{display:none!important}.debt-mobile{display:grid;gap:10px}.filters{display:grid;grid-template-columns:1fr 1fr}.filters .grow,.filters .filter-group{min-width:0}.filters .grow{grid-column:1/-1}.filters input,.filters select{width:100%}.settlement-card .thumbs img{width:82px;height:74px}.section-head{align-items:flex-start;gap:10px;flex-wrap:wrap}}
-
-
-/* ===== PHASE 2 — BUSINESS LOGIC & OPERATIONAL FIT ===== */
-.badge.status-wait{background:#fbe7eb;color:#a63d4d}.badge.status-packed{background:#e3f1e7;color:#2f684d}.badge.status-delivered{background:#ecefed;color:#65706a}
-.lane.lane-wait{background:#fff2f4}.lane.lane-packed{background:#edf7f0}.lane.lane-delivered{background:#f1f3f2}
-.date-filter-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:18px}.date-filter-btn{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:13px;padding:10px 13px;font-weight:800;color:var(--ink)}
-.calendar-modal{width:min(430px,100%)}.calendar-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.calendar-head strong{font-size:16px}.calendar-nav{border:0;background:var(--sage2);color:var(--sage);border-radius:11px;width:38px;height:38px;font-weight:900}
-.calendar-shortcuts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.calendar-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}.calendar-dow{text-align:center;color:var(--muted);font-size:11px;font-weight:800;padding:5px 0}.calendar-day{border:0;background:#f7f8f5;border-radius:10px;min-height:42px;font-weight:700;color:var(--ink)}.calendar-day.out{opacity:.28}.calendar-day.selected{background:var(--sage);color:#fff}.calendar-day.in-range{background:var(--sage2);color:var(--sage)}.calendar-day.today{box-shadow:inset 0 0 0 2px #8eb19d}
-.calendar-selection{background:#f7f8f5;border:1px solid var(--line);border-radius:13px;padding:10px 12px;margin-top:12px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}.calendar-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
-.debt-breakdown{display:grid;gap:2px;margin-top:4px;font-size:10.5px;color:var(--rose);white-space:normal}.sheet-table{min-width:1320px}.sheet-table td{vertical-align:top}.sheet-table .note-cell{max-width:260px;white-space:normal}.sheet-table .address-cell{max-width:230px;white-space:normal}.sheet-table tbody tr{cursor:pointer}.sheet-table tbody tr:hover{background:#fbfcfa}
-.attention-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}.attention-box{background:#fff;border:1px solid var(--line);border-radius:18px;padding:14px}.attention-box h3{font-size:16px}.attention-box.urgent{border-color:#efc0c8}.attention-box.overdue{border-color:#d5ddd8}
-.production-filter{display:flex;justify-content:space-between;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.ops-tile .order-actions{grid-column:1/-1}.status-next{white-space:nowrap}
-@media(max-width:900px){.attention-columns{grid-template-columns:1fr}.calendar-modal{border-radius:22px 22px 0 0}.sheet-table{min-width:1180px}.date-filter-bar{margin-bottom:12px}.date-filter-btn{width:100%;justify-content:center}}
-
-
-/* ===== STAGE 1 UAT FEEDBACK — scoped UI only ===== */
-.lane.lane-wait{background:#fde6ea}.lane.lane-packed{background:#e0f1e5}.lane.lane-delivered{background:#e7ebe9}
-.order-preview{width:100%;height:118px;object-fit:cover;border-radius:12px;margin:9px 0 6px;background:#eef2ef;display:block}
-.ops-thumb-wrap{width:84px;height:84px;border-radius:13px;overflow:hidden;background:var(--sage2);display:grid;place-items:center;font-size:28px}.ops-thumb-wrap img{width:100%;height:100%;object-fit:cover}
-.sample-with-thumb{display:grid;grid-template-columns:54px minmax(0,1fr);gap:9px;align-items:start}.table-thumb{width:54px;height:54px;border-radius:9px;object-fit:cover;background:#eef2ef}.table-thumb-empty{display:grid;place-items:center;color:#789084;font-size:20px}
-.multiline{white-space:pre-line}.orders-ship-note{display:block;margin-top:3px;color:#c73749;font-size:10.5px;font-weight:800}
-@media(max-width:900px){.mobile-nav{grid-template-columns:repeat(var(--mobile-count,5),minmax(0,1fr))!important}.order-preview{height:105px}.fab{bottom:calc(72px + env(safe-area-inset-bottom))}}
-@media(max-width:600px){.ops-thumb-wrap{width:68px;height:68px}.sample-with-thumb{grid-template-columns:48px minmax(0,1fr)}.table-thumb{width:48px;height:48px}}
-
-/* ===== UAT HOTFIX 1 — transient read retry + mobile Kanban frame ===== */
-@media(max-width:900px){
-  .kanban{display:flex!important;grid-template-columns:none!important;gap:10px;width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory!important;scroll-padding-inline:0;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
-  .kanban>.lane{flex:0 0 100%!important;width:100%!important;min-width:100%!important;max-width:100%!important;scroll-snap-align:start;scroll-snap-stop:always}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
+body { min-height: 100dvh; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+.hidden { display: none !important; }
+
+/* Form inputs */
+.input, input, select, textarea {
+  width: 100%;
+  height: 38px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  outline: none;
+  font-size: 13.5px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+textarea {
+  height: auto;
+  min-height: 76px;
+  resize: vertical;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--brand-green);
+  box-shadow: 0 0 0 3px rgba(23, 107, 82, 0.14);
+}
+label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 12px 0 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.btn:hover {
+  background: var(--bg-hover);
+  border-color: #D1D5DB;
+}
+.btn.primary {
+  background: var(--brand-green);
+  border-color: var(--brand-green);
+  color: #FFFFFF;
+}
+.btn.primary:hover {
+  background: var(--brand-green-hover);
+  border-color: var(--brand-green-hover);
+}
+.btn.secondary {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+.btn.danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+.btn.gold {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.full { width: 100%; }
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-full);
+  padding: 3px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: var(--brand-green-soft);
+  color: var(--brand-green);
+  white-space: nowrap;
+}
+.badge.red { background: var(--danger-bg); color: var(--danger); }
+.badge.gold { background: var(--warning-bg); color: var(--warning); }
+.badge.info { background: var(--info-bg); color: var(--info); }
+.badge.status-wait { background: var(--danger-bg); color: var(--danger); }
+.badge.status-packed { background: var(--info-bg); color: var(--info); }
+.badge.status-delivered { background: var(--success-bg); color: var(--success); }
+
+/* App Shell */
+.app {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-app);
+}
+
+/* Sidebar */
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 224px;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 25;
+  padding: 16px 12px;
+}
+.sidebar .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #FFFFFF;
+  background: var(--brand-green);
+  font-size: 16px;
+  font-weight: 700;
+}
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+}
+.brand-copy b {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.brand-copy small {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+}
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  overflow-y: auto;
+}
+.nav button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: all 0.12s ease;
+}
+.nav button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.nav button.active {
+  background: var(--brand-green-soft);
+  color: var(--brand-green);
+  font-weight: 600;
+}
+.side-user {
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.side-user-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: var(--brand-green-soft);
+  color: var(--brand-green);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.user-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.user-info b {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.user-info span, .user-info div.sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Main Content & Topbar */
+.main {
+  margin-left: 224px;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+.topbar {
+  height: 60px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  gap: 16px;
+}
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  max-width: 480px;
+}
+.topbar h2 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-primary);
+  display: none;
+}
+.topbar-search {
+  position: relative;
+  width: 100%;
+}
+.topbar-search svg {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.topbar-search input {
+  height: 36px;
+  padding-left: 34px;
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+.topbar-search input:focus {
+  background: #FFFFFF;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.content {
+  padding: 24px 28px 100px;
+  max-width: 1600px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Stat & KPI Cards */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.stat-grid-5 {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.stat {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 16px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+}
+.stat small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.stat strong {
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.stat span.sub {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 6px;
+  line-height: 1.3;
+}
+
+/* Dashboard Layout */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 7fr 3fr;
+  gap: 20px;
+  align-items: start;
+}
+.attention-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.attention-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 16px;
+}
+.attention-box.urgent { border-left: 3px solid var(--danger); }
+.attention-box.overdue { border-left: 3px solid var(--warning); }
+
+/* Tables */
+.table-wrap {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: auto;
+  box-shadow: var(--shadow-card);
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+th, td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 13.5px;
+}
+th {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--bg-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+tbody tr {
+  transition: background 0.12s ease;
+  cursor: pointer;
+}
+tbody tr:hover {
+  background: #F9FAFB;
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+.control-table { min-width: 1080px; }
+.control-table tbody tr.row-alert { box-shadow: inset 3px 0 var(--danger); }
+.sheet-table { min-width: 1180px; }
+.nowrap { white-space: nowrap; }
+.multiline { white-space: pre-line; }
+
+/* Status Tabs */
+.status-filter-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 0 14px;
+  -webkit-overflow-scrolling: touch;
+}
+.status-pill {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  border-radius: var(--radius-full);
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.status-pill:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.status-pill.active {
+  background: var(--brand-green);
+  border-color: var(--brand-green);
+  color: #FFFFFF;
+}
+
+/* Modals & Drawers */
+.drawer-bg, .modal-bg {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 50;
+  display: flex;
+}
+.drawer-bg { justify-content: flex-end; }
+.modal-bg { justify-content: center; align-items: center; padding: 18px; }
+
+.drawer {
+  width: min(560px, 100vw);
+  height: 100%;
+  background: var(--bg-surface);
+  padding: 24px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-overlay);
+  display: flex;
+  flex-direction: column;
+}
+.modal {
+  width: min(640px, 100%);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  box-shadow: var(--shadow-overlay);
+  border: 1px solid var(--border);
+}
+.drawer-head, .modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: -24px;
+  background: var(--bg-surface);
+  z-index: 5;
+}
+.close {
+  border: 0;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  transition: all 0.15s ease;
+}
+.close:hover {
+  background: #E5E7EB;
+  color: var(--text-primary);
+}
+
+/* Orders & Samples */
+.sample-with-thumb {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.table-thumb {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #EEF2EF;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.table-thumb-empty {
+  display: grid;
+  place-items: center;
+  color: #789084;
+  font-size: 16px;
+}
+.order-preview {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: var(--radius-lg);
+  margin: 8px 0;
+  background: #EEF2EF;
+  border: 1px solid var(--border);
+}
+.thumbs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+.thumbs img {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+/* Production Kanban & Grid */
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(260px, 1fr));
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+}
+.lane {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 12px;
+  min-height: 320px;
+}
+.lane-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  padding: 4px 6px 12px;
+}
+.order {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow-card);
+  margin-bottom: 10px;
+  transition: transform 0.12s ease;
+}
+.order:hover {
+  transform: translateY(-1px);
+}
+.order.accessory {
+  border-left: 3px solid var(--warning);
+}
+.order.urgent {
+  border-left: 3px solid var(--danger);
+}
+.order-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.order h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.meta {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  margin: 6px 0;
+}
+.order-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.order-actions .btn {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.ops-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 12px;
+}
+.ops-tile {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 12px;
+  box-shadow: var(--shadow-card);
+}
+.ops-thumb-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--brand-green-soft);
+  display: grid;
+  place-items: center;
+}
+.ops-thumb-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ops-lines {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  font-size: 13px;
+}
+
+/* Receivables & Debt */
+.debt-mobile { display: none; }
+.debt-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.debt-card .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.debt-card .row span:first-child { color: var(--text-muted); }
+.debt-card .debt-amount {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--danger);
+}
+.debt-breakdown {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--danger);
+}
+.orders-ship-note {
+  display: block;
+  margin-top: 3px;
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* KPI Bonus */
+.sales-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 14px;
+}
+.sales-kpi-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 18px;
+  box-shadow: var(--shadow-card);
+}
+.kpi-head, .kpi-meta, .payout-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.kpi-track {
+  height: 8px;
+  background: #E5E7EB;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin: 6px 0 12px;
+}
+.kpi-fill {
+  height: 100%;
+  background: var(--brand-green);
+  border-radius: var(--radius-full);
+}
+.kpi-fill.gold { background: var(--warning); }
+.payout-box {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  margin-top: 14px;
+}
+.payout-row { padding: 4px 0; font-size: 13px; }
+.payout-total {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 8px;
+  color: var(--danger);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* Filters & Date Picker */
+.date-filter-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.date-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  height: 36px;
+}
+.calendar-modal { width: min(420px, 100%); }
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.calendar-head strong { font-size: 15px; font-weight: 700; }
+.calendar-nav {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  width: 32px;
+  height: 32px;
+  font-weight: 700;
+}
+.calendar-shortcuts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 10px 0;
+}
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.calendar-dow {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 0;
+}
+.calendar-day {
+  border: 0;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  min-height: 38px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.calendar-day.out { opacity: 0.3; }
+.calendar-day.selected {
+  background: var(--brand-green);
+  color: #FFFFFF;
+}
+.calendar-day.in-range {
+  background: var(--brand-green-soft);
+  color: var(--brand-green);
+}
+.calendar-day.today {
+  box-shadow: inset 0 0 0 2px var(--brand-green);
+}
+.calendar-selection {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+}
+.calendar-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* Modals & Forms Grid */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+}
+.span2 { grid-column: 1 / -1; }
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+  margin: 8px 0;
+  font-size: 13.5px;
+}
+.check input { width: 18px; height: 18px; }
+.notice {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  color: var(--warning);
+  font-size: 13px;
+  margin: 10px 0;
+}
+.copyable {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  display: inline-block;
+}
+.copyable:hover {
+  background: var(--brand-green-soft);
+  color: var(--brand-green);
+}
+
+/* Toast & Loading */
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 100;
+  background: #111827;
+  color: #FFFFFF;
+  padding: 12px 18px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  max-width: 360px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.toast.err { background: var(--danger); }
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+}
+.loading-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #FFFFFF;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 10px 18px;
+  box-shadow: var(--shadow-overlay);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--brand-green);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Skeleton */
+.page-loading { display: grid; gap: 12px; }
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #E5E7EB;
+  border-radius: var(--radius-md);
+  min-height: 60px;
+}
+.skeleton:after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+  animation: shimmer 1.2s infinite;
+}
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.mini-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--brand-green);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.page-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 6px 0 14px;
+}
+
+/* Login Screen */
+.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--bg-app);
+}
+.login-card {
+  width: min(400px, 100%);
+  background: #FFFFFF;
+  padding: 36px 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-overlay);
+}
+.login-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.fatal-error {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  z-index: 120;
+  background: var(--danger);
+  color: #FFFFFF;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+
+/* Boot Splash */
+.boot-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg-app);
+}
+.boot-splash-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #FFFFFF;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 16px 22px;
+  box-shadow: var(--shadow-overlay);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Mobile Navigation */
+.mobile-nav { display: none; }
+.fab {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 35;
+  border: 0;
+  background: var(--brand-green);
+  color: #FFFFFF;
+  border-radius: var(--radius-full);
+  padding: 12px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(23, 107, 82, 0.4);
+}
+
+/* Responsive Overrides */
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; width: 100%; min-width: 0; }
+  .topbar {
+    height: 56px;
+    padding: 0 14px;
+    gap: 10px;
+  }
+  .topbar-left { max-width: none; }
+  .topbar .actions .btn.secondary { display: none; }
+  .topbar-user { display: none !important; }
+  .content {
+    padding: 16px 14px calc(90px + env(safe-area-inset-bottom));
+  }
+  .stat-grid-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-grid { grid-template-columns: 1fr; }
+  .attention-columns { grid-template-columns: 1fr; }
+  .mobile-nav {
+    display: grid !important;
+    grid-template-columns: repeat(var(--mobile-count, 5), minmax(0, 1fr)) !important;
+    position: fixed;
+    z-index: 32;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+    background: #FFFFFF;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.05);
+  }
+  .mobile-nav button {
+    border: 0;
+    background: transparent;
+    font-size: 10px;
+    line-height: 1.2;
+    color: var(--text-muted);
+    padding: 4px 2px;
+    text-align: center;
+  }
+  .mobile-nav button > div {
+    font-size: 17px !important;
+    line-height: 1.1;
+    margin-bottom: 2px;
+  }
+  .mobile-nav button.active {
+    color: var(--brand-green);
+    font-weight: 700;
+  }
+  .fab {
+    bottom: calc(68px + env(safe-area-inset-bottom));
+  }
+  .kanban {
+    display: flex !important;
+    grid-template-columns: none !important;
+    gap: 10px;
+    width: 100%;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .kanban > .lane {
+    flex: 0 0 100% !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+  .drawer {
+    width: 100%;
+    max-width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    padding: calc(14px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom));
+  }
+  .modal-bg {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .modal {
+    width: 100%;
+    max-width: none;
+    border-radius: 20px 20px 0 0;
+    padding: 20px 14px calc(24px + env(safe-area-inset-bottom));
+  }
+  .debt-desktop { display: none !important; }
+  .debt-mobile { display: grid; gap: 8px; }
+  .form-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 450px) {
+  .stat-grid-5 { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: 1fr; }
+}
+
 </style></head><body><script>
 (function(){
   function earlyFatal(msg){
@@ -89,7 +1237,52 @@ html,body{width:100%;max-width:100%;min-height:100%;overflow-x:hidden}body{min-h
 <div id="bootSplash" class="boot-splash hidden"><div class="boot-splash-card"><div class="brand-mark">M</div><div><div>MEEHOASG</div><small id="bootSplashText" class="sub">Đang mở dữ liệu hôm nay…</small></div></div></div>
 <div id="loading" class="loading hidden"><div class="loading-pill"><span class="spinner"></span><span id="loadingText">Đang xử lý…</span></div></div><div id="toast" class="toast hidden"></div>
 <section id="login" class="login"><div class="login-card"><div style="text-align:center"><div class="brand-mark" style="margin:auto">M</div><h2 style="margin:12px 0 2px">Welcome Meehoa</h2><div class="sub">Đăng nhập hệ thống vận hành</div></div><label>Tài khoản</label><input id="loginUser" autocomplete="username" required onkeydown="MEEOPS7.loginKeydown(event)"><label>Mật khẩu</label><input id="loginPass" type="password" autocomplete="current-password" required onkeydown="MEEOPS7.loginKeydown(event)"><button id="loginBtn" type="button" class="btn primary full" style="margin-top:20px" onclick="MEEOPS7.signIn()">Đăng nhập</button><div id="loginError" class="login-error hidden"></div></div></section>
-<div id="app" class="app hidden"><aside class="sidebar"><div class="brand"><div class="brand-mark">M</div><div class="brand-copy"><b>MEEHOASG</b><small>DASHBOARD OPS</small></div></div><nav id="nav" class="nav"></nav><div class="side-user"><b id="userName"></b><div id="userRole" class="sub"></div><div style="font-size:9px;opacity:.55;margin-top:3px">2026.09.21-v7-r2-optimized4-mapping-fix1</div><button class="btn full" style="margin-top:10px" onclick="MEEOPS7.signOut()">Đăng xuất</button></div></aside><main class="main"><header class="topbar"><h2 id="pageTitle">Dashboard</h2><div class="actions"><button class="btn secondary" onclick="MEEOPS7.refreshPage()">↻ Làm mới</button><button class="btn primary" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button></div></header><div id="content" class="content"></div></main><nav id="mobileNav" class="mobile-nav"></nav><button class="fab" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button></div><div id="overlay"></div>
+
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">M</div>
+      <div class="brand-copy">
+        <b>MEEHOASG</b>
+        <small>OPERATIONS</small>
+      </div>
+    </div>
+    <nav id="nav" class="nav"></nav>
+    <div class="side-user">
+      <div class="side-user-card">
+        <div class="user-avatar" id="userAvatar">M</div>
+        <div class="user-info">
+          <b id="userName"></b>
+          <div id="userRole" class="sub"></div>
+        </div>
+      </div>
+      <button class="btn secondary full" style="font-size:12px;padding:6px 10px;height:32px" onclick="MEEOPS7.signOut()">Đăng xuất</button>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h2 id="pageTitle">Dashboard</h2>
+        <div class="topbar-search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="globalSearchInput" placeholder="Tìm đơn hàng, khách hàng, số điện thoại…" oninput="MEEOPS7.globalSearch(this.value)">
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn secondary" onclick="MEEOPS7.refreshPage()" title="Làm mới dữ liệu">↻ Làm mới</button>
+        <button class="btn primary" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button>
+        <div class="topbar-user" id="topbarUser" style="display:flex;align-items:center;gap:8px;padding-left:8px;border-left:1px solid var(--border)">
+          <div class="user-avatar" id="topbarUserAvatar" style="width:28px;height:28px;font-size:12px">M</div>
+          <span id="topbarUserName" style="font-weight:600;font-size:13px;color:var(--text-primary)"></span>
+        </div>
+      </div>
+    </header>
+    <div id="content" class="content"></div>
+  </main>
+  <nav id="mobileNav" class="mobile-nav"></nav>
+  <button class="fab" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button>
+</div>
+<div id="overlay"></div>
 <script>window.__MEE_BOOT_STAGE__='before-main';</script>
 <script>
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
@@ -175,7 +1368,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         data: { dashboard: null, production: null, orders: null, debt: null, payment: null, kpi: {}, flowers: {}, admin: null },
         cache: new Map(), orders: new Map(), detailAt: new Map(), activeLoads: {}, loadSeq: {}, viewAt: {}, currentDrawer: '', adminAt: 0, dirty: new Set(), perf: { buffer: [], flushTimer: null, flushing: false }
     };
-    var pages = [['dashboard', 'Dashboard', '⌂'], ['production', 'Florist View', '✿'], ['orders', 'Đơn hàng', '▦'], ['debt', 'Đối soát công nợ', '₫'], ['payment', 'Payment Check', '✓'], ['kpi', 'KPI Bonus', '★'], ['flowers', 'Chuẩn bị hoa', '❀'], ['admin', 'Quản trị', '⚙']];
+    var pages = [['dashboard', 'Tổng quan', '⌂'], ['production', 'Sản xuất', '✿'], ['orders', 'Đơn hàng', '▦'], ['debt', 'Công nợ', '₫'], ['payment', 'Payment Check', '✓'], ['kpi', 'Báo cáo / KPI', '★'], ['flowers', 'Nguyên liệu', '❀'], ['admin', 'Cài đặt', '⚙']];
     function gasOnce(name, p) {
         if (p === void 0) { p = {}; }
         var timeoutMs = name === 'getFlowerInventory' ? 90000 : 30000;
@@ -328,12 +1521,27 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         signIn();
     } }
             function signOut() { storageRemove('mee_token'); S.token = ''; location.reload(); }
-            function buildNav() { if (!S.user)
-        return; document.getElementById('userName').textContent = S.user.name; document.getElementById('userRole').textContent = roleName(S.user.role); var allowed = pages.filter(function (p) { return pageAllowed(p[0]); }), nav = document.getElementById('nav'), mn = document.getElementById('mobileNav'); if (nav)
-        nav.innerHTML = allowed.map(function (p) { return "<button data-p=\"".concat(p[0], "\" onclick=\"MEEOPS7.go('").concat(p[0], "')\">").concat(p[2], "\u3000").concat(p[1], "</button>"); }).join(''); if (mn) {
-        var main_1 = ['dashboard', 'production', 'orders', 'debt'], primary = allowed.filter(function (p) { return main_1.includes(p[0]); }), extra = allowed.filter(function (p) { return !main_1.includes(p[0]); });
-        mn.innerHTML = primary.map(function (p) { return "<button data-p=\"".concat(p[0], "\" onclick=\"MEEOPS7.go('").concat(p[0], "')\"><div>").concat(p[2], "</div>").concat(p[1], "</button>"); }).join('') + (extra.length ? "<button id=\"mobileMoreBtn\" onclick=\"MEEOPS7.openMobileMore()\"><div>\u2630</div>Th\u00EAm</button>" : ''); mn.style.setProperty('--mobile-count',String(Math.max(1,mn.children.length)));
-    } }
+            function buildNav() {
+  if (!S.user) return;
+  var un = document.getElementById('userName'); if (un) un.textContent = S.user.name;
+  var ur = document.getElementById('userRole'); if (ur) ur.textContent = roleName(S.user.role);
+  var ua = document.getElementById('userAvatar'); if (ua) ua.textContent = (S.user.name || 'M').charAt(0).toUpperCase();
+  var tun = document.getElementById('topbarUserName'); if (tun) tun.textContent = S.user.name;
+  var tua = document.getElementById('topbarUserAvatar'); if (tua) tua.textContent = (S.user.name || 'M').charAt(0).toUpperCase();
+  var allowed = pages.filter(function (p) { return pageAllowed(p[0]); }), nav = document.getElementById('nav'), mn = document.getElementById('mobileNav');
+  if (nav) {
+    nav.innerHTML = allowed.map(function (p) {
+      return '<button data-p="' + p[0] + '" onclick="MEEOPS7.go(\'' + p[0] + '\')"><span style="font-size:16px;width:20px;text-align:center">' + p[2] + '</span><span>' + p[1] + '</span></button>';
+    }).join('');
+  }
+  if (mn) {
+    var main_1 = ['dashboard', 'production', 'orders', 'debt'], primary = allowed.filter(function (p) { return main_1.includes(p[0]); }), extra = allowed.filter(function (p) { return !main_1.includes(p[0]); });
+    mn.innerHTML = primary.map(function (p) {
+      return '<button data-p="' + p[0] + '" onclick="MEEOPS7.go(\'' + p[0] + '\')"><div>' + p[2] + '</div>' + p[1] + '</button>';
+    }).join('') + (extra.length ? '<button id="mobileMoreBtn" onclick="MEEOPS7.openMobileMore()"><div>☰</div>Thêm</button>' : '');
+    mn.style.setProperty('--mobile-count', String(Math.max(1, mn.children.length)));
+  }
+}
     function openMobileMore() { var main = ['dashboard', 'production', 'orders', 'debt'], extra = pages.filter(function (p) { return pageAllowed(p[0]) && !main.includes(p[0]); }), ov = document.getElementById('overlay'); if (!ov)
         return; ov.innerHTML = "<div class=\"modal-bg\" onclick=\"if(event.target===this)MEEOPS7.closeOverlay()\"><div class=\"mobile-menu-sheet\"><div class=\"section-head\"><h3 style=\"margin:0\">Danh m\u1EE5c kh\u00E1c</h3><button class=\"close\" onclick=\"MEEOPS7.closeOverlay()\">\u00D7</button></div><div class=\"mobile-menu-grid\">".concat(extra.map(function (p) { return "<button class=\"btn\" onclick=\"MEEOPS7.closeOverlay();MEEOPS7.go('".concat(p[0], "')\"><span class=\"menu-icon\">").concat(p[2], "</span><span>").concat(p[1], "</span></button>"); }).join(''), "</div></div></div>"); }
     function markMobileMore() { var b = document.getElementById('mobileMoreBtn'); if (b)
@@ -947,19 +2155,62 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function multiline(s){return esc(s).replace(/\r?\n/g,'<br>');}
     function firstImage(o,size){var a=o&&o.imageUrls||[];return a.length?imageSrc(a[0],size||320):'';}
     function orderPreview(o){var u=firstImage(o,480);return u?'<img class="order-preview" src="'+attr(u)+'" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)">':'';}
-    function tableSample(o){var u=firstImage(o,180),thumb=u?'<img class="table-thumb" src="'+attr(u)+'" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)">':'<span class="table-thumb table-thumb-empty">✿</span>';return '<div class="sample-with-thumb">'+thumb+'<div><b class="multiline">'+multiline(o.flower)+'</b>'+(o.note?'<br><span class="sub multiline">'+multiline(o.note)+'</span>':'')+(o.hasAccessories?'<br><span class="badge red">CÓ PHỤ KIỆN</span>':'')+'</div></div>';}
+    function tableSample(o) {
+  var u = firstImage(o, 180),
+      thumb = u ? '<img class="table-thumb" src="' + attr(u) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)">'
+                : '<span class="table-thumb table-thumb-empty">✿</span>';
+  return '<div class="sample-with-thumb">' + thumb + '<div style="min-width:0">' +
+    '<div class="multiline" style="font-weight:600;color:var(--text-primary)">' + multiline(o.flower) + '</div>' +
+    (o.note ? '<div class="sub multiline" style="font-size:12px;color:var(--text-muted);margin-top:2px">' + multiline(o.note) + '</div>' : '') +
+    (o.hasAccessories ? '<span class="badge gold" style="font-size:10px;margin-top:4px">CÓ PHỤ KIỆN</span>' : '') +
+  '</div></div>';
+}
     function ordersDebtNotes(o){var x=[];if(o.card)x.push('+10.000đ thiệp');if(o.banner)x.push('+35.000đ banner');if(Number(o.charmFee))x.push('+'+vnd(o.charmFee)+' charm');if(Number(o.paperFee))x.push('+'+vnd(o.paperFee)+' thay giấy');if(Number(o.vat))x.push('+'+vnd(o.vat)+' VAT');var html=x.length?'<div class="debt-breakdown">'+x.map(esc).join('<br>')+'</div>':'';if(isShop(o.shipping))html+='<span class="orders-ship-note">+phí ship</span>';return html;}
     function shipFeeAction(o){return o&&o.canShip&&isShop(o.shipping)?'<button class="btn" onclick="MEEOPS7.openShipFeeForm(\''+o.id+'\')">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</button>':'';}
 
-    function card(o,select){
-        if(select===void 0)select=false;
-        var next=nextStatusValue(o.status),prev=previousStatusValue(o.status), check=select&&canOps()?'<input type="checkbox" style="width:18px" '+(S.selected.has(o.id)?'checked':'')+' onchange="MEEOPS7.togglePick(\''+o.id+'\',this.checked)"> ':'';
-        return '<article class="order '+(o.hasAccessories?'accessory':'')+'"><div class="order-top"><div>'+check+'<h4 style="display:inline">'+esc(o.customer)+'</h4></div><span class="badge '+statusClass(o.status)+'">'+esc(o.status)+'</span></div><div class="meta">'+dateVN(o.date)+' · '+esc(timeVN(o.time))+' · '+esc(o.sale)+'</div>'+(select?orderPreview(o):'')+'<div class="multiline">'+multiline(o.flower)+'</div>'+(o.hasAccessories?'<div class="badge red" style="margin-top:8px">CÓ PHỤ KIỆN</div>':'')+'<div class="order-top" style="margin-top:10px"><span class="money">'+vnd(o.flowerTotal)+'</span><span class="sub">Nợ '+vnd(o.debt)+'</span></div><div class="order-actions"><button class="btn" onclick="MEEOPS7.openDrawer(\''+o.id+'\',\'production\')">Chi tiết</button>'+(o.canOperate&&prev?'<button class="btn" onclick="MEEOPS7.changeStatus(\''+o.id+'\',\''+prev+'\')">← '+esc(prev)+'</button>':'')+(o.canOperate&&next?'<button class="btn primary status-next" onclick="MEEOPS7.changeStatus(\''+o.id+'\',\''+next+'\')">'+esc(next)+' →</button>':'')+'</div></article>';
-    }
-    function opsTile(o){
-        var next=nextStatusValue(o.status),prev=previousStatusValue(o.status);
-        var u=firstImage(o,240),thumb=u?'<img src="'+attr(u)+'" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)">':'✿';return '<article class="ops-tile '+(o.hasAccessories?'accessory':'')+'"><div class="ops-thumb-wrap">'+thumb+'</div><div><div class="order-top"><b>'+esc(timeVN(o.time))+' · '+esc(o.customer)+'</b><span class="badge '+statusClass(o.status)+'">'+esc(o.status)+'</span></div><div class="meta" style="margin:4px 0">'+dateVN(o.date)+' · '+esc(o.sale)+'</div><div class="ops-lines"><span class="multiline">'+multiline(o.flower)+'</span><b>'+vnd(o.flowerTotal)+'</b><span>☎ '+(esc(o.phone)||'—')+'</span><span style="color:'+(o.debt?'var(--rose)':'var(--sage)')+'">Nợ '+vnd(o.debt)+'</span></div>'+(o.hasAccessories?'<span class="badge red">CÓ PHỤ KIỆN</span>':'')+'</div><div class="order-actions"><button class="btn" onclick="MEEOPS7.openDrawer(\''+o.id+'\',\'production\')">Chi tiết</button>'+(o.canOperate&&prev?'<button class="btn" onclick="MEEOPS7.changeStatus(\''+o.id+'\',\''+prev+'\')">← '+esc(prev)+'</button>':'')+(o.canOperate&&next?'<button class="btn primary status-next" onclick="MEEOPS7.changeStatus(\''+o.id+'\',\''+next+'\')">'+esc(next)+' →</button>':'')+'</div></article>';
-    }
+    function card(o, select) {
+  if (select === void 0) select = false;
+  var next = nextStatusValue(o.status), prev = previousStatusValue(o.status);
+  var check = select && canOps() ? '<input type="checkbox" style="width:18px;height:18px;cursor:pointer" ' + (S.selected.has(o.id) ? 'checked' : '') + ' onchange="MEEOPS7.togglePick(\'' + o.id + '\',this.checked)"> ' : '';
+  var isUrgent = dashboardAttentionKind(o) || o.hasAccessories;
+  return '<article class="order ' + (isUrgent ? 'urgent' : '') + ' ' + (o.hasAccessories ? 'accessory' : '') + '">' +
+    '<div class="order-top">' +
+      '<div style="display:flex;align-items:center;gap:6px">' + check + '<h4 style="margin:0;font-size:14.5px;font-weight:600">' + esc(o.customer) + '</h4></div>' +
+      '<span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' +
+    '</div>' +
+    '<div class="meta" style="font-size:12px;margin:4px 0">' + dateVN(o.date) + ' · <b>' + esc(timeVN(o.time)) + '</b> · ' + esc(o.sale) + '</div>' +
+    (select ? orderPreview(o) : '') +
+    '<div class="multiline" style="font-size:13px;line-height:1.4">' + multiline(o.flower) + '</div>' +
+    (o.hasAccessories ? '<div class="badge gold" style="margin-top:6px;font-size:10.5px">CÓ PHỤ KIỆN</div>' : '') +
+    '<div class="order-top" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">' +
+      '<span class="money" style="font-weight:700;color:var(--text-primary)">' + vnd(o.flowerTotal) + '</span>' +
+      '<span class="sub" style="font-size:12px;color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + (o.debt ? 'Nợ ' + vnd(o.debt) : 'Đã tất toán') + '</span>' +
+    '</div>' +
+    '<div class="order-actions">' +
+      '<button class="btn secondary" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'production\')">Chi tiết</button>' +
+      (o.canOperate && prev ? '<button class="btn secondary" onclick="MEEOPS7.changeStatus(\'' + o.id + '\',\'' + prev + '\')">← ' + esc(prev) + '</button>' : '') +
+      (o.canOperate && next ? '<button class="btn primary status-next" onclick="MEEOPS7.changeStatus(\'' + o.id + '\',\'' + next + '\')">' + esc(next) + ' →</button>' : '') +
+    '</div>' +
+  '</article>';
+}
+function opsTile(o) {
+  var next = nextStatusValue(o.status), prev = previousStatusValue(o.status);
+  var u = firstImage(o, 240), thumb = u ? '<img src="' + attr(u) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)">' : '✿';
+  return '<article class="ops-tile ' + (o.hasAccessories ? 'accessory' : '') + '">' +
+    '<div class="ops-thumb-wrap">' + thumb + '</div>' +
+    '<div>' +
+      '<div class="order-top"><b>' + esc(timeVN(o.time)) + ' · ' + esc(o.customer) + '</b><span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></div>' +
+      '<div class="meta" style="margin:4px 0">' + dateVN(o.date) + ' · ' + esc(o.sale) + '</div>' +
+      '<div class="ops-lines"><span class="multiline">' + multiline(o.flower) + '</span><b>' + vnd(o.flowerTotal) + '</b><span>☎ ' + (esc(o.phone) || '—') + '</span><span style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + (o.debt ? 'Nợ ' + vnd(o.debt) : 'Đã tất toán') + '</span></div>' +
+      (o.hasAccessories ? '<span class="badge gold" style="font-size:10px;margin-top:4px">CÓ PHỤ KIỆN</span>' : '') +
+    '</div>' +
+    '<div class="order-actions">' +
+      '<button class="btn secondary" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'production\')">Chi tiết</button>' +
+      (o.canOperate && prev ? '<button class="btn secondary" onclick="MEEOPS7.changeStatus(\'' + o.id + '\',\'' + prev + '\')">← ' + esc(prev) + '</button>' : '') +
+      (o.canOperate && next ? '<button class="btn primary status-next" onclick="MEEOPS7.changeStatus(\'' + o.id + '\',\'' + next + '\')">' + esc(next) + ' →</button>' : '') +
+    '</div>' +
+  '</article>';
+}
     function dateLabel(key,mode){var f=S.filters[key]||{};if(mode==='single'){var d=f.date||today();return dateVN(d);}return dateVN(f.start)+' → '+dateVN(f.end);}
     function rangeFilters(key){return '<div class="date-filter-bar"><button class="date-filter-btn" onclick="MEEOPS7.openDatePicker(\''+key+'\',\'range\')">▣ '+esc(dateLabel(key,'range'))+'　⌄</button></div>';}
     function singleDateFilter(key){return '<div class="date-filter-bar"><button class="date-filter-btn" onclick="MEEOPS7.openDatePicker(\''+key+'\',\'single\')">▣ '+esc(dateLabel(key,'single'))+'　⌄</button></div>';}
@@ -970,15 +2221,292 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function datePickerShortcut(which){var x=window._meeDatePicker;if(!x)return;var d=which==='tomorrow'?addDaysIso(today(),1):today();x.start=x.end=d;x.awaitingEnd=false;x.month=d.slice(0,7)+'-01';renderDatePicker();}
     function renderDatePicker(){var x=window._meeDatePicker,ov=document.getElementById('overlay');if(!x||!ov)return;var p=x.month.split('-').map(Number),y=p[0],m=p[1]-1,first=new Date(y,m,1),offset=(first.getDay()+6)%7,days=new Date(y,m+1,0).getDate(),prevDays=new Date(y,m,0).getDate(),cells=[];for(var i=0;i<42;i++){var day=i-offset+1,dt,inside=true;if(day<1){dt=new Date(y,m-1,prevDays+day);inside=false;}else if(day>days){dt=new Date(y,m+1,day-days);inside=false;}else dt=new Date(y,m,day);var iso=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'),selected=iso===x.start||iso===x.end,inRange=x.start&&x.end&&iso>x.start&&iso<x.end,cls='calendar-day'+(inside?'':' out')+(selected?' selected':'')+(inRange?' in-range':'')+(iso===today()?' today':'');cells.push('<button type="button" class="'+cls+'" onclick="MEEOPS7.datePickerSelect(\''+iso+'\')">'+dt.getDate()+'</button>');}var title='Tháng '+(m+1)+'/'+y,rangeText=x.mode==='single'?dateVN(x.start):('Từ '+dateVN(x.start)+(x.end?' → '+dateVN(x.end):' → chọn ngày kết thúc'));ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><div class="modal calendar-modal"><div class="modal-head"><h3 style="margin:0">Chọn ngày</h3><button class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="calendar-shortcuts"><button class="btn" onclick="MEEOPS7.datePickerShortcut(\'today\')">Hôm nay</button><button class="btn" onclick="MEEOPS7.datePickerShortcut(\'tomorrow\')">Ngày mai</button></div><div class="calendar-head"><button class="calendar-nav" onclick="MEEOPS7.datePickerMove(-1)">‹</button><strong>'+title+'</strong><button class="calendar-nav" onclick="MEEOPS7.datePickerMove(1)">›</button></div><div class="calendar-grid">'+['T2','T3','T4','T5','T6','T7','CN'].map(function(d){return '<div class="calendar-dow">'+d+'</div>';}).join('')+cells.join('')+'</div><div class="calendar-selection"><span>'+rangeText+'</span><span class="sub">Chưa áp dụng</span></div><div class="calendar-actions"><button class="btn" onclick="MEEOPS7.closeOverlay()">Hủy</button><button class="btn primary" '+(!x.start?'disabled':'')+' onclick="MEEOPS7.datePickerApply()">✓ Áp dụng</button></div></div></div>';}
     async function datePickerApply(){var x=window._meeDatePicker;if(!x||!x.start)return;if(x.mode==='range'){var end=x.end||x.start;S.filters[x.key].start=x.start;S.filters[x.key].end=end;if(x.key==='orders')S.filters.orders.page=1;}else S.filters[x.key].date=x.start;var key=x.key;closeOverlay();if(key==='production')await loadProduction(true);else if(key==='flowers')await loadFlowers(true);else await loadPage(key,true);}
-    function renderDashboard(){var r=S.data.dashboard||{},s=r.summary||{},g=r.attentionGroups||{},a=g.nearUnpacked||[],b=g.packedOverdue||[],pack=s.orders?Math.round((s.orders-(s['Chờ bó']||0))/s.orders*100):0,delivery=s.orders?Math.round((s['Đã giao']||0)/s.orders*100):0,el=document.getElementById('content');if(!el)return;el.innerHTML=rangeFilters('dashboard')+'<div class="stats">'+stat('TỔNG ĐƠN',(s.orders||0)+' đơn','Đơn trong kỳ')+stat('CHƯA BÓ',(s['Chờ bó']||0)+' đơn',pack+'% đã bó')+stat('CHỜ GIAO',(s['Đã bó']||0)+' đơn','Đã bó · chưa giao')+stat('ĐÃ GIAO',(s['Đã giao']||0)+' đơn',delivery+'% hoàn tất')+stat('CÔNG NỢ',vnd(s.debt),'Cần thu và đối soát')+stat('DOANH THU',vnd(s.revenue),'CMS cơ bản '+vnd(s.cms))+'</div><div class="section"><div class="section-head"><h3>Đơn cần chú ý</h3><span class="badge red">'+((s.alerts||0))+' cảnh báo</span></div><div class="attention-columns"><section class="attention-box urgent"><div class="section-head"><h3>≤60 phút · chưa bó</h3><span class="badge status-wait">'+a.length+'</span></div><div class="order-grid">'+(a.map(function(x){return card(x);}).join('')||empty())+'</div></section><section class="attention-box overdue"><div class="section-head"><h3>Đã bó · quá giờ chưa giao</h3><span class="badge status-packed">'+b.length+'</span></div><div class="order-grid">'+(b.map(function(x){return card(x);}).join('')||empty())+'</div></section></div></div>';}
-    function renderProduction(){var f=S.filters.production,r=S.data.production||{},all=r.orders||[],el=document.getElementById('content');if(!el)return;el.innerHTML='<div class="production-filter">'+singleDateFilter('production')+'<div><button class="btn '+(S.view==='kanban'?'primary':'')+'" onclick="MEEOPS7.setProductionView(\'kanban\')">☷ Kanban</button> <button class="btn '+(S.view==='grid'?'primary':'')+'" onclick="MEEOPS7.setProductionView(\'grid\')">▦ Grid</button></div></div>'+(S.selected.size?'<div class="section-head"><span class="sub">Đã chọn '+S.selected.size+' đơn</span><div><button class="btn" onclick="MEEOPS7.bulkStatus(\'back\')">← Lùi trạng thái</button> <button class="btn primary" onclick="MEEOPS7.bulkStatus(\'forward\')">Tiến trạng thái →</button></div></div>':'')+(S.view==='kanban'?'<div class="kanban">'+['Chờ bó','Đã bó','Đã giao'].map(function(st){return '<section class="lane '+laneClass(st)+'"><div class="lane-title"><span>'+st+'</span><span>'+all.filter(function(x){return x.status===st;}).length+'</span></div>'+(all.filter(function(x){return x.status===st;}).map(function(x){return card(x,true);}).join('')||empty())+'</section>';}).join('')+'</div>':'<div class="ops-grid">'+(all.map(opsTile).join('')||empty())+'</div>');}
+    function renderDashboard() {
+  var r = S.data.dashboard || {}, s = r.summary || {}, g = r.attentionGroups || {},
+      a = g.nearUnpacked || [], b = g.packedOverdue || [],
+      urgentList = a.concat(b),
+      pack = s.orders ? Math.round((s.orders - (s['Chờ bó'] || 0)) / s.orders * 100) : 0,
+      delivery = s.orders ? Math.round((s['Đã giao'] || 0) / s.orders * 100) : 0,
+      el = document.getElementById('content');
+  if (!el) return;
+
+  var kpiCards = [
+    stat('Đơn hàng hôm nay', (s.orders || 0) + ' đơn', (s['Đã giao'] || 0) + ' đã giao · ' + ((s['Chờ bó'] || 0) + (s['Đang bó'] || 0)) + ' đang xử lý'),
+    stat('Doanh thu hôm nay', vnd(s.revenue), 'CMS cơ bản ' + vnd(s.cms)),
+    stat('Công nợ chưa thu', vnd(s.debt), 'Cần thu và đối soát'),
+    stat('Đơn chờ bó', (s['Chờ bó'] || 0) + ' đơn', pack + '% đã đóng gói'),
+    stat('Đơn chưa giao', ((s['Chờ bó'] || 0) + (s['Đã bó'] || 0)) + ' đơn', delivery + '% hoàn tất')
+  ].join('');
+
+  var urgentRows = urgentList.map(function(o) {
+    var isNear = a.some(function(x) { return x.id === o.id; });
+    var timeBadge = isNear 
+      ? '<span class="badge red">≤60p · ' + esc(timeVN(o.time)) + '</span>' 
+      : '<span class="badge gold">Quá giờ · ' + esc(timeVN(o.time)) + '</span>';
+    return '<tr onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'dashboard\')">' +
+      '<td class="nowrap">' + timeBadge + '<br><span class="sub" style="font-size:11px">' + dateVN(o.date) + '</span></td>' +
+      '<td><b>' + esc(o.customer) + '</b><br><span class="sub">' + (esc(o.phone) || '—') + '</span></td>' +
+      '<td class="flower-cell">' + tableSample(o) + '</td>' +
+      '<td><span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></td>' +
+      '<td><b>' + vnd(o.flowerTotal) + '</b></td>' +
+      '<td><b style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + vnd(o.debt) + '</b></td>' +
+      '<td><button class="btn secondary" style="padding:4px 8px;font-size:12px" onclick="event.stopPropagation();MEEOPS7.openDrawer(\'' + o.id + '\',\'dashboard\')">Chi tiết</button></td>' +
+    '</tr>';
+  }).join('');
+
+  var progressHtml = 
+    '<div class="dashboard-progress-card">' +
+      '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;margin-bottom:12px">Tiến độ trong ngày</div>' +
+      '<div class="progress-bar-wrap" style="height:10px;background:#E5E7EB;border-radius:99px;overflow:hidden;display:flex;margin-bottom:14px">' +
+        '<div style="width:' + delivery + '%;background:var(--success);height:100%" title="Đã giao: ' + (s['Đã giao']||0) + '"></div>' +
+        '<div style="width:' + (s.orders ? Math.round((s['Đã bó']||0)/s.orders*100) : 0) + '%;background:var(--info);height:100%" title="Đã bó: ' + (s['Đã bó']||0) + '"></div>' +
+        '<div style="width:' + (s.orders ? Math.round((s['Chờ bó']||0)/s.orders*100) : 0) + '%;background:var(--warning);height:100%" title="Chờ bó: ' + (s['Chờ bó']||0) + '"></div>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;font-size:13px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center"><span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--success);margin-right:6px"></span>Đã giao</span><b>' + (s['Đã giao']||0) + ' đơn (' + delivery + '%)</b></div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center"><span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--info);margin-right:6px"></span>Đã bó (chờ giao)</span><b>' + (s['Đã bó']||0) + ' đơn</b></div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center"><span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--warning);margin-right:6px"></span>Chờ bó</span><b>' + (s['Chờ bó']||0) + ' đơn</b></div>' +
+      '</div>' +
+    '</div>';
+
+  var debtSummaryHtml = 
+    '<div class="dashboard-debt-card" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+        '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase">Công nợ cần thu</div>' +
+        '<button class="btn secondary" style="padding:2px 8px;font-size:11px;height:24px" onclick="MEEOPS7.go(\'debt\')">Chi tiết →</button>' +
+      '</div>' +
+      '<div style="font-size:22px;font-weight:700;color:var(--danger);margin-bottom:4px">' + vnd(s.debt) + '</div>' +
+      '<div class="sub" style="font-size:12px">Tổng công nợ chưa tất toán của đơn hôm nay</div>' +
+    '</div>';
+
+  el.innerHTML = 
+    '<div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:12px">' +
+      '<div>' +
+        '<h1 style="font-size:24px;font-weight:700;margin:0 0 4px;color:var(--text-primary)">Chào ' + esc(S.user ? S.user.name : '') + ',</h1>' +
+        '<div class="sub" style="font-size:13px">Hôm nay là ' + dateVN(today()) + ' · Cùng xem tình hình vận hành.</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;align-items:center">' +
+        rangeFilters('dashboard') +
+        '<button class="btn primary" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="stat-grid-5">' + kpiCards + '</div>' +
+    '<div class="dashboard-grid">' +
+      '<div class="dashboard-left">' +
+        '<div class="section-head" style="margin-bottom:12px">' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+            '<h3 style="margin:0;font-size:15px;font-weight:600;text-transform:uppercase;color:var(--text-primary)">Cần xử lý hôm nay</h3>' +
+            (urgentList.length ? '<span class="badge red">' + urgentList.length + ' đơn gấp</span>' : '<span class="badge info">0 đơn gấp</span>') +
+          '</div>' +
+        '</div>' +
+        '<div class="table-wrap">' +
+          '<table class="control-table sheet-table">' +
+            '<thead><tr><th>Thời gian</th><th>Khách hàng</th><th>Mẫu hoa</th><th>Trạng thái</th><th>Tiền hoa</th><th>Công nợ</th><th></th></tr></thead>' +
+            '<tbody>' + (urgentRows || '<tr><td colspan="7" class="empty" style="padding:32px">Không có đơn cần xử lý gấp hôm nay.</td></tr>') + '</tbody>' +
+          '</table>' +
+        '</div>' +
+      '</div>' +
+      '<div class="dashboard-right">' +
+        '<div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:18px;box-shadow:var(--shadow-card)">' +
+          progressHtml +
+          debtSummaryHtml +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+    function renderProduction() {
+  var f = S.filters.production, r = S.data.production || {}, all = r.orders || [], el = document.getElementById('content');
+  if (!el) return;
+
+  el.innerHTML = 
+    '<div class="production-filter" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">' +
+      singleDateFilter('production') +
+      '<div style="display:flex;gap:6px">' +
+        '<button class="btn ' + (S.view === 'kanban' ? 'primary' : 'secondary') + '" onclick="MEEOPS7.setProductionView(\'kanban\')">☷ Kanban</button>' +
+        '<button class="btn ' + (S.view === 'grid' ? 'primary' : 'secondary') + '" onclick="MEEOPS7.setProductionView(\'grid\')">▦ Grid</button>' +
+      '</div>' +
+    '</div>' +
+    (S.selected.size ? '<div class="section-head" style="margin-bottom:12px;padding:8px 12px;background:var(--brand-green-soft);border-radius:var(--radius-md);display:flex;justify-content:space-between;align-items:center"><span style="font-weight:600;color:var(--brand-green)">Đã chọn ' + S.selected.size + ' đơn</span><div><button class="btn secondary" onclick="MEEOPS7.bulkStatus(\'back\')">← Lùi trạng thái</button> <button class="btn primary" onclick="MEEOPS7.bulkStatus(\'forward\')">Tiến trạng thái →</button></div></div>' : '') +
+    (S.view === 'kanban' ? 
+      '<div class="kanban">' + ['Chờ bó', 'Đã bó', 'Đã giao'].map(function(st) {
+        var inLane = all.filter(function(x) { return x.status === st; });
+        return '<section class="lane ' + laneClass(st) + '">' +
+          '<div class="lane-title"><span>' + st + '</span><span class="badge info">' + inLane.length + '</span></div>' +
+          (inLane.map(function(x) { return card(x, true); }).join('') || empty()) +
+        '</section>';
+      }).join('') + '</div>' :
+      '<div class="ops-grid">' + (all.map(opsTile).join('') || empty()) + '</div>'
+    );
+}
     async function bulkStatus(direction){if(!S.selected.size)return toast('Chưa chọn đơn.',1);var selected=Array.from(S.selected).map(orderById).filter(Boolean),statuses=Array.from(new Set(selected.map(function(o){return o.status;})));if(statuses.length!==1)return toast('Chỉ chọn các đơn cùng trạng thái để chuyển hàng loạt.',1);var target=direction==='back'?previousStatusValue(statuses[0]):nextStatusValue(statuses[0]);if(!target)return toast(direction==='back'?'Các đơn đã ở trạng thái Chờ bó.':'Các đơn đã ở trạng thái Đã giao.',1);var items=selected.map(function(o){return{orderId:o.id,sourceSheet:o.sourceSheet,sourceRow:o.sourceRow};});try{var r=await actionRun(function(){return gas('updateStatusBulk',{items:items,status:target});},'Đang chuyển sang '+target+'…');var okIds=new Set((r.results||[]).filter(function(x){return x.ok;}).map(function(x){return x.orderId;}));if(!okIds.size&&r.ok===false)throw new Error('Không cập nhật được các đơn đã chọn.');selected.forEach(function(o){if(okIds.has(o.id))applyCanonicalOrder(Object.assign({},o,{status:target,canSubmitSettlement:target==='Đã giao'&&(S.user.role==='ADMIN'||norm(o.sale)===norm(S.user.name))}),o,true);});renderPatchedPage();S.selected.clear();orderMutationDirty();S.dirty.delete('getProductionOrders');toast('Đã chuyển '+okIds.size+' đơn sang '+target+'.',okIds.size!==items.length);}catch(e){toast(e.message,1);}}
-    function renderOrders(){var r=S.data.orders||{},list=r.items||[],el=document.getElementById('content');if(!el)return;var rows=list.map(function(o){return '<tr class="'+(o.hasAccessories?'row-alert':'')+'" onclick="MEEOPS7.openDrawer(\''+o.id+'\',\'orders\')"><td class="nowrap">'+dateVN(o.date)+'<br><b>'+esc(timeVN(o.time))+'</b></td><td><b>'+esc(o.customer)+'</b><br><span class="sub">'+(esc(o.phone)||'—')+'</span></td><td class="note-cell">'+tableSample(o)+'</td><td class="address-cell">'+esc(o.shipping)+(o.address?'<br><span class="sub">'+esc(o.address)+'</span>':'')+'</td><td>'+esc(o.sale||'—')+'</td><td><span class="badge '+statusClass(o.status)+'">'+esc(o.status)+'</span></td><td><b>'+vnd(o.flowerTotal)+'</b></td><td>'+esc(o.payment||'—')+'<br><span class="sub">Đã thu '+vnd(o.paid)+'</span></td><td><b style="color:'+(o.debt?'var(--rose)':'var(--sage)')+'">'+vnd(o.debt)+'</b>'+ordersDebtNotes(o)+'</td></tr>';}).join('');el.innerHTML=rangeFilters('orders')+'<div class="section-head"><div><h3 style="margin:0">BẢNG ĐƠN HÀNG</h3><div class="sub">'+(r.total||0)+' đơn · click dòng để xem chi tiết</div></div></div><div class="table-wrap"><table class="control-table sheet-table"><thead><tr><th>Ngày / Giờ</th><th>Khách / SĐT</th><th>Mẫu / Note</th><th>Vận chuyển / Địa chỉ</th><th>Sale</th><th>Trạng thái</th><th>Tiền hoa</th><th>TTTT</th><th>Công nợ</th></tr></thead><tbody>'+(rows||'<tr><td colspan="9" class="empty">Không có đơn.</td></tr>')+'</tbody></table></div>'+(r.hasMore?'<div style="text-align:center;padding:16px"><button class="btn" onclick="MEEOPS7.loadMoreOrders()">Hiển thị thêm · '+list.length+'/'+r.total+'</button></div>':'');}
+    function renderOrders() {
+  var r = S.data.orders || {}, list = r.items || [], el = document.getElementById('content');
+  if (!el) return;
+
+  var statusTabs = ['Tất cả', 'Chờ bó', 'Đang bó', 'Đã bó', 'Đang giao', 'Đã giao', 'Chưa thanh toán'];
+  var curTab = S.filters.orders.statusTab || 'Tất cả';
+
+  var filteredList = list.filter(function(o) {
+    if (curTab === 'Tất cả') return true;
+    if (curTab === 'Chưa thanh toán') return Number(o.debt) > 0;
+    if (curTab === 'Đang bó') return o.status === 'Đang bó';
+    if (curTab === 'Đang giao') return o.status === 'Đang giao';
+    return o.status === curTab;
+  });
+
+  var rows = filteredList.map(function(o) {
+    return '<tr class="' + (o.hasAccessories ? 'row-alert' : '') + '" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'orders\')">' +
+      '<td class="nowrap">' + dateVN(o.date) + '<br><b>' + esc(timeVN(o.time)) + '</b></td>' +
+      '<td><b>' + esc(o.customer) + '</b><br><span class="sub">' + (esc(o.phone) || '—') + '</span></td>' +
+      '<td class="note-cell">' + tableSample(o) + '</td>' +
+      '<td class="address-cell">' + esc(o.shipping) + (o.address ? '<br><span class="sub">' + esc(o.address) + '</span>' : '') + '</td>' +
+      '<td>' + esc(o.sale || '—') + '</td>' +
+      '<td><span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></td>' +
+      '<td><b>' + vnd(o.flowerTotal) + '</b></td>' +
+      '<td>' + esc(o.payment || '—') + '<br><span class="sub">Đã thu ' + vnd(o.paid) + '</span></td>' +
+      '<td><b style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + vnd(o.debt) + '</b>' + ordersDebtNotes(o) + '</td>' +
+    '</tr>';
+  }).join('');
+
+  var tabsHtml = '<div class="status-filter-tabs">' + statusTabs.map(function(t) {
+    return '<button type="button" class="status-pill ' + (t === curTab ? 'active' : '') + '" onclick="MEEOPS7.setOrderStatusFilter(\'' + t + '\')">' + t + '</button>';
+  }).join('') + '</div>';
+
+  el.innerHTML = 
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:12px">' +
+      '<div>' +
+        '<h2 style="font-size:22px;font-weight:700;margin:0 0 2px;color:var(--text-primary)">BẢNG ĐƠN HÀNG</h2>' +
+        '<div class="sub" style="font-size:13px">' + (r.total || 0) + ' đơn trong kỳ · Click dòng để xem chi tiết</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        rangeFilters('orders') +
+        '<button class="btn primary" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button>' +
+      '</div>' +
+    '</div>' +
+    tabsHtml +
+    '<div class="table-wrap">' +
+      '<table class="control-table sheet-table">' +
+        '<thead><tr><th>Ngày / Giờ</th><th>Khách / SĐT</th><th>Mẫu / Note</th><th>Vận chuyển / Địa chỉ</th><th>Sale</th><th>Trạng thái</th><th>Tiền hoa</th><th>TTTT</th><th>Công nợ</th></tr></thead>' +
+        '<tbody>' + (rows || '<tr><td colspan="9" class="empty">Không có đơn phù hợp với bộ lọc.</td></tr>') + '</tbody>' +
+      '</table>' +
+    '</div>' +
+    (r.hasMore ? '<div style="text-align:center;padding:16px"><button class="btn secondary" onclick="MEEOPS7.loadMoreOrders()">Hiển thị thêm · ' + list.length + '/' + r.total + '</button></div>' : '');
+}
     async function loadDebt(force){if(force===void 0)force=false;var f=S.filters.debt,args={start:f.start,end:f.end};if(S.user.role==='ADMIN'&&f.sale)args.sale=f.sale;try{var r=await requestPage('getDebtReview',args,12000,force,'Đang tải công nợ…');if(!r)return;S.data.debt=r;rememberOrders(r.items);if(S.page==='debt')renderDebt();if(S.user.role==='ADMIN')ensureOptions().then(function(){if(S.page==='debt')renderDebt();}).catch(function(){});}catch(e){toast(e.message,1);renderError(e);}}
-    function renderDebt(){var f=S.filters.debt,r=S.data.debt||{},list=r.items||[],sum=r.summary||{},el=document.getElementById('content');if(!el)return;var saleFilter='';if(S.user.role==='ADMIN'){var sales=[''].concat(S.options.sales||[]);saleFilter='<select style="width:auto" onchange="MEEOPS7.setDebtFilter(\'sale\',this.value)">'+sales.map(function(x){return '<option value="'+attr(x)+'" '+(x===f.sale?'selected':'')+'>'+(x?esc(x):'Tất cả Sale')+'</option>';}).join('')+'</select>';}var rows=list.map(function(o){return '<tr onclick="MEEOPS7.openDrawer(\''+o.id+'\',\'debt\')"><td>'+dateVN(o.date)+'<br><b>'+esc(timeVN(o.time))+'</b></td><td><b>'+esc(o.customer)+'</b><br><span class="sub">'+(esc(o.phone)||'—')+'</span></td><td>'+esc(o.flower)+'</td><td>'+esc(o.sale)+'</td><td>'+vnd(o.flowerTotal)+'</td><td>'+(o.shipFeePending?'<span class="badge red">CHƯA NHẬP</span>':vnd(o.shipFee))+'</td><td>'+vnd(o.paid)+'</td><td><b style="color:var(--rose)">'+vnd(o.debt)+'</b>'+debtBreakdown(o)+'</td></tr>';}).join('');var cards=list.map(function(o){return '<article class="debt-card" onclick="MEEOPS7.openDrawer(\''+o.id+'\',\'debt\')"><div class="order-top"><b>'+esc(o.customer)+'</b><span class="badge">'+dateVN(o.date)+' · '+esc(timeVN(o.time))+'</span></div><div class="meta">'+esc(o.sale)+' · '+esc(o.flower)+'</div><div class="row"><span>Tiền hoa</span><b>'+vnd(o.flowerTotal)+'</b></div><div class="row"><span>Phí ship</span><b>'+(o.shipFeePending?'CHƯA NHẬP':vnd(o.shipFee))+'</b></div><div class="row"><span>Đã thu</span><b>'+vnd(o.paid)+'</b></div><div class="row"><span>Công nợ</span><span class="debt-amount">'+vnd(o.debt)+'</span></div>'+debtBreakdown(o)+settlementStateHtml(o)+'</article>';}).join('');el.innerHTML='<div class="production-filter">'+rangeFilters('debt')+saleFilter+'</div><div class="stats" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:18px">'+stat('Tổng công nợ',vnd(sum.debt))+stat('Số đơn chờ đối soát',(sum.orders||0)+' đơn',sum.shipFeePending?sum.shipFeePending+' đơn chưa nhập ship':'')+'</div><div class="debt-desktop table-wrap"><table><thead><tr><th>Ngày / Giờ</th><th>Khách</th><th>Mẫu hoa</th><th>Sale</th><th>Tiền hoa</th><th>Ship</th><th>Đã thu</th><th>Công nợ</th></tr></thead><tbody>'+(rows||'<tr><td colspan="8" class="empty">Không có đơn.</td></tr>')+'</tbody></table></div><div class="debt-mobile">'+(cards||empty())+'</div>';}
+    function renderDebt() {
+  var f = S.filters.debt, r = S.data.debt || {}, list = r.items || [], sum = r.summary || {}, el = document.getElementById('content');
+  if (!el) return;
+
+  var saleFilter = '';
+  if (S.user.role === 'ADMIN') {
+    var sales = [''].concat(S.options.sales || []);
+    saleFilter = '<select style="width:auto;height:36px" onchange="MEEOPS7.setDebtFilter(\'sale\',this.value)">' +
+      sales.map(function(x) { return '<option value="' + attr(x) + '" ' + (x === f.sale ? 'selected' : '') + '>' + (x ? esc(x) : 'Tất cả Sale') + '</option>'; }).join('') +
+    '</select>';
+  }
+
+  var rows = list.map(function(o) {
+    return '<tr onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'debt\')">' +
+      '<td class="nowrap">' + dateVN(o.date) + '<br><b>' + esc(timeVN(o.time)) + '</b></td>' +
+      '<td><b>' + esc(o.customer) + '</b><br><span class="sub">' + (esc(o.phone) || '—') + '</span></td>' +
+      '<td>' + esc(o.flower) + '</td>' +
+      '<td>' + esc(o.sale) + '</td>' +
+      '<td>' + vnd(o.flowerTotal) + '</td>' +
+      '<td>' + (o.shipFeePending ? '<span class="badge red">CHƯA NHẬP</span>' : vnd(o.shipFee)) + '</td>' +
+      '<td>' + vnd(o.paid) + '</td>' +
+      '<td><b style="color:var(--danger)">' + vnd(o.debt) + '</b>' + debtBreakdown(o) + '</td>' +
+    '</tr>';
+  }).join('');
+
+  var cards = list.map(function(o) {
+    return '<article class="debt-card" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'debt\')">' +
+      '<div class="order-top"><b>' + esc(o.customer) + '</b><span class="badge">' + dateVN(o.date) + ' · ' + esc(timeVN(o.time)) + '</span></div>' +
+      '<div class="meta">' + esc(o.sale) + ' · ' + esc(o.flower) + '</div>' +
+      '<div class="row"><span>Tiền hoa</span><b>' + vnd(o.flowerTotal) + '</b></div>' +
+      '<div class="row"><span>Phí ship</span><b>' + (o.shipFeePending ? 'CHƯA NHẬP' : vnd(o.shipFee)) + '</b></div>' +
+      '<div class="row"><span>Đã thu</span><b>' + vnd(o.paid) + '</b></div>' +
+      '<div class="row"><span>Công nợ</span><span class="debt-amount">' + vnd(o.debt) + '</span></div>' +
+      debtBreakdown(o) + settlementStateHtml(o) +
+    '</article>';
+  }).join('');
+
+  el.innerHTML = 
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        rangeFilters('debt') +
+        saleFilter +
+      '</div>' +
+    '</div>' +
+    '<div class="stats" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:18px">' +
+      stat('Tổng công nợ', vnd(sum.debt), 'Cần thu hồi & tất toán') +
+      stat('Số đơn chờ đối soát', (sum.orders || 0) + ' đơn', 'Đã giao nhưng chưa tất toán') +
+      stat('Chưa nhập phí ship', (sum.shipFeePending || 0) + ' đơn', 'Shop book ship chưa có phí thực tế') +
+    '</div>' +
+    '<div class="debt-desktop table-wrap">' +
+      '<table class="control-table">' +
+        '<thead><tr><th>Ngày / Giờ</th><th>Khách</th><th>Mẫu hoa</th><th>Sale</th><th>Tiền hoa</th><th>Ship</th><th>Đã thu</th><th>Công nợ</th></tr></thead>' +
+        '<tbody>' + (rows || '<tr><td colspan="8" class="empty">Không có đơn công nợ.</td></tr>') + '</tbody>' +
+      '</table>' +
+    '</div>' +
+    '<div class="debt-mobile">' + (cards || empty()) + '</div>';
+}
     function openDrawer(id,context){var o=orderById(id);if(!o)return;S.currentDrawer=id;S.drawerContext=context||S.page;renderDrawer(o,!o.detailLoaded);ensureOrderDetail(id).then(function(full){if(S.currentDrawer===id)renderDrawer(full,false);}).catch(function(e){toast(e.message,1);});}
-    function renderDrawer(o,loadingDetail){var ov=document.getElementById('overlay');if(!ov)return;var ctx=S.drawerContext||S.page,isDebt=ctx==='debt',imgs=(o.imageUrls||[]).map(function(u,i){return '<a href="'+attr((o.driveUrls||[])[i]||u)+'" target="_blank"><img src="'+attr(imageSrc(u,1000))+'" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)"></a>';}).join(''),actions=shipFeeAction(o)+(isDebt?settlementAction(o):((o.canEdit?'<button class="btn primary" onclick="MEEOPS7.openOrderForm(\''+o.id+'\')">Sửa đơn</button>':'')+settlementAction(o)));ov.innerHTML='<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer"><div class="drawer-head"><div><h3 style="margin:0">'+esc(o.customer)+'</h3><span class="sub">'+esc(o.id)+'</span></div><button class="close" onclick="MEEOPS7.closeOverlay()">×</button></div>'+(o.hasAccessories?'<div class="notice" style="background:#fff0f1;color:#9b3442"><b>CÓ PHỤ KIỆN</b></div>':'')+settlementStateHtml(o)+(loadingDetail?'<div class="order-detail-loading"><span class="mini-spinner"></span> Đang tải ảnh và chi tiết…</div>':'<div class="thumbs">'+imgs+'</div>')+detail(o,!isDebt)+'<div class="order-actions">'+actions+'</div></aside></div>';}
-    function detail(o,allowFullCopy){if(allowFullCopy===void 0)allowFullCopy=true;return '<div class="section"><p><b>Nhận:</b> '+dateVN(o.date)+' · '+esc(timeVN(o.time))+'</p><p class="copyable" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'phone\',\'SĐT\')"><b>SĐT:</b> '+(esc(o.phone)||'—')+'　⧉</p><p class="multiline"><b>Mẫu hoa:</b> '+multiline(o.flower)+'</p><p class="copyable" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'note\',\'Note\')"><b>Note:</b> '+(esc(o.note)||'—')+'　⧉</p>'+(o.card?'<p><b style="color:var(--rose)">Thiệp:</b> '+esc(o.cardText)+' · 10.000 ₫</p>':'')+(o.banner?'<p><b style="color:var(--rose)">Banner:</b> '+esc(o.bannerText)+' · 35.000 ₫</p>':'')+(o.charmFee?'<p><b style="color:var(--rose)">Charm:</b> '+(esc(o.charmText)||'—')+' · '+vnd(o.charmFee)+'</p>':'')+(o.paperFee?'<p><b style="color:var(--rose)">Thay giấy:</b> '+(esc(o.paperText)||'—')+' · '+vnd(o.paperFee)+'</p>':'')+'<p><b>Vận chuyển:</b> '+esc(o.shipping)+'</p><p><b>Địa chỉ:</b> '+(esc(o.address)||'Nhận tại cửa hàng')+'</p><p><b>Giá hoa:</b> '+vnd(o.flowerTotal)+'</p><p><b>Phụ kiện:</b> '+vnd(o.accessoryTotal)+'</p><p><b>VAT:</b> '+vnd(o.vat)+'</p><p><b>Phí ship:</b> '+(o.shipFeePending?'Chưa nhập':vnd(o.shipFee))+'</p><p><b>Đã thanh toán:</b> '+vnd(o.paid)+'</p><p><b>Công nợ hiện tại:</b> '+vnd(o.debt)+'</p>'+debtBreakdown(o)+(allowFullCopy?'<button class="btn full" onclick="MEEOPS7.copyOrderById(\''+o.id+'\')">⧉ Copy toàn bộ thông tin đơn</button>':'')+'</div>';}
+    function renderDrawer(o, loadingDetail) {
+  var ov = document.getElementById('overlay');
+  if (!ov) return;
+  var ctx = S.drawerContext || S.page, isDebt = ctx === 'debt';
+  var imgs = (o.imageUrls || []).map(function(u, i) {
+    return '<a href="' + attr((o.driveUrls || [])[i] || u) + '" target="_blank" title="Xem ảnh gốc"><img src="' + attr(imageSrc(u, 1000)) + '" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)"></a>';
+  }).join('');
+  var actions = shipFeeAction(o) + (isDebt ? settlementAction(o) : ((o.canEdit ? '<button class="btn primary" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settlementAction(o)));
+
+  ov.innerHTML = '<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()">' +
+    '<aside class="drawer">' +
+      '<div class="drawer-head">' +
+        '<div>' +
+          '<h3 style="margin:0;font-size:18px;font-weight:700;color:var(--text-primary)">' + esc(o.customer) + '</h3>' +
+          '<div class="sub" style="font-size:12px;margin-top:2px">' + esc(o.id) + ' · <span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></div>' +
+        '</div>' +
+        '<button class="close" onclick="MEEOPS7.closeOverlay()">×</button>' +
+      '</div>' +
+      (o.hasAccessories ? '<div class="notice" style="background:var(--warning-bg);color:var(--warning);border-color:var(--warning-border);font-weight:600">ĐƠN CÓ PHỤ KIỆN ĐẶC BIỆT</div>' : '') +
+      settlementStateHtml(o) +
+      (loadingDetail ? '<div class="order-detail-loading" style="padding:20px 0"><span class="mini-spinner"></span> Đang tải ảnh và chi tiết…</div>' : (imgs ? '<div class="thumbs" style="margin-bottom:14px">' + imgs + '</div>' : '')) +
+      detail(o, !isDebt) +
+      '<div class="order-actions" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">' + actions + '</div>' +
+    '</aside>' +
+  '</div>';
+}
+    function detail(o, allowFullCopy) {
+  if (allowFullCopy === void 0) allowFullCopy = true;
+  return '<div style="display:flex;flex-direction:column;gap:14px">' +
+    '<div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Thông tin đơn hàng</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">' +
+        '<div><span class="sub" style="font-size:11px;display:block">Thời gian nhận</span><b>' + dateVN(o.date) + ' · ' + esc(timeVN(o.time)) + '</b></div>' +
+        '<div><span class="sub" style="font-size:11px;display:block">Sale phụ trách</span><b>' + esc(o.sale || '—') + '</b></div>' +
+      '</div>' +
+      '<div style="margin-top:8px;font-size:13px" class="copyable" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')"><span class="sub" style="font-size:11px;display:block">Số điện thoại</span><b>' + (esc(o.phone) || '—') + '</b> ⧉</div>' +
+      '<div style="margin-top:8px;font-size:13px"><span class="sub" style="font-size:11px;display:block">Mẫu hoa</span><b class="multiline">' + multiline(o.flower) + '</b></div>' +
+      '<div style="margin-top:8px;font-size:13px" class="copyable" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'note\',\'Note\')"><span class="sub" style="font-size:11px;display:block">Ghi chú khách</span><b>' + (esc(o.note) || '—') + '</b> ⧉</div>' +
+      '<div style="margin-top:8px;font-size:13px"><span class="sub" style="font-size:11px;display:block">Vận chuyển & Địa chỉ</span><b>' + esc(o.shipping) + '</b><br><span class="sub">' + (esc(o.address) || 'Nhận tại cửa hàng') + '</span></div>' +
+    '</div>' +
+    '<div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Tài chính & Thanh toán</div>' +
+      '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px"><span>Giá hoa</span><b>' + vnd(o.flowerTotal) + '</b></div>' +
+      (o.card ? '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;color:var(--danger)"><span>+ Thiệp (' + esc(o.cardText) + ')</span><b>10.000 ₫</b></div>' : '') +
+      (o.banner ? '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;color:var(--danger)"><span>+ Banner (' + esc(o.bannerText) + ')</span><b>35.000 ₫</b></div>' : '') +
+      (Number(o.charmFee) ? '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;color:var(--danger)"><span>+ Charm (' + (esc(o.charmText) || '—') + ')</span><b>' + vnd(o.charmFee) + '</b></div>' : '') +
+      (Number(o.paperFee) ? '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;color:var(--danger)"><span>+ Thay giấy (' + (esc(o.paperText) || '—') + ')</span><b>' + vnd(o.paperFee) + '</b></div>' : '') +
+      (Number(o.vat) ? '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px"><span>+ VAT</span><b>' + vnd(o.vat) + '</b></div>' : '') +
+      '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px"><span>Phí ship</span><b>' + (o.shipFeePending ? '<span class="badge red">Chưa nhập</span>' : vnd(o.shipFee)) + '</b></div>' +
+      '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px"><span>Đã thanh toán</span><b>' + vnd(o.paid) + '</b></div>' +
+      '<div style="display:flex;justify-content:space-between;padding:8px 0 2px;margin-top:6px;border-top:1px solid var(--border);font-size:15px;font-weight:700"><span>Công nợ hiện tại</span><span style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + vnd(o.debt) + '</span></div>' +
+      debtBreakdown(o) +
+    '</div>' +
+    (allowFullCopy ? '<button class="btn secondary full" onclick="MEEOPS7.copyOrderById(\'' + o.id + '\')">⧉ Copy toàn bộ thông tin đơn</button>' : '') +
+  '</div>';
+}
     function openShipFeeForm(id){var o=orderById(id);if(!o||!o.canShip||!isShop(o.shipping))return toast('Đơn này không thể nhập phí ship.',1);var ov=document.getElementById('overlay');if(!ov)return;var val=o.shipConfirmed?new Intl.NumberFormat('vi-VN').format(o.shipFee):'';ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><form action="javascript:void(0)" class="modal" style="max-width:460px" onsubmit="MEEOPS7.submitShipFee(event,\''+o.id+'\')"><div class="modal-head"><div><h3 style="margin:0">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</h3><div class="sub">'+esc(o.customer)+' · '+esc(o.shipping)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><label>PHÍ SHIP THỰC TẾ</label><input name="shipFee" inputmode="numeric" value="'+attr(val)+'" oninput="MEEOPS7.formatMoneyInput(this)" required autofocus><button class="btn primary full" style="margin-top:16px">Lưu phí ship</button></form></div>';}
     async function submitShipFee(e,id){e.preventDefault();var o=orderById(id),f=e.target;if(!o||!f)return;var shipFee=moneyDigits(f.shipFee.value);try{var r=await actionRun(function(){return gas('saveShipFee',{orderId:o.id,sourceSheet:o.sourceSheet,sourceRow:o.sourceRow,shipFee:shipFee});},'Đang lưu phí ship…');if(!r.ok)throw new Error(r.message);orderMutationDirty();await refreshOrderEntity(id,o.sourceSheet,o.sourceRow,Object.assign({},o));if(S.page==='debt')S.dirty.delete('getDebtReview');if(S.page==='orders')S.dirty.delete('getOrders');closeOverlay();toast('Đã cập nhật phí ship.');}catch(err){toast(err.message,1);}}
     function settlementForm(id){var o=orderById(id);if(!o)return;var ov=document.getElementById('overlay');if(!ov)return;var shop=isShop(o.shipping),shipValue=o.shipConfirmed?new Intl.NumberFormat('vi-VN').format(o.shipFee):'',disabled=shop&&!shipValue;ov.innerHTML='<div class="modal-bg"><form action="javascript:void(0)" class="modal" id="settlementForm" onsubmit="MEEOPS7.submitSettlement(event,\''+id+'\')"><div class="modal-head"><div><h3 style="margin:0">Gửi yêu cầu tất toán</h3><div class="sub">'+esc(o.customer)+' · '+esc(o.id)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="notice">Shop book ship bắt buộc có phí ship thực tế trước khi gửi tất toán.</div>'+(shop?'<label>PHÍ SHIP THỰC TẾ</label><input name="shipFee" inputmode="numeric" value="'+attr(shipValue)+'" oninput="MEEOPS7.formatMoneyInput(this);MEEOPS7.settlementGate(\''+id+'\')" required>':'<input type="hidden" name="shipFee" value="0">')+'<label>ẢNH BILL / CHUYỂN KHOẢN</label><input id="billFiles" type="file" accept="image/*" multiple required><label>GHI CHÚ</label><textarea name="note"></textarea><button id="settlementSubmit" class="btn primary full" style="margin-top:16px" '+(disabled?'disabled':'')+'>Gửi yêu cầu tất toán</button></form></div>';}
@@ -990,6 +2518,20 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
 
     window.__MEE_BOOT_STAGE__ = 'api-export';
     window.MEEOPS7 = {
+        globalSearch: function(q) {
+          S.filters.orders.q = q;
+          if (S.page === 'orders') {
+            debounceSearch('orders', q);
+          } else if (S.page === 'production') {
+            debounceSearch('production', q);
+          } else if (q && q.trim()) {
+            go('orders');
+          }
+        },
+        setOrderStatusFilter: function(status) {
+          S.filters.orders.statusTab = status;
+          renderOrders();
+        },
         datePickerApply: datePickerApply,
         datePickerMove: datePickerMove,
         datePickerSelect: datePickerSelect,

@@ -4,7 +4,8 @@ const BUILD = '2026.09.28-supabase-v3';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const PASSWORD_SALT = Deno.env.get('LEGACY_PASSWORD_SALT') || 'MEE-FLOWER-V4';
-const ALLOWED_ORIGIN = 'https://meehoasg.com';
+const ALLOWED_ORIGIN = 'https://ops.meehoasg.com';
+const ALLOWED_ORIGINS = ['https://ops.meehoasg.com', 'https://meehoasg.com'];
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const encoder = new TextEncoder();
 
@@ -676,14 +677,15 @@ async function dispatch(name, payload) {
 
 Deno.serve(async request => {
   const origin = request.headers.get('origin');
+  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : (origin && (origin.includes('localhost') || origin.includes('127.0.0.1')) ? origin : ALLOWED_ORIGIN);
   const cors = {
-    'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'content-type, authorization, apikey',
     'Content-Type': 'application/json; charset=utf-8',
     'Vary': 'Origin'
   };
-  if (origin && origin !== ALLOWED_ORIGIN) return new Response('Forbidden', { status: 403 });
+  if (origin && !ALLOWED_ORIGINS.includes(origin) && !origin.includes('localhost') && !origin.includes('127.0.0.1')) return new Response('Forbidden', { status: 403 });
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: cors });
   if (!SUPABASE_URL || !SERVICE_KEY) return new Response(JSON.stringify(fail('Máy chủ chưa cấu hình.')), { status: 503, headers: cors });
