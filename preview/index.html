@@ -17,8 +17,8 @@ html,body{margin:0;min-height:100%;font-family:Inter,-apple-system,BlinkMacSyste
     if(!r.ok) throw new Error('Không tải được app gốc');
     var html=await r.text();
     html=html.replace(/<head>/i,'<head><base href="/">');
-    html=html.replace(/<\/head>/i,'<link rel="stylesheet" href="/preview/assets/ui-v3.css?v=3.4"><link rel="stylesheet" href="/preview/assets/ui-v3-fix.css?v=3.4"><link rel="stylesheet" href="/preview/assets/ui-v3-hotfix.css?v=3.4"><link rel="stylesheet" href="/preview/assets/ui-v34.css?v=3.4"></head>');
-    html=html.replace(/<\/body>/i,'<script src="/preview/assets/ui-v3.js?v=3.4"><\/script><script src="/preview/assets/ui-v34.js?v=3.4"><\/script></body>');
+    html=html.replace(/<\/head>/i,'<link rel="stylesheet" href="/preview/assets/ui-v3.css?v=3.5"><link rel="stylesheet" href="/preview/assets/ui-v3-fix.css?v=3.5"><link rel="stylesheet" href="/preview/assets/ui-v3-hotfix.css?v=3.5"><link rel="stylesheet" href="/preview/assets/ui-v34.css?v=3.5"><link rel="stylesheet" href="/preview/assets/ui-v35.css?v=3.5"></head>');
+    html=html.replace(/<\/body>/i,'<script src="/preview/assets/ui-v3.js?v=3.5"><\/script><script src="/preview/assets/ui-v34.js?v=3.5"><\/script><script src="/preview/assets/ui-v35.js?v=3.5"><\/script></body>');
     document.open();document.write(html);document.close();
   }catch(e){
     document.body.innerHTML='<div class="preview-boot"><div class="preview-card"><div class="preview-mark">!</div><div><b>Preview chưa tải được</b><small>'+String(e&&e.message||e)+'</small></div></div></div>';
