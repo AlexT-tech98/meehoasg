@@ -19,6 +19,75 @@ body:has(.login:not(.hidden)){
 .login:not(.hidden)~.app{visibility:hidden!important;pointer-events:none!important}
 .login.hidden~.app{visibility:visible!important;pointer-events:auto!important}
 
+/* BOTANICAL JOY — login */
+.login:not(.hidden){
+  isolation:isolate!important;
+  background:
+    radial-gradient(circle at 12% 16%,rgba(255,210,82,.72),transparent 22rem),
+    radial-gradient(circle at 88% 12%,rgba(247,126,153,.44),transparent 23rem),
+    radial-gradient(circle at 90% 82%,rgba(135,199,236,.42),transparent 25rem),
+    radial-gradient(circle at 10% 86%,rgba(140,214,175,.58),transparent 26rem),
+    linear-gradient(145deg,#fff8e9 0%,#fff0f5 47%,#edf9f4 100%)!important;
+}
+.login:not(.hidden):before,
+.login:not(.hidden):after{
+  position:absolute!important;
+  z-index:-1!important;
+  pointer-events:none!important;
+  line-height:1!important;
+  filter:drop-shadow(0 12px 25px rgba(80,55,45,.06))!important;
+}
+.login:not(.hidden):before{
+  content:"✿  ❀  ✦"!important;
+  left:-18px!important;
+  bottom:-12px!important;
+  font-size:clamp(84px,15vw,180px)!important;
+  letter-spacing:-.22em!important;
+  color:rgba(255,255,255,.62)!important;
+  transform:rotate(-11deg)!important;
+}
+.login:not(.hidden):after{
+  content:"❀  ✿"!important;
+  right:-12px!important;
+  top:-18px!important;
+  font-size:clamp(78px,13vw,160px)!important;
+  letter-spacing:-.18em!important;
+  color:rgba(255,255,255,.56)!important;
+  transform:rotate(13deg)!important;
+}
+.login-card{
+  overflow:visible!important;
+  border:1px solid rgba(255,255,255,.92)!important;
+  box-shadow:0 34px 90px rgba(87,55,47,.16),0 0 0 8px rgba(255,255,255,.18)!important;
+}
+.login-card:after{
+  content:"❀"!important;
+  position:absolute!important;
+  right:-18px!important;
+  top:-20px!important;
+  width:58px!important;
+  height:58px!important;
+  display:grid!important;
+  place-items:center!important;
+  border-radius:50%!important;
+  background:linear-gradient(145deg,#fff0a9,#ffdbe4 48%,#dff4e8)!important;
+  color:#d96582!important;
+  font-size:27px!important;
+  box-shadow:0 12px 30px rgba(104,70,57,.14)!important;
+  transform:rotate(12deg)!important;
+}
+.login-card .brand-mark{position:relative!important}
+.login-card .brand-mark:after{
+  content:"✦"!important;
+  position:absolute!important;
+  right:-7px!important;
+  top:-9px!important;
+  color:#ffd35d!important;
+  font-size:19px!important;
+  text-shadow:0 4px 10px rgba(205,147,22,.22)!important;
+}
+.login-card .btn.primary{background:linear-gradient(105deg,#23705a 0%,#4d9b7e 48%,#ee8298 108%)!important}
+
 /* KPI cards need their own layout; the base app only supplies their markup. */
 .sales-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:16px;min-width:0}
 .sales-kpi-card{min-width:0;padding:18px;border-radius:20px;background:#fff;box-shadow:var(--mee-shadow);overflow-wrap:anywhere}
@@ -32,6 +101,77 @@ body:has(.login:not(.hidden)){
 .sales-kpi-card .notice{margin:16px 0}
 .payout-box{padding:14px;border-radius:14px;background:#f5f8f4}
 .payout-row{padding:6px 0}.payout-total{border-top:1px solid var(--border);margin-top:5px;padding-top:12px;font-weight:800}
+
+/* BOTANICAL JOY — KPI garden progress */
+.sales-kpi-grid{gap:18px!important}
+.sales-kpi-card{
+  position:relative!important;
+  overflow:hidden!important;
+  border:1px solid rgba(83,65,56,.06)!important;
+  background:
+    radial-gradient(circle at 100% 0,rgba(255,218,105,.24),transparent 9rem),
+    radial-gradient(circle at 0 100%,rgba(175,226,202,.34),transparent 10rem),
+    linear-gradient(145deg,#fff 0%,#fffaf1 52%,#f1faf6 100%)!important;
+  box-shadow:0 16px 38px rgba(74,50,42,.08)!important;
+}
+.sales-kpi-card:before{
+  content:"❀"!important;
+  position:absolute!important;
+  right:14px!important;
+  top:44px!important;
+  font-size:40px!important;
+  color:rgba(239,129,153,.18)!important;
+  transform:rotate(12deg)!important;
+  pointer-events:none!important;
+}
+.sales-kpi-card:after{
+  content:"⌁"!important;
+  position:absolute!important;
+  left:10px!important;
+  bottom:4px!important;
+  font-size:76px!important;
+  line-height:.7!important;
+  color:rgba(63,138,113,.10)!important;
+  transform:rotate(-18deg)!important;
+  pointer-events:none!important;
+}
+.kpi-head{position:relative!important;z-index:2!important}
+.kpi-head strong:before{content:"✿";margin-right:7px;color:#ec8295;font-size:15px}
+.kpi-track{
+  position:relative!important;
+  height:11px!important;
+  background:linear-gradient(90deg,#eef4ee,#fff2db,#f7ecf3)!important;
+  box-shadow:inset 0 1px 2px rgba(68,52,46,.05)!important;
+}
+.kpi-fill{
+  position:relative!important;
+  background:linear-gradient(90deg,#2c7b61,#60ac87)!important;
+  box-shadow:0 2px 7px rgba(44,123,97,.20)!important;
+}
+.kpi-fill:after{
+  content:"✿"!important;
+  position:absolute!important;
+  right:-7px!important;
+  top:50%!important;
+  transform:translateY(-50%)!important;
+  font-size:14px!important;
+  color:#ef8298!important;
+  text-shadow:0 2px 5px rgba(239,130,152,.22)!important;
+}
+.kpi-fill.gold{background:linear-gradient(90deg,#e2a935,#ffd66d)!important}
+.kpi-fill.gold:after{color:#d97787!important}
+.payout-box{
+  position:relative!important;
+  z-index:2!important;
+  background:linear-gradient(135deg,#f0faf5,#fff8df 52%,#fff1f5)!important;
+  border:1px solid rgba(68,110,85,.06)!important;
+}
+.sales-kpi-card .notice{
+  position:relative!important;
+  z-index:2!important;
+  background:rgba(255,255,255,.72)!important;
+  border-radius:13px!important;
+}
 
 /* Mobile navigation policy: one navigation system only.
    Keep hamburger + sidebar drawer; retire the legacy bottom nav. */
@@ -148,6 +288,9 @@ body:has(.login:not(.hidden)){
     bottom:max(18px,env(safe-area-inset-bottom))!important;
     z-index:34!important;
   }
+
+  .login-card:after{right:-8px!important;top:-12px!important;width:48px!important;height:48px!important;font-size:23px!important}
+  .sales-kpi-card:before{font-size:34px!important;right:10px!important}
 }
 
 @media(max-width:480px){
@@ -156,4 +299,6 @@ body:has(.login:not(.hidden)){
   .kpi-meta b{width:100%;text-align:left}
   .topbar{gap:6px!important}
   .topbar-search input{font-size:13px!important;padding-right:62px!important}
+  .login:not(.hidden):before{font-size:88px!important}
+  .login:not(.hidden):after{font-size:78px!important}
 }
