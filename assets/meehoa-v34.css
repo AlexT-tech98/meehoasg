@@ -1,40 +1,54 @@
 /* MEEHOA V3.4 — order form personality + drawer image visibility */
 
-/* Drawer reference images: a little larger, but show the full bouquet */
+/* Drawer reference gallery: target only known gallery containers.
+   Avoid wildcard [class*=thumb] rules that can resize unrelated components. */
 .drawer .gallery,
 .drawer .image-grid,
-.drawer .thumbs,
-.drawer [class*="gallery"],
-.drawer [class*="thumbs"]{
+.drawer .thumbs{
   display:grid!important;
   grid-template-columns:repeat(2,minmax(0,1fr))!important;
   gap:10px!important;
+  width:100%!important;
+  min-width:0!important;
+  overflow:hidden!important;
+}
+.drawer .gallery a,
+.drawer .image-grid a,
+.drawer .thumbs a{
+  display:block!important;
+  min-width:0!important;
+  overflow:hidden!important;
+  border-radius:14px!important;
 }
 .drawer .gallery img,
 .drawer .image-grid img,
-.drawer .thumbs img,
-.drawer [class*="gallery"] img,
-.drawer [class*="thumb"] img{
+.drawer .thumbs img{
+  display:block!important;
+  box-sizing:border-box!important;
   width:100%!important;
-  height:180px!important;
+  height:132px!important;
   min-width:0!important;
   max-width:100%!important;
-  min-height:180px!important;
-  max-height:180px!important;
+  min-height:132px!important;
+  max-height:132px!important;
   object-fit:contain!important;
   object-position:center!important;
   background:linear-gradient(145deg,#fffaf4,#f7fbf8)!important;
-  padding:8px!important;
+  padding:6px!important;
   border:1px solid rgba(89,65,56,.08)!important;
-  border-radius:16px!important;
+  border-radius:14px!important;
 }
 
 /* ORDER FORM — cheerful flower-studio layout */
 #orderForm.mee-order-form{
+  box-sizing:border-box!important;
   width:min(820px,calc(100vw - 28px))!important;
   max-height:94dvh!important;
   padding:0 0 20px!important;
   overflow-x:hidden!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain!important;
+  -webkit-overflow-scrolling:touch!important;
   background:linear-gradient(180deg,#fffdfb 0%,#fffaf7 42%,#f6fbf8 100%)!important;
   border:1px solid rgba(91,65,57,.08)!important;
   border-radius:28px!important;
@@ -76,7 +90,9 @@
   border-radius:20px;
   border:1px solid rgba(92,67,58,.07);
   box-shadow:0 8px 24px rgba(77,52,45,.045);
+  min-width:0;
 }
+#orderForm .mee-form-section > *{min-width:0}
 #orderForm .mee-form-section > .mee-section-title{
   grid-column:1/-1;
   display:flex;
@@ -104,6 +120,8 @@
 #orderForm .mee-form-section textarea,
 #orderForm .accessory-box input,
 #orderForm .accessory-box textarea{
+  max-width:100%!important;
+  min-width:0!important;
   background:rgba(255,255,255,.94)!important;
   border-color:rgba(87,65,57,.11)!important;
   border-radius:13px!important;
@@ -126,6 +144,7 @@
   border-radius:20px!important;
   background:linear-gradient(115deg,#fff6cd 0%,#fff 35%,#fff0f2 72%,#f4efff 100%)!important;
   box-shadow:0 10px 26px rgba(164,119,32,.07)!important;
+  min-width:0!important;
 }
 #orderForm .accessory-box > b{
   display:block;
@@ -174,17 +193,33 @@
 }
 
 @media(max-width:900px){
+  .drawer .gallery,
+  .drawer .image-grid,
+  .drawer .thumbs{gap:8px!important}
   .drawer .gallery img,
   .drawer .image-grid img,
-  .drawer .thumbs img,
-  .drawer [class*="gallery"] img,
-  .drawer [class*="thumb"] img{
-    height:158px!important;
-    min-height:158px!important;
-    max-height:158px!important;
+  .drawer .thumbs img{
+    height:112px!important;
+    min-height:112px!important;
+    max-height:112px!important;
+    padding:4px!important;
   }
-  #orderForm.mee-order-form{width:100%!important;max-width:100%!important;border-radius:24px 24px 0 0!important}
+  #orderForm.mee-order-form{
+    width:100%!important;
+    max-width:100%!important;
+    max-height:calc(100dvh - env(safe-area-inset-top))!important;
+    border-radius:24px 24px 0 0!important;
+    padding-bottom:max(20px,env(safe-area-inset-bottom))!important;
+  }
+  #orderForm.mee-order-form .modal-head{
+    padding-left:18px!important;
+    padding-right:18px!important;
+  }
+  #orderForm.mee-order-form .modal-head:after{left:18px}
+  #orderForm.mee-order-form > .form-grid{padding-left:12px!important;padding-right:12px!important}
   #orderForm .mee-form-section{grid-template-columns:1fr!important;padding:14px!important}
   #orderForm .mee-form-section > .mee-section-title{grid-column:1!important}
   #orderForm .span2{grid-column:auto!important}
+  #orderForm .accessory-box{margin-left:12px!important;margin-right:12px!important}
+  #orderForm #orderSubmit{width:calc(100% - 24px)!important;margin-left:12px!important;margin-right:12px!important}
 }
