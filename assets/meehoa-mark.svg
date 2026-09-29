@@ -1,14 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Meehoa">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Meehoa compact logo">
+  <rect width="512" height="512" rx="112" fill="#f8f6ef"/>
   <defs>
-    <linearGradient id="g" x1="30" y1="40" x2="220" y2="210" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#06204f"/>
-      <stop offset="0.38" stop-color="#0b5ca8"/>
-      <stop offset="0.66" stop-color="#53b7bb"/>
-      <stop offset="1" stop-color="#f4c55a"/>
+    <linearGradient id="meehoaCompactGradient" x1="105" y1="146" x2="397" y2="346" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#05234f"/>
+      <stop offset="0.34" stop-color="#0d66b0"/>
+      <stop offset="0.67" stop-color="#78b9a7"/>
+      <stop offset="1" stop-color="#e9ca68"/>
     </linearGradient>
   </defs>
-  <rect width="256" height="256" rx="58" fill="#f8f6ef"/>
-  <path d="M45 166V93c0-15 20-20 28-7l22 36 22-36c8-13 28-8 28 7v73c0 13-18 15-21 3l-8-34-16 27c-5 8-17 8-22 0l-16-27-8 34c-3 12-19 10-19-3z" fill="url(#g)"/>
-  <path d="M146 137c0-26 18-45 43-45 24 0 42 18 42 43 0 25-18 43-42 43-25 0-43-17-43-41zm25-1c0 11 7 19 18 19 10 0 17-8 17-19 0-12-7-20-17-20-11 0-18 8-18 20z" fill="url(#g)"/>
-  <circle cx="214" cy="185" r="12" fill="#f1c355"/>
+  <path d="M119 322c-18 0-30-13-27-31l19-111c3-20 28-27 41-11l47 60 37-44c14-17 39-10 42 11l18 101c4 24-27 35-39 14l-29-52-32 40c-12 15-35 14-45-2l-19-31-3 32c-1 14-10 24-10 24z" fill="url(#meehoaCompactGradient)"/>
+  <circle cx="387" cy="324" r="18" fill="#f2c45d"/>
 </svg>
