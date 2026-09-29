@@ -77,7 +77,7 @@
       if(!shipping||!addressWrap) return;
       var hide=/Khách tự book|Ghé lấy/i.test(shipping.value||'');
       addressWrap.classList.toggle('mee-hidden',hide);
-      if(hide && address) address.value='';
+      /* Preserve entered address. Switching shipping methods must not destroy sale input. */
     }
     if(shipping){shipping.addEventListener('change',syncAddress);syncAddress();}
   }
