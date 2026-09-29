@@ -144,14 +144,24 @@
   }
 
   var timer=null;
-  var mo=new MutationObserver(function(){
-    clearTimeout(timer);timer=setTimeout(function(){
-      installRangePicker();patchProductionRangeButton();removeLoadingCopy();syncApplyState();
-    },20);
+  function schedulePatch(){
+    clearTimeout(timer);
+    timer=setTimeout(function(){
+      installRangePicker();
+      patchProductionRangeButton();
+      removeLoadingCopy();
+      syncApplyState();
+    },30);
+  }
+  var mo=new MutationObserver(function(mutations){
+    var relevant=mutations.some(function(m){return m.type==='childList'&&(m.addedNodes.length||m.removedNodes.length)});
+    if(relevant) schedulePatch();
   });
   function init(){
     installRangePicker();patchProductionRangeButton();removeLoadingCopy();
-    mo.observe(document.body,{childList:true,subtree:true});
+    var content=qs('#content'),overlay=qs('#overlay');
+    if(content) mo.observe(content,{childList:true,subtree:true});
+    if(overlay) mo.observe(overlay,{childList:true,subtree:true});
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
