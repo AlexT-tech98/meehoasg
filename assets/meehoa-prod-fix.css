@@ -18,3 +18,33 @@ body:has(.login:not(.hidden)){
 }
 .login:not(.hidden)~.app{visibility:hidden!important;pointer-events:none!important}
 .login.hidden~.app{visibility:visible!important;pointer-events:auto!important}
+
+/* KPI cards need their own layout; the base app only supplies their markup. */
+.sales-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:16px;min-width:0}
+.sales-kpi-card{min-width:0;padding:18px;border-radius:20px;background:#fff;box-shadow:var(--mee-shadow);overflow-wrap:anywhere}
+.kpi-head,.kpi-meta,.payout-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.kpi-head{align-items:flex-start}.kpi-head strong{min-width:0;font-size:17px}.kpi-head .badge{flex:none;max-width:58%;text-align:center;white-space:normal}
+.kpi-meta{margin:12px 0 6px;color:var(--text-secondary)}
+.kpi-meta b,.payout-row b{min-width:0;text-align:right;overflow-wrap:anywhere;color:var(--text-primary)}
+.kpi-track{height:8px;border-radius:99px;background:#edf1ec;overflow:hidden}
+.kpi-fill{height:100%;border-radius:inherit;background:var(--brand-green)}
+.kpi-fill.gold{background:#dfad3e}
+.sales-kpi-card .notice{margin:16px 0}
+.payout-box{padding:14px;border-radius:14px;background:#f5f8f4}
+.payout-row{padding:6px 0}.payout-total{border-top:1px solid var(--border);margin-top:5px;padding-top:12px;font-weight:800}
+
+@media(max-width:900px){
+  .mobile-nav{box-sizing:border-box;max-width:100vw;padding-left:max(4px,env(safe-area-inset-left));padding-right:max(4px,env(safe-area-inset-right))}
+  .mobile-nav button{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;touch-action:manipulation}
+  #content,#content>*{min-width:0;max-width:100%}
+  #content>.section-head{display:flex;flex-wrap:wrap;gap:10px}
+  #content>.section-head>div{min-width:0;flex:1 1 220px}
+  #content>.section-head input[type=month]{max-width:100%;min-width:0}
+  .sales-kpi-grid{grid-template-columns:minmax(0,1fr)}
+  .sales-kpi-card{padding:15px}
+}
+@media(max-width:480px){
+  #content>.stats{grid-template-columns:minmax(0,1fr)!important}
+  .kpi-meta{align-items:flex-start;flex-wrap:wrap}
+  .kpi-meta b{width:100%;text-align:left}
+}
