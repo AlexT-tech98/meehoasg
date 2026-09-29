@@ -1,20 +1,6 @@
 (function(){
   'use strict';
   function qs(s,r){return (r||document).querySelector(s)}
-  function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
-
-  function replaceInputWithTextarea(input){
-    if(!input||input.tagName==='TEXTAREA') return input;
-    var ta=document.createElement('textarea');
-    Array.from(input.attributes).forEach(function(a){
-      if(a.name==='type' || a.name==='value') return;
-      ta.setAttribute(a.name,a.value);
-    });
-    ta.value=input.value||'';
-    ta.className=(input.className?input.className+' ':'')+'mee-textarea-compact';
-    input.replaceWith(ta);
-    return ta;
-  }
 
   function findFieldWrap(form,name){
     var el=form.querySelector('[name="'+name+'"]');
@@ -36,10 +22,11 @@
   function enhanceOrderForm(){
     var form=qs('#orderForm');
     if(!form||form.dataset.meeEnhanced==='1') return;
-    form.dataset.meeEnhanced='1';
-    form.classList.add('mee-order-form');
     var grid=qs('.form-grid',form);
     if(!grid) return;
+
+    form.dataset.meeEnhanced='1';
+    form.classList.add('mee-order-form');
 
     var customer=createSection('customer','01 · Khách hàng');
     var order=createSection('order','02 · Đơn hoa');
@@ -62,13 +49,10 @@
     move(groups.order,order);
     move(groups.delivery,delivery);
     move(groups.payment,payment);
-
     [customer,order,delivery,payment].forEach(function(s){if(s.children.length>1) grid.appendChild(s)});
 
-    ['address','cardText','bannerText','charmText','paperText'].forEach(function(name){
-      replaceInputWithTextarea(form.querySelector('[name="'+name+'"]'));
-    });
-
+    /* Keep original field nodes intact. Replacing input elements after the app binds
+       validation/listeners can break form behavior and cached DOM references. */
     var address=form.querySelector('[name="address"]');
     var addressWrap=address&&(address.closest('.span2')||address.parentElement);
     if(addressWrap) addressWrap.classList.add('mee-address-wrap');
@@ -77,12 +61,27 @@
       if(!shipping||!addressWrap) return;
       var hide=/Khách tự book|Ghé lấy/i.test(shipping.value||'');
       addressWrap.classList.toggle('mee-hidden',hide);
-      /* Preserve entered address. Switching shipping methods must not destroy sale input. */
     }
     if(shipping){shipping.addEventListener('change',syncAddress);syncAddress();}
   }
 
-  var mo=new MutationObserver(function(){enhanceOrderForm()});
-  function init(){enhanceOrderForm();var ov=qs('#overlay');if(ov)mo.observe(ov,{childList:true,subtree:true});}
+  var timer=null;
+  var mo=new MutationObserver(function(mutations){
+    var relevant=mutations.some(function(m){
+      if(m.type!=='childList'||!m.addedNodes.length) return false;
+      return Array.from(m.addedNodes).some(function(n){
+        return n.nodeType===1 && (n.id==='orderForm'||(n.querySelector&&n.querySelector('#orderForm')));
+      });
+    });
+    if(!relevant) return;
+    clearTimeout(timer);
+    timer=setTimeout(enhanceOrderForm,0);
+  });
+
+  function init(){
+    enhanceOrderForm();
+    var ov=qs('#overlay');
+    if(ov) mo.observe(ov,{childList:true,subtree:true});
+  }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
