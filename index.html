@@ -3,27 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>MEEHOASG · Operations Platform</title>
+<meta name="theme-color" content="#0f4937">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Meehoa OPS">
+<title>Meehoa OPS</title>
+<link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=1">
+<link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=1">
+<link rel="manifest" href="/manifest.webmanifest?v=1">
 <style>html,body{margin:0;min-height:100%;background:#fffaf5}body{visibility:hidden}</style>
 <script>
 (async function(){
   try{
-    var r=await fetch('/html?prod-base=20260929-v40',{cache:'no-store'});
+    var r=await fetch('/html?prod-base=20260929-v41',{cache:'no-store'});
     if(!r.ok) throw new Error('Không tải được ứng dụng');
     var html=await r.text();
-    html=html.replace(/<head>/i,'<head><base href="/">');
+    html=html.replace(/<head>/i,'<head><base href="/"><meta name="theme-color" content="#0f4937"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Meehoa OPS"><link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=1"><link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=1"><link rel="manifest" href="/manifest.webmanifest?v=1">');
+    html=html.replace(/<title>[^<]*<\/title>/i,'<title>Meehoa OPS</title>');
     html=html.replace(/<\/head>/i,
-      '<link rel="stylesheet" href="/assets/meehoa-v3.css?v=4.0">'+
-      '<link rel="stylesheet" href="/assets/meehoa-v3-fix.css?v=4.0">'+
-      '<link rel="stylesheet" href="/assets/meehoa-v3-hotfix.css?v=4.0">'+
-      '<link rel="stylesheet" href="/assets/meehoa-v34.css?v=4.0">'+
-      '<link rel="stylesheet" href="/assets/meehoa-v35.css?v=4.0">'+
-      '<link rel="stylesheet" href="/assets/meehoa-prod-fix.css?v=4.0">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v3.css?v=4.1">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v3-fix.css?v=4.1">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v3-hotfix.css?v=4.1">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v34.css?v=4.1">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v35.css?v=4.1">'+
+      '<link rel="stylesheet" href="/assets/meehoa-prod-fix.css?v=4.1">'+
       '</head>');
     html=html.replace(/<\/body>/i,
-      '<script src="/assets/meehoa-v3.js?v=4.0"><\/script>'+
-      '<script src="/assets/meehoa-v34.js?v=4.0"><\/script>'+
-      '<script src="/assets/meehoa-v35.js?v=4.0"><\/script>'+
+      '<script src="/assets/meehoa-v3.js?v=4.1"><\/script>'+
+      '<script src="/assets/meehoa-v34.js?v=4.1"><\/script>'+
+      '<script src="/assets/meehoa-v35.js?v=4.1"><\/script>'+
       '<script>document.body.style.visibility="visible";<\/script></body>');
     document.open();
     document.write(html);
