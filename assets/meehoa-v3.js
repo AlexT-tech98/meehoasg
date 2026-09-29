@@ -5,9 +5,16 @@
   function qsa(s,root){return Array.from((root||document).querySelectorAll(s))}
   function clamp(n,min,max){return Math.max(min,Math.min(max,n))}
 
+  function retireLegacyMobileNav(){
+    var legacy=qs('#mobileNav');
+    if(legacy) legacy.remove();
+  }
+
   function ensureMenu(){
     var top=qs('.topbar');
     if(!top) return;
+
+    retireLegacyMobileNav();
 
     var btn=qs('.mee-menu-btn',top);
     if(!btn){
@@ -64,9 +71,9 @@
 
   function updateSearchVisibility(){
     var active=qs('[data-p].active');
-    var page=active&&active.getAttribute('data-p');
+    var page=(window.S&&S.page)||(active&&active.getAttribute('data-p'))||'';
     var show=page==='orders'||page==='production';
-    document.body.classList.toggle('mee-search-page',!!show);
+    document.body.classList.toggle('mee-search-page',show);
   }
 
   function parseStatusCounts(){
@@ -123,7 +130,7 @@
     header.insertAdjacentElement('afterend',wrap);
   }
 
-  function markPage(){ ensureMenu(); updateSearchVisibility(); addDashboardCharts(); }
+  function markPage(){ retireLegacyMobileNav(); ensureMenu(); updateSearchVisibility(); addDashboardCharts(); }
 
   var timer=null;
   var mo=new MutationObserver(function(mutations){
@@ -134,7 +141,9 @@
   });
 
   function init(){
-    ensureMenu(); markPage();
+    retireLegacyMobileNav();
+    ensureMenu();
+    markPage();
     var content=qs('#content');
     if(content) mo.observe(content,{subtree:true,childList:true});
     document.addEventListener('click',function(e){
