@@ -1,5 +1,6 @@
 // Server-to-server Sheet shadow import. Apps Script authenticates with
 // INGEST_SECRET; deploy with verify_jwt=false because it has no Supabase JWT.
+const BUILD = '2026.09.29-cutover1';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const INGEST_SECRET = Deno.env.get('INGEST_SECRET');
@@ -41,7 +42,6 @@ function cleanTime(value) {
 }
 function saleName(value) {
   const raw = clean(value), key = norm(raw);
-  // Map tên thô → username (nhất quán với API v3 owner check)
   const aliases = {
     'huynh kim xuyen': 'huynhxuyen', 'huynh xuyen': 'huynhxuyen',
     'huynh minh thu': 'huynhthu', 'huynh thu': 'huynhthu',
@@ -50,7 +50,7 @@ function saleName(value) {
     'minh tien': 'tien', 'tien': 'tien',
     'khanh': 'cmui', 'c mui': 'cmui', 'pu': 'pu'
   };
-  if (!raw) return 'cmui';                   // ô trống → cmui
+  if (!raw) return 'cmui';
   if (['full', '62k', 'chua coc', 'da coc', 'chua cop', 'da cop'].includes(key)) return '';
   return aliases[key] || raw;
 }
@@ -111,7 +111,7 @@ async function recordRun(stats, detail) {
     entity: 'orders', received: stats.received, inserted: stats.inserted,
     updated: stats.updated, unchanged: stats.unchanged,
     skipped: stats.skipped, errors: stats.errors,
-    finished_at: new Date().toISOString(), detail
+    finished_at: new Date().toISOString(), detail: { build: BUILD, ...(detail || {}) }
   });
 }
 async function ingestOrders(rawList) {
@@ -122,7 +122,7 @@ async function ingestOrders(rawList) {
   if (new Set(rows.map(row => row.id)).size !== rows.length) throw new Error('Trùng ID trong cùng batch.');
   const ids = rows.map(row => row.id);
   const existing = ids.length ? await rest('orders', {
-    select: 'id,sync_hash', id: `in.(${ids.map(id => `"${id.replaceAll('"', '\\"')}"`).join(',')})`
+    select: 'id,sync_hash,request_id', id: `in.(${ids.map(id => `"${id.replaceAll('"', '\\"')}"`).join(',')})`
   }) : [];
   const byId = new Map(existing.map(row => [row.id, row]));
   const changed = [];
@@ -131,13 +131,18 @@ async function ingestOrders(rawList) {
     const prior = byId.get(row.id);
     if (prior?.sync_hash === digest) { stats.unchanged++; continue; }
     if (prior) stats.updated++; else stats.inserted++;
-    changed.push({ ...row, sync_hash: digest, synced_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    changed.push({
+      ...row,
+      request_id: prior?.request_id || null,
+      sync_hash: digest,
+      synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
   }
   if (changed.length) await rest('orders', { on_conflict: 'id' }, 'POST', changed);
   await recordRun(stats, { source_sheets: [...new Set(rows.map(row => row.source_sheet))].filter(Boolean) });
-  return { ok: true, ...stats, processed: rows.length };
+  return { ok: true, build: BUILD, ...stats, processed: rows.length };
 }
-
 
 async function getOrdersForSheet(payload) {
   const since = clean(payload.since);
@@ -147,11 +152,9 @@ async function getOrdersForSheet(payload) {
     order: 'updated_at.desc',
     limit: String(limit)
   };
-  if (since) {
-    query.updated_at = 'gte.' + since;
-  }
+  if (since) query.updated_at = 'gte.' + since;
   const rows = await rest('orders', query);
-  return { ok: true, orders: rows || [] };
+  return { ok: true, build: BUILD, orders: rows || [] };
 }
 
 async function recordSheetPositions(payload) {
@@ -168,28 +171,24 @@ async function recordSheetPositions(payload) {
       updated++;
     }
   }
-  return { ok: true, updated };
+  return { ok: true, build: BUILD, updated };
 }
 
 Deno.serve(async request => {
   const headers = { 'Content-Type': 'application/json; charset=utf-8' };
-  if (request.method !== 'POST') return new Response(JSON.stringify({ ok: false, message: 'POST only' }), { status: 405, headers });
-  if (!SUPABASE_URL || !SERVICE_KEY || !INGEST_SECRET) return new Response(JSON.stringify({ ok: false, message: 'Not configured' }), { status: 503, headers });
-  if (!sameSecret(request.headers.get('x-ingest-secret') || '')) return new Response(JSON.stringify({ ok: false, message: 'Unauthorized' }), { status: 401, headers });
+  if (request.method !== 'POST') return new Response(JSON.stringify({ ok: false, build: BUILD, message: 'POST only' }), { status: 405, headers });
+  if (!SUPABASE_URL || !SERVICE_KEY || !INGEST_SECRET) return new Response(JSON.stringify({ ok: false, build: BUILD, message: 'Not configured' }), { status: 503, headers });
+  if (!sameSecret(request.headers.get('x-ingest-secret') || '')) return new Response(JSON.stringify({ ok: false, build: BUILD, message: 'Unauthorized' }), { status: 401, headers });
   if (Number(request.headers.get('content-length') || 0) > 5 * 1024 * 1024)
-    return new Response(JSON.stringify({ ok: false, message: 'Payload too large' }), { status: 413, headers });
+    return new Response(JSON.stringify({ ok: false, build: BUILD, message: 'Payload too large' }), { status: 413, headers });
   try {
     const body = await request.json();
-    if (body.action === 'getOrdersForSheet') {
-      return new Response(JSON.stringify(await getOrdersForSheet(body)), { headers });
-    }
-    if (body.action === 'recordSheetPositions') {
-      return new Response(JSON.stringify(await recordSheetPositions(body)), { headers });
-    }
+    if (body.action === 'getOrdersForSheet') return new Response(JSON.stringify(await getOrdersForSheet(body)), { headers });
+    if (body.action === 'recordSheetPositions') return new Response(JSON.stringify(await recordSheetPositions(body)), { headers });
     if (!Array.isArray(body.orders) || body.orders.length > 100) throw new Error('Tối đa 100 đơn mỗi batch.');
     return new Response(JSON.stringify(await ingestOrders(body.orders)), { headers });
   } catch (error) {
     console.error('Meehoasg ingest failed:', error);
-    return new Response(JSON.stringify({ ok: false, message: 'Đồng bộ thất bại; vui lòng xem log máy chủ.' }), { status: 500, headers });
+    return new Response(JSON.stringify({ ok: false, build: BUILD, message: 'Đồng bộ thất bại; vui lòng xem log máy chủ.' }), { status: 500, headers });
   }
 });
