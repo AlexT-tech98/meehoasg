@@ -6,25 +6,66 @@
   function clamp(n,min,max){return Math.max(min,Math.min(max,n))}
 
   function ensureMenu(){
-    var top=qs('.topbar'); if(!top||qs('.mee-menu-btn')) return;
-    var btn=document.createElement('button');
-    btn.className='mee-menu-btn'; btn.type='button'; btn.title='Mở menu'; btn.setAttribute('aria-label','Mở menu');
-    btn.innerHTML='<span></span>';
-    var left=qs('.topbar-left',top); top.insertBefore(btn,left||top.firstChild);
-    var back=document.createElement('div'); back.className='mee-menu-backdrop'; document.body.appendChild(back);
-    var side=qs('.sidebar');
-    function set(open){ if(side) side.classList.toggle('mee-open',!!open); back.classList.toggle('mee-open',!!open); document.body.classList.toggle('mee-menu-open',!!open); }
-    btn.onclick=function(){ set(!(side&&side.classList.contains('mee-open'))); };
-    back.onclick=function(){set(false)};
-    document.addEventListener('keydown',function(e){if(e.key==='Escape')set(false)});
-    if(side) side.addEventListener('click',function(e){ if(e.target.closest('button[data-p]')) set(false); });
+    var top=qs('.topbar');
+    if(!top) return;
+
+    var btn=qs('.mee-menu-btn',top);
+    if(!btn){
+      btn=document.createElement('button');
+      btn.className='mee-menu-btn';
+      btn.type='button';
+      btn.title='Mở menu';
+      btn.setAttribute('aria-label','Mở menu');
+      btn.setAttribute('aria-expanded','false');
+      btn.innerHTML='<span></span>';
+      var left=qs('.topbar-left',top);
+      top.insertBefore(btn,left||top.firstChild);
+    }
+
+    var back=qs('.mee-menu-backdrop');
+    if(!back){
+      back=document.createElement('div');
+      back.className='mee-menu-backdrop';
+      back.setAttribute('aria-hidden','true');
+      document.body.appendChild(back);
+    }
+
+    function set(open){
+      var side=qs('.sidebar');
+      open=!!open;
+      if(side) side.classList.toggle('mee-open',open);
+      back.classList.toggle('mee-open',open);
+      document.body.classList.toggle('mee-menu-open',open);
+      btn.setAttribute('aria-expanded',open?'true':'false');
+      back.setAttribute('aria-hidden',open?'false':'true');
+    }
+
+    if(btn.dataset.meeBound!=='1'){
+      btn.dataset.meeBound='1';
+      btn.addEventListener('click',function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        var side=qs('.sidebar');
+        set(!(side&&side.classList.contains('mee-open')));
+      });
+    }
+    if(back.dataset.meeBound!=='1'){
+      back.dataset.meeBound='1';
+      back.addEventListener('click',function(){set(false)});
+    }
+    if(!document.documentElement.dataset.meeMenuKeys){
+      document.documentElement.dataset.meeMenuKeys='1';
+      document.addEventListener('keydown',function(e){if(e.key==='Escape')set(false)});
+      document.addEventListener('click',function(e){
+        if(e.target.closest('.sidebar button[data-p]')) set(false);
+      },true);
+    }
   }
 
   function updateSearchVisibility(){
-    var title=(qs('#pageTitle')||{}).textContent||'';
     var active=qs('[data-p].active');
     var page=active&&active.getAttribute('data-p');
-    var show=page==='orders'||page==='production'||/Đơn hàng|Sản xuất/i.test(title);
+    var show=page==='orders'||page==='production';
     document.body.classList.toggle('mee-search-page',!!show);
   }
 
@@ -82,7 +123,7 @@
     header.insertAdjacentElement('afterend',wrap);
   }
 
-  function markPage(){ updateSearchVisibility(); addDashboardCharts(); }
+  function markPage(){ ensureMenu(); updateSearchVisibility(); addDashboardCharts(); }
 
   var timer=null;
   var mo=new MutationObserver(function(mutations){
