@@ -45,13 +45,14 @@ test('V3.5 no longer observes the entire document body', () => {
 
 test('search visibility is determined by module id, not page title text', () => {
   assert.match(v3Js, /page==='orders'\|\|page==='production'/);
-  const visibilityFn = v3Js.slice(v3Js.indexOf('function updateSearchVisibility'), v3Js.indexOf('function parseStatusCounts'));
+  const visibilityFn = v3Js.slice(v3Js.indexOf('function updateSearchVisibility'), v3Js.indexOf('function cleanKpiCopy'));
   assert.doesNotMatch(visibilityFn, /pageTitle/);
   assert.doesNotMatch(visibilityFn, /Đơn hàng\|Sản xuất/);
 });
 
 test('production entrypoint uses the current UI cache generation', () => {
-  assert.match(entry, /prod-base=20260929-v39/);
-  assert.match(entry, /meehoa-v34\.css\?v=3\.9/);
-  assert.match(entry, /meehoa-v35\.js\?v=3\.9/);
+  assert.match(entry, /prod-base=20260929-v45/);
+  assert.match(entry, /meehoa-v34\.css\?v=4\.5/);
+  assert.match(entry, /meehoa-v35\.js\?v=4\.5/);
+  assert.match(entry, /meehoa-mark\.svg\?v=5/);
 });
