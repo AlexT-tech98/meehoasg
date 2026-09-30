@@ -1,7 +1,7 @@
 /**
  * ═══════════════════════════════════════════════════════════
  *  MEEHOASG — Sync Sheet → Supabase  (ALL MONTHS)
- *  Phiên bản: 2026-09-30 v3 (Production parity + full Web→Sheet updates)
+ *  Phiên bản: 2026-09-30 v4 (One-way auxiliary database mirror)
  * ═══════════════════════════════════════════════════════════
  *
  *  HƯỚNG DẪN CÀI ĐẶT:
@@ -9,13 +9,19 @@
  *  2. Project Settings → Script Properties:
  *       SUPABASE_INGEST_URL    = https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-ingest
  *       SUPABASE_INGEST_SECRET = <secret>
+ *       DATABASE_SPREADSHEET_ID = <Spreadsheet ID của MEE_OPS_DATABASE>
  *       SUPABASE_ANON_KEY      = <anon key, nếu dùng direct API fallback>
  *       SUPABASE_SYNC_USERNAME = <tài khoản sync, nếu dùng direct API fallback>
  *       SUPABASE_SYNC_PASSWORD = <mật khẩu sync, nếu dùng direct API fallback>
- *       (Tùy chọn) DATABASE_SPREADSHEET_ID = <id sheet database nếu có riêng>
- *       (Tùy chọn) ORDER_SHEET_NAMES       = <09/2026,08/2026,...> (bỏ trống = tự tìm)
- *  3. Chạy hàm syncFull để đồng bộ lại toàn bộ dữ liệu chuẩn xác
+ *       (Tùy chọn) ORDER_SHEET_NAMES = <09/2026,08/2026,...> (bỏ trống = tự tìm)
+ *  3. Chạy hàm syncFull để đồng bộ lại dữ liệu đơn hàng chính
  *  4. Bật Trigger: syncDelta chạy mỗi 1 hoặc 5 phút
+ *
+ *  NGUYÊN TẮC:
+ *  - Supabase/Website là nguồn chính.
+ *  - Sheet order chính vẫn sync 2 chiều cho các cột A:O.
+ *  - MEE_OPS_DATABASE chỉ nhận dữ liệu phụ trợ một chiều từ Website/Supabase.
+ *  - Không đọc dữ liệu phụ trợ cũ trong MEE_OPS_DATABASE để ghi ngược lên Supabase.
  */
 
 var SPREADSHEET_ID = '1TsVOtDWrqlkjEUPGWmRudGEvGe38qLG0S62MOVDefpM';
@@ -133,19 +139,40 @@ function _fetchOrdersFromSupabase(props, cfg) {
   return [];
 }
 
+function _getAuxMetaSheet(props) {
+  var dbId = String(props.getProperty('DATABASE_SPREADSHEET_ID') || '').trim();
+  if (!dbId) {
+    _log('WARN', 'Chưa cấu hình DATABASE_SPREADSHEET_ID nên dữ liệu phụ trợ chưa được ghi vào MEE_OPS_DATABASE.');
+    return null;
+  }
+  try {
+    var dbSs = SpreadsheetApp.openById(dbId);
+    var sh = dbSs.getSheetByName(CFG.META_SHEET_NAME) || dbSs.getSheetByName('ORDER_META');
+    if (!sh) {
+      _log('WARN', 'MEE_OPS_DATABASE không có tab ' + CFG.META_SHEET_NAME + ' / ORDER_META.');
+      return null;
+    }
+    return sh;
+  } catch (e) {
+    _log('ERROR', 'Không mở được MEE_OPS_DATABASE qua DATABASE_SPREADSHEET_ID: ' + e.message);
+    return null;
+  }
+}
+
 function syncSupabaseToSheet() {
   var props = PropertiesService.getScriptProperties();
   var cfg = _getIngestConfig(props);
   var orders = _fetchOrdersFromSupabase(props, cfg);
   if (!orders || !orders.length) { _log('INFO', 'syncSupabaseToSheet: Không có đơn hàng cần cập nhật từ Supabase.'); return; }
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var metaSheet = ss.getSheetByName(CFG.META_SHEET_NAME) || ss.getSheetByName('ORDER_META');
+  var metaSheet = _getAuxMetaSheet(props);
   var updates = [], insertedCount = 0, updatedCount = 0, syncIncomplete = false;
 
   function _findOrderSheet(targetMonth, preferredName) {
     if (preferredName) { var s = ss.getSheetByName(preferredName); if (s) return s; }
     var candidates = ['Tháng ' + targetMonth, targetMonth, 'Đơn ' + targetMonth, 'Tháng ' + targetMonth.replace(/^0/, ''), targetMonth.replace(/^0/, '')];
-    for (var i=0;i<candidates.length;i++) { var s=ss.getSheetByName(candidates[i]); if (s) return s; }
+    for (var i=0;i<candidates.length;i++) { var s = ss.getSheetByName(candidates[i]); if (s) return s; }
     var all = ss.getSheets();
     for (var i=0;i<all.length;i++) if (all[i].getName().indexOf(targetMonth) >= 0) return all[i];
     return null;
@@ -240,8 +267,7 @@ function _doSync(full){
   if(!secret){_log('ERROR','Chưa tìm thấy SUPABASE_INGEST_SECRET trong Script Properties.');return;}
   var ss=SpreadsheetApp.openById(SPREADSHEET_ID), orderSheetNames=_getOrderSheetNames(props,ss);
   if(!orderSheetNames.length){_log('ERROR','Không tìm thấy tab đơn hàng nào.');return;}
-  var meta=_buildMetaMap(ss,props);
-  for(var s=0;s<orderSheetNames.length;s++){var sheetName=orderSheetNames[s],sheet=ss.getSheetByName(sheetName);if(!sheet){_log('WARN','Tab không tồn tại: '+sheetName);continue;}_syncSheet(sheet,meta,url,secret,props,full);}
+  for(var s=0;s<orderSheetNames.length;s++){var sheetName=orderSheetNames[s],sheet=ss.getSheetByName(sheetName);if(!sheet){_log('WARN','Tab không tồn tại: '+sheetName);continue;}_syncSheet(sheet,url,secret,props,full);}
 }
 
 function _getOrderSheetNames(props,ss){
@@ -250,7 +276,7 @@ function _getOrderSheetNames(props,ss){
   return ss.getSheets().map(function(sh){return sh.getName();}).filter(function(n){return /\d{1,2}\/\d{4}/.test(n)||/^(?:Đơn\s*|Tháng\s*)\d/i.test(n);});
 }
 
-function _syncSheet(sheet,meta,url,secret,props,full){
+function _syncSheet(sheet,url,secret,props,full){
   var sheetName=sheet.getName(), lastRow=sheet.getLastRow(); if(lastRow<2)return;
   var cursorKey='SYNC_CURSOR_'+sheetName.replace(/[\/\s]/g,'_'), saved=Number(props.getProperty(cursorKey)||'1'), startRow=full?2:Math.max(2,saved-CFG.LOOKBACK+1), count=lastRow-startRow+1; if(count<=0)return;
   var values=sheet.getRange(startRow,1,count,CFG.ORDER_WIDTH).getValues(), richValues=sheet.getRange(startRow,5,count,1).getRichTextValues(), dispValues=sheet.getRange(startRow,5,count,1).getDisplayValues(), orders=[];
@@ -259,27 +285,25 @@ function _syncSheet(sheet,meta,url,secret,props,full){
     if(!customer&&!id)continue; if(r[1]===''||r[1]===null)continue;
     var d=_parseDate(r[1]); if(!d)continue;
     if(!id)id='LEGACY-'+sheet.getSheetId()+'-'+(startRow+i);
-    var m=meta[id]||{},fallbackImgs=_imageUrlsFromRichText(richValues[i]&&richValues[i][0],dispValues[i]&&dispValues[i][0]),metaImgs=m.images||[],seenImg={};
-    var imgs=metaImgs.concat(fallbackImgs).filter(function(u){if(!u||seenImg[u])return false;seenImg[u]=true;return true;});
-    orders.push({id:id,sync_id:id,source_sheet:sheetName,source_row:startRow+i,customer:customer,order_date:Utilities.formatDate(d,'Asia/Ho_Chi_Minh','yyyy-MM-dd'),order_time:_time(r[2]),flower:String(r[3]||'').trim(),note:String(r[5]||'').trim(),shipping:String(r[8]||'').trim(),address:_addr(r[9]),phone:_phone(r[9])||m.phone||'',flower_total:_money(r[10]),payment:String(r[11]||'').trim(),sale:String(r[12]||'').trim(),settled:_bool(r[13]),status:_status(r),ship_fee:_money(m.shipFee),ship_confirmed:_bool(m.shipConfirmed),card:_bool(m.card),card_text:String(m.cardText||'').trim(),banner:_bool(m.banner),banner_text:String(m.bannerText||'').trim(),charm_fee:_money(m.charmFee),charm_text:String(m.charmText||'').trim(),paper_fee:_money(m.paperFee),paper_text:String(m.paperText||'').trim(),vat:_money(m.vat),image_urls:imgs});
+
+    // Chỉ đồng bộ các cột thuộc Sheet order chính. Không gửi phụ kiện/meta cũ ngược lên Supabase.
+    var fallbackImgs=_imageUrlsFromRichText(richValues[i]&&richValues[i][0],dispValues[i]&&dispValues[i][0]);
+
+    orders.push({
+      id:id,sync_id:id,source_sheet:sheetName,source_row:startRow+i,
+      customer:customer,order_date:Utilities.formatDate(d,'Asia/Ho_Chi_Minh','yyyy-MM-dd'),
+      order_time:_time(r[2]),flower:String(r[3]||'').trim(),note:String(r[5]||'').trim(),
+      shipping:String(r[8]||'').trim(),address:_addr(r[9]),phone:_phone(r[9])||'',
+      flower_total:_money(r[10]),payment:String(r[11]||'').trim(),sale:String(r[12]||'').trim(),
+      settled:_bool(r[13]),status:_status(r),image_urls:fallbackImgs,
+      _preserve_aux_meta:true
+    });
   }
   if(!orders.length){props.setProperty(cursorKey,String(lastRow));return;}
   var sent=0,failed=0,errMsg='';
   for(var b=0;b<orders.length;b+=CFG.BATCH_SIZE){var batch=orders.slice(b,b+CFG.BATCH_SIZE);try{var resp=UrlFetchApp.fetch(url,{method:'post',contentType:'application/json',headers:{'x-ingest-secret':secret},payload:JSON.stringify({orders:batch}),muteHttpExceptions:true});var code=resp.getResponseCode(),body={};try{body=JSON.parse(resp.getContentText()||'{}');}catch(e){}if(code===200&&body.ok)sent+=(body.processed||batch.length);else{failed+=batch.length;errMsg='HTTP '+code+': '+resp.getContentText().slice(0,120);}}catch(ex){failed+=batch.length;errMsg=ex.message;}}
   props.setProperty(cursorKey,String(lastRow));
   _log(failed>0?'WARN':'OK','['+sheetName+'] rows '+startRow+'-'+lastRow+' → '+orders.length+' đơn, sent='+sent+', failed='+failed+(errMsg?' ['+errMsg+']':''));
-}
-
-function _buildMetaMap(ss,props){
-  var map={};
-  try{
-    var dbId=props.getProperty('DATABASE_SPREADSHEET_ID'),targetSs=ss;
-    if(dbId){try{targetSs=SpreadsheetApp.openById(dbId);}catch(err){_log('WARN','Không mở được DATABASE_SPREADSHEET_ID: '+err.message);}}
-    var sh=targetSs.getSheetByName(CFG.META_SHEET_NAME)||targetSs.getSheetByName('ORDER_META')||ss.getSheetByName(CFG.META_SHEET_NAME)||ss.getSheetByName('ORDER_META');
-    if(!sh||sh.getLastRow()<2)return map;
-    var rows=sh.getRange(2,1,sh.getLastRow()-1,17).getValues();
-    rows.forEach(function(r){var id=String(r[0]||'').trim();if(!id)return;var imgs=[];try{imgs=JSON.parse(r[14]||'[]');}catch(e){}map[id]={shipFee:r[2],shipConfirmed:r[3],card:r[4],cardText:r[5],banner:r[6],bannerText:r[7],charmFee:r[8],charmText:r[9],paperFee:r[10],paperText:r[11],vat:r[12],phone:String(r[13]||'').trim(),images:Array.isArray(imgs)?imgs.filter(Boolean):[]};});
-  }catch(e){_log('WARN','_buildMetaMap: '+e.message);}return map;
 }
 
 function _imageUrlsFromRichText(rt,txt){var out=[];if(rt){try{if(rt.getLinkUrl&&rt.getLinkUrl())out.push(rt.getLinkUrl());if(rt.getRuns)rt.getRuns().forEach(function(run){var u=run.getLinkUrl();if(u)out.push(u);});}catch(e){}}var source=(rt&&rt.getText)?rt.getText():String(txt||''),m=source.match(/https?:\/\/[^\s"'>]+/g);if(m)out=out.concat(m);var seen={};return out.filter(function(u){u=String(u||'').trim();if(!/^https?:\/\//i.test(u)||seen[u])return false;seen[u]=true;return true;});}
