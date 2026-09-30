@@ -1,9 +1,14 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const vm = require('node:vm');
 const test = require('node:test');
 
 const source = fs.readFileSync('supabase/functions/meehoasg-ingest/apps-script-production-cutover-v9.gs', 'utf8');
 const feed = fs.readFileSync('supabase/functions/meehoasg-writeback-feed/index.js', 'utf8');
+
+test('production cutover Apps Script parses as JavaScript', () => {
+  assert.doesNotThrow(() => new vm.Script(source));
+});
 
 test('production cutover makes Supabase the only automatic source', () => {
   assert.match(source, /MEE_SYNC_MODE/);
