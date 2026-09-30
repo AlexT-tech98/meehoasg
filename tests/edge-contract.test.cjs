@@ -89,11 +89,17 @@ test('one review resolves every pending request for its order', async () => {
   assert.equal(patches[1].body.settled, true);
 });
 
-test('cleanTime correctly extracts HH:mm from long 1899 date string and normal time', () => {
-  assert.equal(vm.runInContext("cleanTime('Sat Dec 30 1899 08:30:00 GMT+0706 (Indochina Time)')", context), '08:30');
+test('API cleanTime handles the normalized HH:mm contract', () => {
   assert.equal(vm.runInContext("cleanTime('08:30')", context), '08:30');
   assert.equal(vm.runInContext("cleanTime('8:30')", context), '08:30');
   assert.equal(vm.runInContext("cleanTime('14:45:00')", context), '14:45');
+});
+
+test('legacy Apps Script owns timezone normalization for 1899/GMT Sheet times', () => {
+  const syncSource = fs.readFileSync('supabase/functions/meehoasg-ingest/apps-script-sync.gs', 'utf8');
+  assert.match(syncSource, /function _time\(v\)/);
+  assert.match(syncSource, /s\.indexOf\('1899'\)>=0\|\|s\.indexOf\('GMT'\)>=0/);
+  assert.match(syncSource, /Utilities\.formatDate\(d,'Asia\/Ho_Chi_Minh','HH:mm'\)/);
 });
 
 test('getKpi unifies sales aliases into display name and calculates revenue accurately', async () => {
