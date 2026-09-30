@@ -1,6 +1,6 @@
 // Server-to-server Sheet shadow import. Apps Script authenticates with
 // INGEST_SECRET; deploy with verify_jwt=false because it has no Supabase JWT.
-const BUILD = '2026.09.29-cutover1';
+const BUILD = '2026.09.30-dedupe1';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const INGEST_SECRET = Deno.env.get('INGEST_SECRET');
@@ -118,8 +118,20 @@ async function ingestOrders(rawList) {
   const stats = { received: rawList.length, inserted: 0, updated: 0, unchanged: 0, skipped: 0, errors: 0 };
   const mapped = rawList.map(mapOrder);
   stats.skipped = mapped.filter(row => !row).length;
-  const rows = mapped.filter(Boolean);
-  if (new Set(rows.map(row => row.id)).size !== rows.length) throw new Error('Trùng ID trong cùng batch.');
+  const validRows = mapped.filter(Boolean);
+  const rows = [];
+  const seenIds = new Set();
+  const duplicateIds = [];
+  for (const row of validRows) {
+    if (seenIds.has(row.id)) {
+      stats.skipped++;
+      duplicateIds.push(row.id);
+      continue;
+    }
+    seenIds.add(row.id);
+    rows.push(row);
+  }
+  if (duplicateIds.length) console.warn('Duplicate order IDs skipped in batch:', [...new Set(duplicateIds)]);
   const ids = rows.map(row => row.id);
   const existing = ids.length ? await rest('orders', {
     select: 'id,sync_hash,request_id', id: `in.(${ids.map(id => `"${id.replaceAll('"', '\\"')}"`).join(',')})`
@@ -140,8 +152,11 @@ async function ingestOrders(rawList) {
     });
   }
   if (changed.length) await rest('orders', { on_conflict: 'id' }, 'POST', changed);
-  await recordRun(stats, { source_sheets: [...new Set(rows.map(row => row.source_sheet))].filter(Boolean) });
-  return { ok: true, build: BUILD, ...stats, processed: rows.length };
+  await recordRun(stats, {
+    source_sheets: [...new Set(rows.map(row => row.source_sheet))].filter(Boolean),
+    duplicate_ids: [...new Set(duplicateIds)]
+  });
+  return { ok: true, build: BUILD, ...stats, processed: rows.length, duplicate_ids: [...new Set(duplicateIds)] };
 }
 
 async function getOrdersForSheet(payload) {
