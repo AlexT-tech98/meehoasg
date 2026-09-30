@@ -1,0 +1,62 @@
+MEEHOASG SAFE ROW MAPPING PATCH v6
+2026-09-30
+
+Problem
+- source_row is a mutable Sheet position, not an identity.
+- Sorting/inserting/deleting rows can make source_row stale.
+- Previous code could fall back to source_row when Order ID was not found and overwrite another order.
+
+AUTHORITATIVE RULE
+- Order ID in column O is the only identity for an existing Sheet order.
+- source_row is cache/advisory only.
+- Never write to source_row unless column O at that row still equals the same Order ID.
+- If Order ID is absent from Sheet, a permitted NEW/TEST website order may be appended as a new row; never overwrite a stale row.
+
+Replace this block inside syncSupabaseToSheet():
+
+    monthOrders.forEach(function(o) {
+      var id=o.id, targetRow=existingIds[id];
+      if (!targetRow && o.source_row && Number(o.source_row)>=2 && Number(o.source_row)<=lastRow) targetRow=Number(o.source_row);
+
+with:
+
+    monthOrders.forEach(function(o) {
+      var id = String(o.id || '').trim();
+      var targetRow = existingIds[id] || 0;
+      var cachedRow = Number(o.source_row || 0);
+
+      // source_row is cache only. It may NEVER select a row for writing.
+      // We only inspect it to detect stale mappings for logs/audit.
+      if (!targetRow && cachedRow >= 2 && cachedRow <= lastRow) {
+        var cachedRowId = String(sheet.getRange(cachedRow, 15).getValue() || '').trim();
+        if (cachedRowId && cachedRowId !== id) {
+          _log('WARN', 'STALE_SOURCE_ROW: ' + id + ' cached row ' + cachedRow +
+            ' hiện thuộc ' + cachedRowId + '. Không ghi đè; chỉ tìm theo Order ID cột O.');
+        } else if (!cachedRowId) {
+          _log('WARN', 'STALE_SOURCE_ROW: ' + id + ' cached row ' + cachedRow +
+            ' không còn Order ID. Không dùng row cache để ghi.');
+        }
+      }
+
+Keep the existing behavior below this block:
+- if (targetRow) => update exact row found by Order ID.
+- else => append a new row ONLY because the order has already passed _isWebWritebackAllowed().
+- recordSheetPositions() then refreshes source_row for newly appended test orders.
+
+Do NOT reintroduce any fallback equivalent to:
+  targetRow = Number(o.source_row)
+
+Known live stale mappings found 2026-09-30
+- Tháng 09/2026 row 542:
+  MEE-260930163302-23FEA2F7 (Vũ Nhật Minh) [stale]
+  MEE-260930171805-36D38E1C (Mỹ Duyên) [current Sheet row owner]
+- Tháng 09/2026 row 543:
+  MEE-260929205654-51071A45 (Hoài Mơ) [stale]
+  MEE-260930173907-F80A7EF6 (Tú Uyên) [current Sheet row owner]
+
+Recovery order
+1. Deploy this guard first.
+2. Reconcile live Sheet column O against Supabase by Order ID.
+3. Restore missing production orders as NEW Sheet rows, never into the historical cached row.
+4. Update Supabase source_sheet/source_row to the newly created real position.
+5. Recheck for real-ID collisions (ignore deliberate legacy IDs suffixed -DUP-...).
