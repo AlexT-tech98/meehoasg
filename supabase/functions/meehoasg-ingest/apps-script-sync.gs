@@ -1,6 +1,6 @@
 /**
  * MEEHOASG — PARALLEL TEST SYNC
- * Version: 2026-09-30 v5 (Legacy production -> Supabase + gated web test writeback)
+ * Version: 2026-09-30 v6 (Order-ID-safe writeback; source_row is cache only)
  *
  * CURRENT TEST PHASE:
  *  - Old web app + Order Sheets + MEE_OPS_DATABASE remain production sources.
@@ -206,7 +206,11 @@ function syncSupabaseToSheet() {
 
     monthOrders.forEach(function(o) {
       var id=o.id, targetRow=existingIds[id];
-      if (!targetRow && o.source_row && Number(o.source_row)>=2 && Number(o.source_row)<=lastRow) targetRow=Number(o.source_row);
+      // CRITICAL: source_row is only a cached location. Never use it to choose a row
+      // when the Order ID is absent; sorting/inserting/deleting rows makes it stale.
+      // Existing legacy production orders missing from Sheet must not be recreated by
+      // this TEST writeback path. Only brand-new website test orders may append.
+      var hadLegacyPosition = !!(o.source_sheet || o.source_row);
       var dParts=(o.order_date||'').split('-');
       var dateVal=dParts.length===3 ? (dParts[2]+'/'+dParts[1]+'/'+dParts[0]) : o.order_date;
       var rowValues=[
@@ -220,6 +224,10 @@ function syncSupabaseToSheet() {
       if (targetRow) {
         sheet.getRange(targetRow,1,1,15).setValues([rowValues]);
         updatedCount++;
+      } else if (hadLegacyPosition) {
+        syncIncomplete=true;
+        _log('WARN','STALE_MAPPING: '+id+' không còn trong cột O của '+sheet.getName()+'. Cache source_row='+String(o.source_row||'')+' bị bỏ qua; KHÔNG ghi đè dòng khác.');
+        return;
       } else {
         if (!rowValues[8]) rowValues[8]='Shop book ship';
         sheet.appendRow(rowValues);
