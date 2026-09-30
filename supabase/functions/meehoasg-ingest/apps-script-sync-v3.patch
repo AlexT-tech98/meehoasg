@@ -1,0 +1,190 @@
+# MEEHOASG sync v3 patch — 30/09/2026
+# Apply to supabase/functions/meehoasg-ingest/apps-script-sync.gs
+# Goal: align repo with verified production behavior and make Web/Supabase edits fully mirror to Sheet.
+
+## 1) Production parity: correct month parsing
+
+Replace:
+
+```js
+var m = (o.order_date || "").match(/^(d{4})-(d{2})/);
+```
+
+with:
+
+```js
+var m = (o.order_date || "").match(/^(\d{4})-(\d{2})/);
+```
+
+Also retain the production behavior that marks a sync incomplete when the destination month tab cannot be found:
+
+```js
+var syncIncomplete = false;
+...
+if (!sheet) {
+  _log("WARN", "Không tìm thấy tab sheet cho tháng: " + monthKey);
+  syncIncomplete = true;
+  return;
+}
+...
+if (!syncIncomplete) {
+  props.setProperty("LAST_SUPABASE_TO_SHEET_AT", new Date().toISOString());
+}
+```
+
+This prevents the cursor from moving forward when an order could not be written to its month tab.
+
+## 2) Do not hard-code Supabase credentials in Apps Script
+
+Inside `_fetchOrdersFromSupabase(props, cfg)`, use Script Properties:
+
+```js
+var apiUrl = "https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api";
+var anonKey = String(props.getProperty("SUPABASE_ANON_KEY") || "").trim();
+var syncPassword = String(props.getProperty("SUPABASE_SYNC_PASSWORD") || "").trim();
+
+try {
+  if (!anonKey || !syncPassword) {
+    throw new Error("Thiếu SUPABASE_ANON_KEY hoặc SUPABASE_SYNC_PASSWORD; chuyển sang ingest.");
+  }
+  // existing direct API login flow
+  // login payload must use password: syncPassword
+} catch (e) {
+  _log("WARN", "Không kết nối được meehoasg-api: " + e.message + ". Thử gọi meehoasg-ingest...");
+}
+```
+
+Do not commit real values of `SUPABASE_ANON_KEY`, `SUPABASE_SYNC_PASSWORD`, `SUPABASE_INGEST_SECRET`, service-role keys, or user passwords.
+
+## 3) Expand the direct API fallback window
+
+Production previously scanned only 3 days backward / 7 days forward. For the direct fallback path use:
+
+```js
+var now = new Date();
+var startD = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+var endD = new Date(now.getTime() + 60 * 24 * 3600 * 1000);
+```
+
+The ingest path should remain based on `updated_at`/`LAST_SUPABASE_TO_SHEET_AT` when the ingest secret is available.
+
+## 4) Include auxiliary order data when mapping API orders
+
+Add these fields to the mapped order object returned by the direct API path:
+
+```js
+image_urls: o.imageUrls || [],
+ship_fee: o.shipFee || 0,
+ship_confirmed: !!o.shipConfirmed,
+card: !!o.card,
+card_text: o.cardText || "",
+banner: !!o.banner,
+banner_text: o.bannerText || "",
+charm_fee: o.charmFee || 0,
+charm_text: o.charmText || "",
+paper_fee: o.paperFee || 0,
+paper_text: o.paperText || "",
+vat: o.vat || 0
+```
+
+## 5) Upsert ORDER_META instead of append-only behavior
+
+Add:
+
+```js
+function _upsertMetaFromWeb(metaSheet, o, id) {
+  if (!metaSheet || !id) return;
+  var last = metaSheet.getLastRow();
+  var row = 0;
+
+  if (last >= 2) {
+    var ids = metaSheet.getRange(2, 1, last - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (String(ids[i][0] || "").trim() === id) {
+        row = i + 2;
+        break;
+      }
+    }
+  }
+
+  var values = [[
+    id,
+    Utilities.formatDate(new Date(), "Asia/Ho_Chi_Minh", "yyyy-MM-dd HH:mm:ss"),
+    Number(o.ship_fee || 0),
+    o.ship_confirmed ? "x" : "",
+    o.card ? "x" : "",
+    o.card_text || "",
+    o.banner ? "x" : "",
+    o.banner_text || "",
+    Number(o.charm_fee || 0),
+    o.charm_text || "",
+    Number(o.paper_fee || 0),
+    o.paper_text || "",
+    Number(o.vat || 0),
+    o.phone || "",
+    JSON.stringify(o.image_urls || [])
+  ]];
+
+  if (row) metaSheet.getRange(row, 1, 1, 15).setValues(values);
+  else metaSheet.getRange(Math.max(2, last + 1), 1, 1, 15).setValues(values);
+}
+```
+
+Use `_upsertMetaFromWeb(metaSheet, o, id)` for both new and existing orders.
+
+## 6) Existing orders must update the complete Sheet row
+
+Current behavior updates only G/H/N/K/L/J. Replace that branch with a complete A:O write:
+
+```js
+if (targetRow) {
+  var updatedRow = [[
+    o.customer || "",                                      // A Tên
+    dateVal,                                                // B Ngày
+    timeVal,                                                // C Giờ nhận
+    o.flower || "",                                       // D Mẫu đặt hàng
+    (o.image_urls && o.image_urls[0]) ? o.image_urls[0] : "", // E Hình mẫu
+    o.note || "",                                         // F Note
+    isBo,                                                   // G Đã bó
+    isGiao,                                                 // H Đã giao
+    o.shipping || "",                                     // I Vận chuyển
+    contactVal,                                             // J Địa chỉ + SĐT
+    Number(o.flower_total || 0),                            // K Tổng tiền
+    o.payment || "",                                      // L TTTT
+    saleVal,                                                // M Sale
+    isSettled,                                              // N Tất toán
+    id                                                      // O Order ID
+  ]];
+
+  sheet.getRange(targetRow, 1, 1, 15).setValues(updatedRow);
+  _upsertMetaFromWeb(metaSheet, o, id);
+  updatedCount++;
+
+  _log(
+    "INFO",
+    "Đã cập nhật đầy đủ đơn " + id +
+    " tại dòng " + targetRow +
+    " (" + (o.customer || id) + ")"
+  );
+} else {
+  // keep existing append-new-order behavior
+}
+```
+
+This is the core business fix. Example: if Sale changes a bouquet from `Bó hồng đỏ 500k - 15:00` to `Bó burgundy 650k - 17:00 - giao lễ tân`, the next sync must update mẫu hoa, tiền, giờ nhận and note in the same existing Sheet row instead of only changing the amount/status.
+
+## 7) Acceptance tests before disabling the legacy web app
+
+Run these on production with real disposable/test orders:
+
+1. Create a new order; verify the correct month tab and no duplicate on the next automatic run.
+2. Edit customer + receive time + flower model + note; verify A/B/C/D/F on the same Sheet row.
+3. Change shipping + phone/address; verify I/J.
+4. Change amount + payment; verify K/L.
+5. Change Sale; verify M.
+6. Move status `Chờ bó → Đã bó → Đã giao`; verify G/H.
+7. Add/change ship fee, card, banner, charm, paper fee, VAT and images; verify the auxiliary meta row is updated rather than duplicated.
+8. Edit an order outside the old 3-day/7-day window.
+9. Run the automatic trigger again and verify no duplicate order row or duplicate meta row.
+
+Only after these cases pass should the legacy Google Apps Script web app be considered safe to retire.
