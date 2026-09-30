@@ -1,38 +1,56 @@
 # MEEHOASG Operations Platform
 
-`index.html` is the GitHub Pages entry point for [ops.meehoasg.com](https://ops.meehoasg.com). The identical `html` file is retained as an editable copy. Both call the `meehoasg-api` Supabase Edge Function in project `zxnfhshnavbmvdthrmrd`. The old Google Apps Script web app is decommissioned for daily operations and superseded by this platform.
+`index.html` is the GitHub Pages entry point for [ops.meehoasg.com](https://ops.meehoasg.com). The identical `html` file is retained as an editable copy. Both call the `meehoasg-api` Supabase Edge Function in project `zxnfhshnavbmvdthrmrd`.
+
+> **Production status — 30/09/2026:** website operations are running on the new platform and Web → Supabase is active. The legacy Google Apps Script web app must **not** be considered fully decommissioned yet. Cutover is pending final acceptance testing of create/edit flows and full Web → Sheet field parity.
 
 ## Architecture & Bi-Directional Sync
 
-The system runs on a high-speed, resilient bi-directional sync loop:
-
-```
+```text
 [Nhân viên shop]                     [Hệ thống Cloud]                   [Đối tác / Kế toán]
-Thao tác trên Web mới  ──(ngay lập tức)──►  Supabase Database  ──(tự động sync)──►  Google Sheet
-(Mượt mà, nhanh ~100ms)               (Lưu trữ an toàn)                 (Xem báo cáo quen thuộc)
+Thao tác trên Web mới  ──(ngay lập tức)──►  Supabase Database  ──(trigger Apps Script)──►  Google Sheet
 ```
 
-1. **Web App ➔ Supabase (`~100ms`)**:
-   - Nhân viên thao tác trực tiếp trên giao diện [ops.meehoasg.com](https://ops.meehoasg.com).
-   - Mọi tạo mới đơn, sửa đơn, chuyển trạng thái (`Chờ bó`, `Đã bó`, `Đã giao`), cập nhật thanh toán và công nợ đều ghi tức thời vào cơ sở dữ liệu Supabase thông qua Edge Function `meehoasg-api`.
+1. **Web App → Supabase**
+   - Nhân viên thao tác trực tiếp trên `ops.meehoasg.com`.
+   - Tạo đơn, sửa đơn, chuyển trạng thái, thanh toán và công nợ được lưu vào Supabase thông qua `meehoasg-api`.
 
-2. **Supabase ➔ Google Sheet (`Tự động mỗi 1 phút`)**:
-   - Google Apps Script chạy trigger time-driven mỗi 1 phút (`syncDelta()`).
-   - Hàm `syncSupabaseToSheet()` tự động gọi endpoint `meehoasg-ingest/getOrdersForSheet` để lấy danh sách các đơn hàng mới tạo hoặc mới cập nhật trên Web.
-   - Script ghi tự động dòng mới vào Sheet tháng tương ứng (hoặc cập nhật lại dòng nếu đơn đã tồn tại trên Sheet) và thông báo lại tọa độ cho Supabase qua `recordSheetPositions`.
+2. **Supabase → Google Sheet**
+   - Google Apps Script chạy `syncDelta()` theo trigger định kỳ.
+   - `syncSupabaseToSheet()` đưa đơn mới hoặc thay đổi từ Supabase về Sheet tháng tương ứng.
+   - Đơn test `MEE-133EA255B4234859` đã được kiểm tra thực tế ngày 30/09/2026: xuất hiện tại dòng 539, đúng khách hàng, giờ nhận, mẫu hoa, số tiền 280.000đ và trạng thái thanh toán; lượt sync tự động kế tiếp không tạo dòng trùng.
+   - Apps Script production đã được sửa để nhận đúng tên tab dạng `Tháng 09/2026` và quét lại đơn bị bỏ sót.
 
-3. **Google Sheet ➔ Supabase (`Đồng bộ ngược`)**:
-   - Khi có bất kỳ dữ liệu nào được chỉnh sửa trực tiếp trên Google Sheet, trigger 1 phút `syncDelta()` sẽ quét delta và đồng bộ vào Supabase Database, đảm bảo 2 hệ thống luôn khớp dữ liệu 100%.
+3. **Google Sheet → Supabase**
+   - `syncDelta()` tiếp tục quét phần thay đổi trên Sheet và gửi lên Supabase.
+   - Chiều Sheet/web app cũ → website đã được kiểm tra thực tế.
+
+## Acceptance status
+
+**Đã xác nhận:**
+- Website lưu đơn vào Supabase.
+- Một đơn test mới đã đồng bộ đúng xuống Sheet và không tạo trùng ở lượt chạy kế tiếp.
+- Production Apps Script nhận đúng tab `Tháng 09/2026`.
+
+**Chưa nghiệm thu hoàn tất:**
+- Tạo nhiều đơn mới liên tiếp trong vận hành thực tế.
+- Sửa đơn đã tồn tại và xác nhận toàn bộ trường đều phản chiếu về Sheet: tên khách, ngày/giờ nhận, mẫu hoa, ảnh, note, vận chuyển, tiền hoa, thanh toán, Sale, trạng thái.
+- Dữ liệu phụ: phí ship, xác nhận ship, thiệp, banner, charm, thay giấy, VAT và ảnh.
+- Điều kiện ngưng hẳn web app cũ.
+
+## Source-of-truth note
+
+Ngày 30/09/2026, mã Apps Script đang chạy production và file `supabase/functions/meehoasg-ingest/apps-script-sync.gs` trong GitHub từng có chênh lệch. Trước mọi lần triển khai tiếp theo phải đối chiếu production với repository và chỉ dùng phiên bản đã nghiệm thu làm mốc.
 
 ## Security & Storage
 
-The API validates existing usernames and SHA-256 password hashes, then issues opaque sessions stored as hashes in `app_sessions`. Supabase's legacy public `anon` JWT is used for platform Edge Function verification; it is public and carries no database privileges. The service-role credential stays strictly in the Edge Function environment. All application tables have RLS enabled and no browser-access policies. Uploaded order images and settlement bills are private Storage objects, returned to authenticated users as time-limited signed URLs.
+The API validates existing usernames and SHA-256 password hashes, then issues opaque sessions stored as hashes in `app_sessions`. Supabase's public anon credential carries no database privileges. Service-role credentials remain in the Edge Function environment. Application tables use RLS and uploaded order images / settlement bills are private objects returned to authenticated users through time-limited signed URLs.
 
 ## Project Structure
 
-- `index.html` / `html`: Giao diện Botanical Studio & Executive Precision cho web vận hành.
-- `CNAME`: Cấu hình custom subdomain `ops.meehoasg.com`.
-- `supabase/schema.sql`: Toàn bộ cấu trúc cơ sở dữ liệu PostgreSQL trên Supabase.
-- `supabase/functions/meehoasg-api/`: API vận hành chính (xác thực, đơn hàng, công nợ, KPI, quyết toán).
-- `supabase/functions/meehoasg-ingest/`: API trung gian hỗ trợ đồng bộ dữ liệu với Google Sheet.
-- `supabase/functions/meehoasg-ingest/apps-script-sync.gs`: Mã nguồn Google Apps Script triển khai trên Google Sheets để đồng bộ 2 chiều tự động.
+- `index.html` / `html`: giao diện web vận hành.
+- `CNAME`: custom subdomain `ops.meehoasg.com`.
+- `supabase/schema.sql`: cấu trúc database.
+- `supabase/functions/meehoasg-api/`: API vận hành chính.
+- `supabase/functions/meehoasg-ingest/`: API trung gian cho đồng bộ Google Sheet.
+- `supabase/functions/meehoasg-ingest/apps-script-sync.gs`: Apps Script đồng bộ hai chiều.
