@@ -1,6 +1,6 @@
 // Server-to-server Sheet shadow import. Apps Script authenticates with
 // INGEST_SECRET; deploy with verify_jwt=false because it has no Supabase JWT.
-const BUILD = '2026.09.30-dedupe1';
+const BUILD = '2026.09.30-rowcache-safe1';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const INGEST_SECRET = Deno.env.get('INGEST_SECRET');
@@ -182,6 +182,7 @@ async function recordSheetPositions(payload) {
     if (item.source_sheet) patch.source_sheet = clean(item.source_sheet);
     if (Number.isFinite(item.source_row)) patch.source_row = Number(item.source_row);
     if (Object.keys(patch).length > 0) {
+      // source_row is location cache only; identity remains orders.id / Sheet column O.
       await rest('orders', { id: 'eq.' + id }, 'PATCH', patch);
       updated++;
     }
