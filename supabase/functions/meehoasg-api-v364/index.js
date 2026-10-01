@@ -1,5 +1,5 @@
 const UI_BUILD = '2026.09.28-supabase-v3';
-const PROXY_BUILD = '2026.10.01-v364';
+const PROXY_BUILD = '2026.10.01-v364-bootstrap1';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const GEMINI_KEY = Deno.env.get('GEMINI_API_KEY');
@@ -43,6 +43,15 @@ async function fastDashboard(payload){
   return {ok:true,range:{start,end},summary,attentionGroups:{nearUnpacked:nearUnpacked.slice(0,20),packedOverdue:packedOverdue.slice(0,20)},attention:[...nearUnpacked,...packedOverdue].slice(0,40),salesDaily,revenueRule:'SPLIT_SETTLEMENT',revenueLabels:{unsettled:'Doanh thu chưa tất toán',settled:'Doanh thu đã tất toán'}};
 }
 
+async function patchBootstrapDashboard(name,payload,result){
+  if(!result?.ok||result?.initial?.page!=='dashboard')return result;
+  const bootToken=name==='loginAndBootstrap'?clean(result.token):clean(payload?.token);
+  if(!bootToken)return result;
+  const day=dateToday();
+  const fresh=await fastDashboard({token:bootToken,start:day,end:day});
+  return {...result,initial:{...result.initial,data:fresh,at:Date.now()}};
+}
+
 function localFlowers(text){const raw=clean(text),n=norm(raw),out=[];const add=x=>{if(x&&!out.includes(x))out.push(x)};
   if(/\b(ly|li|lily|lilies)\b/.test(n)){let label='Ly';if(/xanh/.test(n)&&/nhuom/.test(n))label=/dam/.test(n)?'Ly xanh nhuộm đậm':'Ly xanh nhuộm';else if(/son\s*xanh/.test(n))label=/dam/.test(n)?'Ly sơn xanh đậm':'Ly sơn xanh';else if(/tim\s*pastel/.test(n))label='Ly tím pastel';else if(/xanh\s*mint/.test(n))label='Ly xanh mint';else if(/hong/.test(n))label='Ly hồng';else if(/vang\s*cam/.test(n))label='Ly vàng cam';else if(/kep/.test(n))label='Ly kép';add(label)}
   if(/hong\s*(ecu|ecuador)|ecuador/.test(n))add('Hồng Ecuador');if(/chiet\s*xa/.test(n))add('Chiết xạ');if(/\bohara\b/.test(n))add('Hồng Ohara');if(/\b(phang|phan|carnation)\b/.test(n))add('Hoa phăng');if(/\btulip\b/.test(n))add('Tulip');if(/\bbaby\b/.test(n))add(/xanh/.test(n)?'Baby xanh':'Baby');if(/cam\s*tu\s*cau/.test(n))add('Cẩm tú cầu');if(/thanh\s*lieu/.test(n))add('Thanh liễu');if(/huong\s*duong/.test(n))add('Hướng dương');if(/mao\s*luong/.test(n))add('Mao lương');if(/dong\s*tien/.test(n))add('Đồng tiền');return out}
@@ -50,4 +59,4 @@ async function fallbackFlowers(payload){const user=await requireUser(payload);if
 
 async function delegate(raw,request){const upstream=await fetch(V363_API,{method:'POST',headers:{'Content-Type':'application/json',Authorization:request.headers.get('authorization')||'',apikey:request.headers.get('apikey')||''},body:raw});const text=await upstream.text();let data={};try{data=text?JSON.parse(text):{}}catch(_){data={ok:false,message:'Máy chủ trả dữ liệu không hợp lệ.'}}return {status:upstream.status,data}}
 
-Deno.serve(async request=>{const cors=corsHeaders(request.headers.get('origin')||'');if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors});if(request.method!=='POST')return new Response(JSON.stringify({ok:false,message:'Method not allowed',build:UI_BUILD}),{status:405,headers:cors});const started=Date.now();try{const raw=await request.text();let input={};try{input=raw?JSON.parse(raw):{}}catch(_){}const name=clean(input?.name),payload=input?.payload&&typeof input.payload==='object'?input.payload:{};let result,status=200;if(name==='getDashboardSummary'){result=await fastDashboard(payload)}else if(name==='getFlowerInventory'&&!GEMINI_KEY){result=await fallbackFlowers(payload)}else{const u=await delegate(raw,request);result=u.data;status=u.status}const perf=result?._perf&&typeof result._perf==='object'?result._perf:{};return new Response(JSON.stringify({...result,build:UI_BUILD,proxyBuild:PROXY_BUILD,_perf:{...perf,serverMs:Date.now()-started,proxy:'v364'}}),{status,headers:cors})}catch(error){return new Response(JSON.stringify({ok:false,message:error?.message||'Máy chủ gặp lỗi. Vui lòng thử lại.',code:'SERVER_ERROR',build:UI_BUILD,proxyBuild:PROXY_BUILD}),{status:200,headers:cors})}});
+Deno.serve(async request=>{const cors=corsHeaders(request.headers.get('origin')||'');if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors});if(request.method!=='POST')return new Response(JSON.stringify({ok:false,message:'Method not allowed',build:UI_BUILD}),{status:405,headers:cors});const started=Date.now();try{const raw=await request.text();let input={};try{input=raw?JSON.parse(raw):{}}catch(_){}const name=clean(input?.name),payload=input?.payload&&typeof input.payload==='object'?input.payload:{};let result,status=200;if(name==='getDashboardSummary'){result=await fastDashboard(payload)}else if(name==='getFlowerInventory'&&!GEMINI_KEY){result=await fallbackFlowers(payload)}else if(name==='loginAndBootstrap'||name==='getCurrentUserAndBootstrap'){const u=await delegate(raw,request);result=await patchBootstrapDashboard(name,payload,u.data);status=u.status}else{const u=await delegate(raw,request);result=u.data;status=u.status}const perf=result?._perf&&typeof result._perf==='object'?result._perf:{};return new Response(JSON.stringify({...result,build:UI_BUILD,proxyBuild:PROXY_BUILD,_perf:{...perf,serverMs:Date.now()-started,proxy:'v364'}}),{status,headers:cors})}catch(error){return new Response(JSON.stringify({ok:false,message:error?.message||'Máy chủ gặp lỗi. Vui lòng thử lại.',code:'SERVER_ERROR',build:UI_BUILD,proxyBuild:PROXY_BUILD}),{status:200,headers:cors})}});
