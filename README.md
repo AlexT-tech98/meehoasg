@@ -1,14 +1,22 @@
 # MEEHOASG Operations Platform
 
-`index.html` is the GitHub Pages entry point for `ops.meehoasg.com`. The app calls the `meehoasg-api` Supabase Edge Function in project `zxnfhshnavbmvdthrmrd`.
+`index.html` is the GitHub Pages entry point for `ops.meehoasg.com`. The production UI routes application calls through `meehoasg-api-v36`, which delegates unchanged workflows to the stable `meehoasg-api` and adds the v3.6 reporting/materials behavior. Both run in Supabase project `zxnfhshnavbmvdthrmrd`.
 
 > **Production status — GO-LIVE 01/10/2026:** the new website is the primary operations interface and **Supabase is the production source of truth**. Production writeback is running with **v9.2 FAST** every 1 minute; a full duplicate-ID health audit runs every 15 minutes. The old Apps Script web app / legacy Sheet flow is retained only for rollback and historical reference and must not be used as the primary writer during normal production.
+
+> **UI / business release v3.6 — 01/10/2026:** revenue and KPI revenue now count only `settled=true` orders; Dashboard includes daily revenue by salesperson; the Materials module uses a variant-preserving AI classifier with grouped ingredient cards, order drawers and a review queue; Production Grid / navigation / main-page scrolling were repaired; full-paid copy is `Đã thu đủ tiền hoa`; browser/shortcut branding uses the supplied Meehoa mark.
 
 ## Current production architecture
 
 ```text
 [Nhân viên shop]
 Website mới (ops.meehoasg.com)
+    │
+    ▼
+meehoasg-api-v36
+    │
+    ├── patched reads: Dashboard / KPI / Nguyên liệu AI
+    └── all other routes delegate to stable meehoasg-api
     │
     ▼
 Supabase  ← SOURCE OF TRUTH
@@ -25,6 +33,35 @@ Production rules:
 - `source_row` / `source_sheet` are location caches only; they never identify a row for overwrite.
 - Automatic legacy Sheet/web-app → Supabase writers are stopped in production mode.
 - Payment Check is operationally sourced from Supabase `settlement_requests`; legacy settlement sync is retained only for rollback/history.
+- Dashboard/KPI revenue is recognized only after the order is settled (`settled=true`).
+
+## v3.6 business and UI behavior
+
+### Revenue / KPI
+
+- Dashboard revenue = sum of `flower_total` for settled orders only.
+- Base CMS shown on Dashboard follows the same settled-only revenue base.
+- Dashboard exposes `salesDaily` grouped by order date and salesperson with settled-order count + revenue.
+- KPI revenue, big-order count, commission rate eligibility, commission and bonus all use settled orders only.
+
+### AI Materials
+
+Source: `supabase/functions/meehoasg-api-v36/index.js`
+
+- AI normalizes spelling/aliases without intentionally removing purchase-relevant variants.
+- Examples include `Ly`, `Ly kép`, `Ly hồng`, `Ly tím pastel`, `Ly xanh mint`, `Ly xanh nhuộm`, `Ly sơn xanh`, `Hồng Ecuador`, `Chiết xạ`.
+- One order may contribute to multiple flower groups.
+- Counts are **orders containing the flower type**, not stem counts.
+- Uncertain / insufficient descriptions are returned in `reviewOrders` instead of being guessed.
+- The UI renders grouped material cards; clicking a card opens the related order drawer.
+
+### Production / shell UI
+
+- Production Grid constrains thumbnails and separates flower/price/contact/debt content so long values wrap safely.
+- The top navigation / hamburger is fixed to the viewport.
+- The main app uses one page-level vertical scroll; drawer/modal content retains its own bounded scroll only where needed.
+- `Đã thu đủ` copy is normalized to `Đã thu đủ tiền hoa`.
+- Favicon, app shortcut and in-app mark use the transparent Meehoa mark generation `v=6`.
 
 ## Production sync versions
 
@@ -108,17 +145,21 @@ At go-live verification, there were no `APPROVED` settlement requests whose corr
 
 Normal production must **not** mix legacy writers with the Supabase-authoritative writer.
 
-If a deliberate rollback is required:
+If a deliberate data-flow rollback is required:
 1. stop v9.2 production triggers;
 2. use the v9.1 rollback path (`rollbackToParallelV91()`);
 3. verify trigger state before allowing the old app/Sheet to write again;
 4. reconcile changes made during production mode before a future recutover.
+
+For a **v3.6 UI/API-only rollback**, leave v9.2 untouched and revert `index.html` routing from `meehoasg-api-v36` back to `meehoasg-api` plus the previous UI asset generation.
 
 Do not manually enable `syncDelta` or settlement legacy triggers while `MEE_SYNC_MODE=PRODUCTION`.
 
 ## Security & storage
 
 The API validates existing usernames and password hashes, then issues opaque sessions stored as hashes in `app_sessions`. Supabase's public anon credential carries no database privileges. Service-role credentials remain in Edge Function environments. Application tables use RLS and uploaded order images / settlement bills are private objects returned to authenticated users through time-limited signed URLs.
+
+`meehoasg-api-v36` retains platform JWT verification, delegates authentication/authorization to the stable API before protected patched reads, and fails closed for Materials if the permission gate does not pass.
 
 ## Regression suite
 
@@ -129,7 +170,9 @@ Coverage includes:
 - duplicate Payment Check grouping and review;
 - legacy time normalization boundary;
 - KPI alias handling;
-- mobile navigation, thumbnails, drawer, form and search regressions;
+- settled-only Dashboard/KPI revenue rules;
+- variant-preserving AI Materials + review flow;
+- mobile navigation, thumbnails, drawer, form, search and single-scroll regressions;
 - production cutover / Supabase source-of-truth invariants;
 - v9.1 duplicate-ID cutover gate;
 - v9.2 delta-first fast path and health-audit split;
@@ -141,7 +184,8 @@ Coverage includes:
 
 - `index.html` / `html`: production UI.
 - `assets/`: UI CSS/JS layers and production fixes.
-- `supabase/functions/meehoasg-api/`: main application API.
+- `supabase/functions/meehoasg-api/`: stable application API used by delegated v3.6 routes.
+- `supabase/functions/meehoasg-api-v36/`: v3.6 compatibility proxy for settled revenue/KPI and AI Materials.
 - `supabase/functions/meehoasg-ingest/`: ingest, historical sync, cutover, audit and repair scripts.
 - `supabase/functions/meehoasg-writeback-feed/`: production changed-order feed for Apps Script.
 - `supabase/functions/meehoasg-ingest/apps-script-sync.gs`: legacy v6 sync retained for rollback/history.
