@@ -30,8 +30,8 @@
   }
 
   function ensureBranding(){
-    qsa('.brand-mark').forEach(function(mark){mark.dataset.meeLogo='5';mark.classList.add('mee-brand-mark');mark.innerHTML='<img src="/assets/meehoa-mark.svg?v=5" alt="Meehoa">'});
-    qsa('.sidebar .brand').forEach(function(brand){brand.dataset.meeBrand='5';brand.classList.add('mee-brand-compact-only');var mark=brand.querySelector('.brand-mark');if(!mark){mark=document.createElement('div');mark.className='brand-mark mee-brand-mark';brand.insertBefore(mark,brand.firstChild)}mark.innerHTML='<img src="/assets/meehoa-mark.svg?v=5" alt="Meehoa">';var copy=brand.querySelector('.brand-copy');if(copy)copy.remove()});
+    qsa('.brand-mark').forEach(function(mark){mark.dataset.meeLogo='6';mark.classList.add('mee-brand-mark');mark.innerHTML='<img src="/assets/meehoa-mark.svg?v=6" alt="Meehoa">'});
+    qsa('.sidebar .brand').forEach(function(brand){brand.dataset.meeBrand='6';brand.classList.add('mee-brand-compact-only');var mark=brand.querySelector('.brand-mark');if(!mark){mark=document.createElement('div');mark.className='brand-mark mee-brand-mark';brand.insertBefore(mark,brand.firstChild)}mark.innerHTML='<img src="/assets/meehoa-mark.svg?v=6" alt="Meehoa">';var copy=brand.querySelector('.brand-copy');if(copy)copy.remove()});
   }
 
   function updateSearchVisibility(){var active=qs('[data-p].active');var page=(window.S&&S.page)||(active&&active.getAttribute('data-p'))||'';var show=page==='orders'||page==='production';document.body.classList.toggle('mee-search-page',show);document.body.classList.toggle('mee-page-production',page==='production');document.body.classList.toggle('mee-page-kpi',page==='kpi')}
