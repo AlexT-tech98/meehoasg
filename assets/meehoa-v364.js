@@ -2,26 +2,20 @@
   'use strict';
   function qs(s,r){return (r||document).querySelector(s)}
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
-  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]})}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function fileKey(f){return [f&&f.name||'',f&&f.size||0,f&&f.lastModified||0].join('|')}
-  var proofPreviousHtml='';
 
   function coreClose(){
     if(window.MEEOPS7&&typeof MEEOPS7.closeOverlay==='function')MEEOPS7.closeOverlay();
     else if(typeof window.closeOverlay==='function')window.closeOverlay();
     var ov=qs('#overlay');if(ov){ov.innerHTML='';ov.onpaste=null}
-    proofPreviousHtml='';
     document.body.classList.remove('mee-overlay-open-v364');
   }
 
   function closeActiveOverlay(){
     var ov=qs('#overlay');
-    if(ov&&qs('.mee-proof-lightbox-v364',ov)&&proofPreviousHtml){
-      ov.innerHTML=proofPreviousHtml;
-      proofPreviousHtml='';
-      schedule();
-      return;
-    }
+    var proof=ov&&qs('.mee-proof-layer-v364',ov);
+    if(proof){proof.remove();schedule();return}
     coreClose();
   }
   window.MEEV364CloseOverlay=closeActiveOverlay;
@@ -43,9 +37,10 @@
 
   function openProof(src){
     var ov=qs('#overlay');if(!ov)return;
-    if(!qs('.mee-proof-lightbox-v364',ov))proofPreviousHtml=ov.innerHTML;
-    ov.innerHTML='<div class="modal-bg mee-proof-lightbox-v364"><div class="mee-proof-view-v364"><button class="close" type="button" onclick="window.MEEV364CloseOverlay()">×</button><img src="'+esc(src)+'" alt="Xem ảnh"></div></div>';
-    ensureOverlayControls();
+    qsa('.mee-proof-layer-v364',ov).forEach(function(x){x.remove()});
+    var layer=document.createElement('div');layer.className='mee-proof-layer-v364';
+    layer.innerHTML='<div class="modal-bg mee-proof-lightbox-v364"><div class="mee-proof-view-v364"><button class="close" type="button" onclick="window.MEEV364CloseOverlay()">×</button><img src="'+esc(src)+'" alt="Xem ảnh"></div></div>';
+    ov.appendChild(layer);ensureOverlayControls();
   }
 
   function patchPayment(){
@@ -123,7 +118,7 @@
     if(!state){
       state={newFiles:[],removedExisting:new Set(),objectUrls:{}};form._meeImageStateV364=state;
       var box=document.createElement('div');box.className='mee-order-image-manager-v364';
-      var sub=input.nextElementSibling; if(sub&&sub.classList.contains('sub'))sub.insertAdjacentElement('afterend',box); else input.insertAdjacentElement('afterend',box);
+      var sub=input.nextElementSibling;if(sub&&sub.classList.contains('sub'))sub.insertAdjacentElement('afterend',box);else input.insertAdjacentElement('afterend',box);
       input.addEventListener('change',function(){
         var incoming=Array.from(input.files||[]);var seen=new Set(state.newFiles.map(fileKey));
         incoming.forEach(function(f){var k=fileKey(f);if(!seen.has(k)){seen.add(k);state.newFiles.push(f)}});
