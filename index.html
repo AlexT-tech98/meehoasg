@@ -22,6 +22,8 @@
       'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api',
       'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-v36'
     );
+    html=html.replace(/window\.__MEE_BOOT_STAGE__\s*=\s*'ready';/,
+      "window.S=S;window.gas=gas;window.loadFlowers=loadFlowers;window.loadPage=loadPage;window.renderProduction=renderProduction;window.rememberOrders=rememberOrders;window.validateBuild=validateBuild;window.closeOverlay=closeOverlay;window.toast=toast;window.__MEE_BOOT_STAGE__='ready';");
     html=html.replace(/<head>/i,'<head><base href="/"><meta name="theme-color" content="#0f4937"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Meehoa OPS"><link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=6"><link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=6"><link rel="manifest" href="/manifest.webmanifest?v=6">');
     html=html.replace(/<title>[^<]*<\/title>/i,'<title>Meehoa OPS</title>');
     html=html.replace(/<\/head>/i,
