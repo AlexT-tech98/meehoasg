@@ -10,6 +10,7 @@ const mark = fs.readFileSync('assets/meehoa-mark.svg', 'utf8');
 test('v36 routes browser traffic through the new API proxy', () => {
   assert.match(index, /meehoasg-api-v36/);
   assert.match(index, /meehoa-v35\.js\?v=4\.6/);
+  assert.match(index, /window\.S=S;window\.gas=gas/);
 });
 
 test('dashboard and KPI revenue are settlement-gated', () => {
@@ -22,11 +23,17 @@ test('dashboard and KPI revenue are settlement-gated', () => {
 test('material classifier preserves specific lily variants and review flow', () => {
   assert.match(api, /Ly xanh nhuộm/);
   assert.match(api, /Ly sơn xanh/);
-  assert.match(api, /Ly hồng/);
+  assert.match(api, /Ly tím pastel/);
+  assert.match(api, /Ly xanh mint/);
   assert.match(api, /Hồng Ecuador/);
   assert.match(api, /Chiết xạ/);
+  assert.match(api, /Không được gom các tên này thành Ly/);
   assert.match(api, /needs_review/);
-  assert.match(api, /classifierVersion: 'v36-specific'/);
+  assert.match(api, /classifierVersion: 'v36-specific-2'/);
+});
+
+test('materials authorization fails closed before direct database analysis', () => {
+  assert.match(api, /if \(!permission\.data\?\.ok\) result = permission\.data/);
 });
 
 test('UI contains material drawers, settlement copy, grid and single-scroll fixes', () => {
