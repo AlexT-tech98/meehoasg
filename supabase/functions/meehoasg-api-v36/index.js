@@ -127,21 +127,28 @@ function titleCaseIngredient(value) {
   const raw = clean(value).replace(/\s+/g, ' ');
   return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : '';
 }
+function normalizeLyLabel(raw) {
+  let value = clean(raw).replace(/\s+/g, ' ');
+  value = value.replace(/^hoa\s+(?=(?:ly|li|lily|lilies)\b)/i, '');
+  value = value.replace(/\b(?:lilies|lily|li|ly)\b/i, 'Ly').trim();
+  const n = norm(value);
+  if (!/^ly\b/.test(n)) return '';
+  if (/son\s*xanh/.test(n)) return /dam/.test(n) ? 'Ly sơn xanh đậm' : 'Ly sơn xanh';
+  if (/xanh/.test(n) && /nhuom/.test(n)) return /dam/.test(n) ? 'Ly xanh nhuộm đậm' : 'Ly xanh nhuộm';
+  const parts = value.match(/^Ly(?:\s+(.+))?$/i);
+  if (!parts) return 'Ly';
+  const modifier = clean(parts[1]);
+  if (!modifier) return 'Ly';
+  return 'Ly ' + modifier.charAt(0).toLocaleLowerCase('vi') + modifier.slice(1);
+}
 function canonicalIngredientName(value) {
   const raw = clean(value).replace(/\s+/g, ' ');
   const n = norm(raw);
   if (!n) return '';
   if (/hong\s*(ecu|ecuador)|ecuador\s*rose|rose\s*ecuador/.test(n)) return 'Hồng Ecuador';
   if (/chiet\s*xa/.test(n)) return 'Chiết xạ';
-  if (/^(ly|li|lily|lilies)\b/.test(n) || /\b(ly|li|lily|lilies)\b/.test(n)) {
-    if (/son\s*xanh/.test(n)) return 'Ly sơn xanh';
-    if (/xanh/.test(n) && /nhuom/.test(n)) return 'Ly xanh nhuộm';
-    if (/xanh/.test(n)) return 'Ly xanh';
-    if (/hong/.test(n)) return 'Ly hồng';
-    if (/trang/.test(n)) return 'Ly trắng';
-    if (/vang/.test(n)) return 'Ly vàng';
-    if (/kep/.test(n)) return 'Ly kép';
-    return 'Ly';
+  if (/^(?:hoa\s+)?(ly|li|lily|lilies)\b/.test(n) || /\b(ly|li|lily|lilies)\b/.test(n)) {
+    return normalizeLyLabel(raw) || 'Ly';
   }
   return titleCaseIngredient(raw);
 }
@@ -157,7 +164,7 @@ function canonicalIngredients(values) {
 async function classifyIngredients(items) {
   if (!GEMINI_KEY || !items.length) return null;
   const models = [...new Set([GEMINI_MODEL, 'gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-3.8-flash'].filter(Boolean))];
-  const prompt = `Bạn là AI phân tích NGUYÊN LIỆU HOA cho tiệm hoa. Với mỗi mô tả đơn hàng, hãy trả danh sách loại hoa cần chuẩn bị theo cấp độ đủ cụ thể để florist mua/chia nguyên liệu.\n\nQUY TẮC BẮT BUỘC:\n- Chuẩn hóa lỗi chính tả, số nhiều và tên gọi đồng nghĩa, nhưng KHÔNG làm mất màu/biến thể/xử lý của hoa.\n- lily / lilies / ly / li -> Ly nếu không có đặc tính cụ thể.\n- ly kép / li kép -> Ly kép.\n- ly hồng -> Ly hồng.\n- ly xanh nhuộm -> Ly xanh nhuộm.\n- ly sơn xanh -> Ly sơn xanh.\n- hồng ecu / hồng ecuador / ecuador -> Hồng Ecuador.\n- chiết xạ -> Chiết xạ.\n- Một đơn có nhiều loại hoa thì trả TẤT CẢ loại hoa.\n- Không đếm cành/số lượng cành. Không trả giấy gói, nơ, thiệp, charm, phụ kiện, phong cách hoặc màu giấy.\n- Nếu mô tả không đủ để xác định hoa, flowers=[] và needs_review=true.\n- Nếu xác định được hoa thì needs_review=false.\n- Giữ nguyên fingerprint nhận vào.\n\nChỉ trả JSON đúng schema: {"results":[{"fingerprint":"...","flowers":["..."],"needs_review":false}]}\n\nDỮ LIỆU: ${JSON.stringify(items)}`;
+  const prompt = `Bạn là AI phân tích NGUYÊN LIỆU HOA cho tiệm hoa. Với mỗi mô tả đơn hàng, hãy trả danh sách loại hoa cần chuẩn bị theo cấp độ đủ cụ thể để florist mua/chia nguyên liệu.\n\nQUY TẮC BẮT BUỘC:\n- Chuẩn hóa lỗi chính tả, số nhiều và tên gọi đồng nghĩa, nhưng KHÔNG làm mất màu, giống, biến thể, xử lý nhuộm/sơn, dạng kép hoặc descriptor mua nguyên liệu.\n- lily / lilies / ly / li -> Ly nếu KHÔNG có đặc tính cụ thể.\n- Nếu có đặc tính thì PHẢI giữ: Ly kép, Ly hồng, Ly tím pastel, Ly đỏ, Ly vàng cam, Ly xanh mint, Ly xanh nhuộm, Ly sơn xanh... Không được gom các tên này thành Ly.\n- hồng ecu / hồng ecuador / ecuador -> Hồng Ecuador.\n- chiết xạ -> Chiết xạ.\n- Một đơn có nhiều loại hoa thì trả TẤT CẢ loại hoa.\n- Không đếm cành/số lượng cành. Không trả giấy gói, nơ, thiệp, charm, phụ kiện, phong cách hoặc màu giấy.\n- Nếu mô tả chỉ nói “như mẫu”, “cover mẫu” hoặc không đủ dữ kiện để xác định hoa thì flowers=[] và needs_review=true; KHÔNG đoán từ ảnh vì bạn không được cung cấp ảnh.\n- Nếu xác định được hoa thì needs_review=false.\n- Giữ nguyên fingerprint nhận vào.\n\nChỉ trả JSON đúng schema: {"results":[{"fingerprint":"...","flowers":["..."],"needs_review":false}]}\n\nDỮ LIỆU: ${JSON.stringify(items)}`;
   const body = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.05, responseMimeType: 'application/json' } };
   for (const model of models) {
     try {
@@ -181,7 +188,7 @@ async function patchFlowers(payload) {
     and: `(order_date.gte.${date},order_date.lte.${date})`,
     order: 'order_time.asc'
   });
-  if (!orders.length) return { ok: true, status: 'empty', totalOrders: 0, analyzedOrders: 0, reviewCount: 0, items: [], reviewOrders: [], classifierVersion: 'v36-specific' };
+  if (!orders.length) return { ok: true, status: 'empty', totalOrders: 0, analyzedOrders: 0, reviewCount: 0, items: [], reviewOrders: [], classifierVersion: 'v36-specific-2' };
 
   const uniqueMap = new Map();
   for (const order of orders) {
@@ -190,7 +197,7 @@ async function patchFlowers(payload) {
     if (key && !uniqueMap.has(key)) uniqueMap.set(key, content);
   }
   const unique = [...uniqueMap.entries()];
-  const keyed = await Promise.all(unique.map(async ([key, content]) => ({ key, content, fingerprint: await sha256(`v36-specific|${key}`) })));
+  const keyed = await Promise.all(unique.map(async ([key, content]) => ({ key, content, fingerprint: await sha256(`v36-specific-2|${key}`) })));
   const cacheRows = await all('flower_cache', { select: 'fingerprint,content,flowers,needs_review,updated_at', order: 'updated_at.desc' });
   const cache = new Map(cacheRows.map(row => [row.fingerprint, row]));
   const pending = keyed.filter(x => payload.forceRefresh || !cache.has(x.fingerprint));
@@ -235,7 +242,7 @@ async function patchFlowers(payload) {
     }
   }
   const items = [...groups.values()].sort((a, b) => b.orders - a.orders || a.name.localeCompare(b.name, 'vi'));
-  return { ok: true, status: reviewOrders.length ? 'needs_review' : 'ready', totalOrders: orders.length, analyzedOrders, reviewCount: reviewOrders.length, items, reviewOrders: reviewOrders.slice(0, 100), classifierVersion: 'v36-specific' };
+  return { ok: true, status: reviewOrders.length ? 'needs_review' : 'ready', totalOrders: orders.length, analyzedOrders, reviewCount: reviewOrders.length, items, reviewOrders: reviewOrders.slice(0, 100), classifierVersion: 'v36-specific-2' };
 }
 
 Deno.serve(async request => {
@@ -248,11 +255,13 @@ Deno.serve(async request => {
     'Content-Type': 'application/json; charset=utf-8',
     'Vary': 'Origin'
   };
+  if (origin && !ALLOWED_ORIGINS.includes(origin) && !origin.includes('localhost') && !origin.includes('127.0.0.1')) return new Response('Forbidden', { status: 403, headers: cors });
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: cors });
   if (!SUPABASE_URL || !SERVICE_KEY) return new Response(JSON.stringify({ ...fail('Máy chủ chưa cấu hình.'), build: BUILD }), { status: 503, headers: cors });
   const started = Date.now();
   try {
+    if (Number(request.headers.get('content-length') || 0) > 12 * 1024 * 1024) return new Response(JSON.stringify({ ...fail('Dữ liệu gửi lên quá lớn.'), build: BUILD }), { status: 413, headers: cors });
     const input = await request.json();
     const name = clean(input?.name);
     const payload = input?.payload && typeof input.payload === 'object' ? input.payload : {};
@@ -261,7 +270,7 @@ Deno.serve(async request => {
     else if (name === 'getKpi') result = await patchKpi(payload, request);
     else if (name === 'getFlowerInventory') {
       const permission = await legacyCall('getProductionOrders', { date: clean(payload.date) || dateToday() }, request);
-      if (!permission.data?.ok && permission.data?.code === 'AUTH_REQUIRED') result = permission.data;
+      if (!permission.data?.ok) result = permission.data;
       else result = await patchFlowers(payload);
     } else {
       const delegated = await legacyCall(name, payload, request);
