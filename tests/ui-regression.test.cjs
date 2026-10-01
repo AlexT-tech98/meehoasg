@@ -51,8 +51,9 @@ test('search visibility is determined by module id, not page title text', () => 
 });
 
 test('production entrypoint uses the current UI cache generation', () => {
-  assert.match(entry, /prod-base=20260929-v45/);
-  assert.match(entry, /meehoa-v34\.css\?v=4\.5/);
-  assert.match(entry, /meehoa-v35\.js\?v=4\.5/);
-  assert.match(entry, /meehoa-mark\.svg\?v=5/);
+  assert.match(entry, /prod-base=20260929-v46/);
+  assert.match(entry, /meehoa-v34\.css\?v=4\.6/);
+  assert.match(entry, /meehoa-v35\.js\?v=4\.6/);
+  assert.match(entry, /meehoa-mark\.svg\?v=6/);
+  assert.match(entry, /meehoasg-api-v36/);
 });
