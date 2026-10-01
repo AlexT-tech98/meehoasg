@@ -2,7 +2,7 @@
   'use strict';
   function qs(s,r){return (r||document).querySelector(s)}
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
-  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]})}
   function fileKey(f){return [f&&f.name||'',f&&f.size||0,f&&f.lastModified||0].join('|')}
 
   function coreClose(){
@@ -43,6 +43,10 @@
     ov.appendChild(layer);ensureOverlayControls();
   }
 
+  function paymentChecks(grid){
+    return qsa('.settle-check',grid).filter(function(x){return !x.disabled});
+  }
+
   function patchPayment(){
     if(!window.S||S.page!=='payment'){
       document.body.classList.remove('mee-page-settlement-v364');
@@ -54,7 +58,7 @@
     var cards=qsa('.settlement-card',grid);if(!cards.length)return;
     grid.classList.add('mee-settlement-grid-v364');
 
-    var checks=qsa('.settle-check',grid).filter(function(x){return !x.disabled});
+    var checks=paymentChecks(grid);
     var bar=qs('.mee-settlement-selectbar-v364',root);
     if(!bar&&checks.length){
       bar=document.createElement('div');
@@ -65,13 +69,32 @@
     if(bar){
       var master=qs('#mee-settlement-select-all-v364',bar);
       var sync=function(){
-        var current=qsa('.settle-check',grid).filter(function(x){return !x.disabled});
+        var current=paymentChecks(grid);
         var n=current.filter(function(x){return x.checked}).length;
         var count=qs('[data-mee-selected-v364]',bar);if(count)count.textContent=n+' đã chọn';
         if(master){master.checked=current.length>0&&n===current.length;master.indeterminate=n>0&&n<current.length}
       };
-      if(master&&!master.dataset.bound){master.dataset.bound='1';master.addEventListener('change',function(){qsa('.settle-check',grid).filter(function(x){return !x.disabled}).forEach(function(x){x.checked=master.checked;x.dispatchEvent(new Event('change',{bubbles:true}))});sync()})}
-      checks.forEach(function(x){if(!x.dataset.v364){x.dataset.v364='1';x.addEventListener('change',sync)}});sync();
+      if(master&&!master.dataset.bound){
+        master.dataset.bound='1';
+        master.addEventListener('change',function(){
+          var want=master.checked;
+          paymentChecks(grid).forEach(function(x){x.checked=want});
+          sync();
+        });
+      }
+      checks.forEach(function(x){if(!x.dataset.v364){x.dataset.v364='1';x.addEventListener('change',sync)}});
+      if(!root.dataset.meePaymentBulkGuard){
+        root.dataset.meePaymentBulkGuard='1';
+        root.addEventListener('click',function(e){
+          var btn=e.target&&e.target.closest?e.target.closest('button'):null;
+          if(!btn)return;
+          var text=String(btn.textContent||'').trim().toLowerCase();
+          if(text.indexOf('duyệt các mục đã chọn')<0)return;
+          var liveMaster=qs('#mee-settlement-select-all-v364',root);
+          if(liveMaster&&liveMaster.checked)paymentChecks(grid).forEach(function(x){x.checked=true});
+        },true);
+      }
+      sync();
     }
   }
 
