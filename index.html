@@ -20,7 +20,7 @@
     var html=await r.text();
     html=html.replaceAll(
       'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api',
-      'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-v361'
+      'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-v362'
     );
     html=html.replace(/window\.__MEE_BOOT_STAGE__\s*=\s*'ready';/,
       "window.S=S;window.gas=gas;window.loadFlowers=loadFlowers;window.loadPage=loadPage;window.renderProduction=renderProduction;window.rememberOrders=rememberOrders;window.validateBuild=validateBuild;window.closeOverlay=closeOverlay;window.toast=toast;window.__MEE_BOOT_STAGE__='ready';");
@@ -33,12 +33,15 @@
       '<link rel="stylesheet" href="/assets/meehoa-v34.css?v=4.6">'+
       '<link rel="stylesheet" href="/assets/meehoa-v35.css?v=4.6">'+
       '<link rel="stylesheet" href="/assets/meehoa-prod-fix.css?v=4.6">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v361.css?v=4.6.1">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v362.css?v=4.6.2">'+
       '</head>');
     html=html.replace(/<\/body>/i,
       '<script src="/assets/meehoa-v3.js?v=4.6"><\/script>'+
       '<script src="/assets/meehoa-v34.js?v=4.6"><\/script>'+
       '<script src="/assets/meehoa-v35.js?v=4.6"><\/script>'+
       '<script src="/assets/meehoa-v361.js?v=4.6.1"><\/script>'+
+      '<script src="/assets/meehoa-v362.js?v=4.6.2"><\/script>'+
       '<script>document.body.style.visibility="visible";<\/script></body>');
     document.open();
     document.write(html);
