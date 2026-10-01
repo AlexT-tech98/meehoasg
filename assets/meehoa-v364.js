@@ -2,7 +2,51 @@
   'use strict';
   function qs(s,r){return (r||document).querySelector(s)}
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
-  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]})}
+  function fileKey(f){return [f&&f.name||'',f&&f.size||0,f&&f.lastModified||0].join('|')}
+  var proofPreviousHtml='';
+
+  function coreClose(){
+    if(window.MEEOPS7&&typeof MEEOPS7.closeOverlay==='function')MEEOPS7.closeOverlay();
+    else if(typeof window.closeOverlay==='function')window.closeOverlay();
+    var ov=qs('#overlay');if(ov){ov.innerHTML='';ov.onpaste=null}
+    proofPreviousHtml='';
+    document.body.classList.remove('mee-overlay-open-v364');
+  }
+
+  function closeActiveOverlay(){
+    var ov=qs('#overlay');
+    if(ov&&qs('.mee-proof-lightbox-v364',ov)&&proofPreviousHtml){
+      ov.innerHTML=proofPreviousHtml;
+      proofPreviousHtml='';
+      schedule();
+      return;
+    }
+    coreClose();
+  }
+  window.MEEV364CloseOverlay=closeActiveOverlay;
+
+  function ensureOverlayControls(){
+    var ov=qs('#overlay');if(!ov)return;
+    var active=!!ov.firstElementChild;
+    document.body.classList.toggle('mee-overlay-open-v364',active);
+    if(!active)return;
+    if(!qs('.mee-overlay-global-close-v364',ov)){
+      var b=document.createElement('button');
+      b.type='button';b.className='mee-overlay-global-close-v364';b.setAttribute('aria-label','Đóng');b.textContent='×';
+      b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();closeActiveOverlay()});
+      ov.appendChild(b);
+    }
+    var panel=qs('.modal,.drawer,.mobile-menu-sheet,.calendar-modal',ov);
+    if(panel&&!panel.dataset.meeScrollInit){panel.dataset.meeScrollInit='1';panel.scrollTop=0}
+  }
+
+  function openProof(src){
+    var ov=qs('#overlay');if(!ov)return;
+    if(!qs('.mee-proof-lightbox-v364',ov))proofPreviousHtml=ov.innerHTML;
+    ov.innerHTML='<div class="modal-bg mee-proof-lightbox-v364"><div class="mee-proof-view-v364"><button class="close" type="button" onclick="window.MEEV364CloseOverlay()">×</button><img src="'+esc(src)+'" alt="Xem ảnh"></div></div>';
+    ensureOverlayControls();
+  }
 
   function patchPayment(){
     if(!window.S||S.page!=='payment'){
@@ -34,16 +78,60 @@
       if(master&&!master.dataset.bound){master.dataset.bound='1';master.addEventListener('change',function(){qsa('.settle-check',grid).filter(function(x){return !x.disabled}).forEach(function(x){x.checked=master.checked;x.dispatchEvent(new Event('change',{bubbles:true}))});sync()})}
       checks.forEach(function(x){if(!x.dataset.v364){x.dataset.v364='1';x.addEventListener('change',sync)}});sync();
     }
-
-    qsa('.settlement-card .thumbs img',grid).forEach(function(img){
-      if(img.dataset.v364)return;img.dataset.v364='1';img.loading='lazy';
-      var a=img.closest('a');if(a)a.addEventListener('click',function(e){e.preventDefault();openProof(img.src)});
-    });
   }
 
-  function openProof(src){
-    var ov=qs('#overlay');if(!ov)return;
-    ov.innerHTML='<div class="modal-bg mee-proof-lightbox-v364"><div class="mee-proof-view-v364"><button class="close" type="button" onclick="MEEOPS7.closeOverlay()">×</button><img src="'+esc(src)+'" alt="Chứng minh thanh toán"></div></div>';
+  function rebuildFileInput(input,state){
+    if(typeof DataTransfer==='undefined')return;
+    var dt=new DataTransfer();state.newFiles.forEach(function(f){try{dt.items.add(f)}catch(_){}});input.files=dt.files;
+  }
+
+  function previewForFile(file,state){
+    var key=fileKey(file);state.objectUrls=state.objectUrls||{};
+    if(!state.objectUrls[key])state.objectUrls[key]=URL.createObjectURL(file);
+    return state.objectUrls[key];
+  }
+
+  function syncExistingUrls(state){
+    var source=Array.isArray(window._editExistingUrls)?window._editExistingUrls.slice():[];
+    var kept=source.filter(function(u){return !state.removedExisting.has(u)});
+    if(source.length!==kept.length||source.some(function(u,i){return u!==kept[i]}))window._editExistingUrls=kept.slice();
+    return kept;
+  }
+
+  function renderOrderImageManager(form,input,state){
+    var box=qs('.mee-order-image-manager-v364',form);if(!box)return;
+    var existing=syncExistingUrls(state);
+    var pasted=Array.isArray(window._pasted)?window._pasted:[];
+    var sig=existing.join('||')+'##'+state.newFiles.map(fileKey).join('||')+'##'+pasted.map(fileKey).join('||');
+    if(box.dataset.signature===sig)return;box.dataset.signature=sig;
+    var parts=[];
+    existing.forEach(function(u,i){parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(u)+'" alt="Ảnh hiện có"><span>Hiện có</span><button type="button" data-remove-existing="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
+    state.newFiles.forEach(function(f,i){parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(previewForFile(f,state))+'" alt="Ảnh mới"><span>Ảnh mới</span><button type="button" data-remove-new="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
+    pasted.forEach(function(f,i){if(!f)return;parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(previewForFile(f,state))+'" alt="Ảnh paste"><span>Ảnh paste</span><button type="button" data-remove-pasted="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
+    box.innerHTML=parts.length?'<div class="mee-order-image-grid-v364">'+parts.join('')+'</div><div class="mee-order-image-help-v364">Có '+parts.length+' ảnh sẽ được giữ/lưu. Bấm × trên ảnh để bỏ.</div>':'<div class="mee-order-image-empty-v364">Chưa có ảnh nào được chọn.</div>';
+
+    qsa('[data-remove-existing]',box).forEach(function(b){b.onclick=function(){var idx=Number(b.dataset.removeExisting);var current=Array.isArray(window._editExistingUrls)?window._editExistingUrls.slice():[];var url=current[idx];if(url)state.removedExisting.add(url);window._editExistingUrls=current.filter(function(_,j){return j!==idx});box.dataset.signature='';renderOrderImageManager(form,input,state)}});
+    qsa('[data-remove-new]',box).forEach(function(b){b.onclick=function(){state.newFiles.splice(Number(b.dataset.removeNew),1);rebuildFileInput(input,state);box.dataset.signature='';renderOrderImageManager(form,input,state)}});
+    qsa('[data-remove-pasted]',box).forEach(function(b){b.onclick=function(){var i=Number(b.dataset.removePasted);if(Array.isArray(window._pasted))window._pasted.splice(i,1);box.dataset.signature='';renderOrderImageManager(form,input,state)}});
+    qsa('.mee-order-image-tile-v364 img',box).forEach(function(img){img.onclick=function(){openProof(img.src)}});
+  }
+
+  function patchOrderImageUploader(){
+    var form=qs('#orderForm');if(!form)return;
+    var input=qs('#imageFiles',form);if(!input)return;
+    var state=form._meeImageStateV364;
+    if(!state){
+      state={newFiles:[],removedExisting:new Set(),objectUrls:{}};form._meeImageStateV364=state;
+      var box=document.createElement('div');box.className='mee-order-image-manager-v364';
+      var sub=input.nextElementSibling; if(sub&&sub.classList.contains('sub'))sub.insertAdjacentElement('afterend',box); else input.insertAdjacentElement('afterend',box);
+      input.addEventListener('change',function(){
+        var incoming=Array.from(input.files||[]);var seen=new Set(state.newFiles.map(fileKey));
+        incoming.forEach(function(f){var k=fileKey(f);if(!seen.has(k)){seen.add(k);state.newFiles.push(f)}});
+        rebuildFileInput(input,state);box.dataset.signature='';renderOrderImageManager(form,input,state);
+      });
+      var ov=qs('#overlay');if(ov&&!ov.dataset.meePastePreview){ov.dataset.meePastePreview='1';ov.addEventListener('paste',function(){setTimeout(function(){box.dataset.signature='';renderOrderImageManager(form,input,state)},0)})}
+    }
+    renderOrderImageManager(form,input,state);
   }
 
   function patchPaidCopy(){
@@ -69,8 +157,21 @@
     }
   }
 
-  function patch(){patchPayment();patchPaidCopy();patchMaterialsLabel()}
+  function patch(){patchPayment();patchPaidCopy();patchMaterialsLabel();patchOrderImageUploader();ensureOverlayControls()}
   var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patch,45)}
-  function init(){patch();var root=qs('#content');if(root)new MutationObserver(schedule).observe(root,{childList:true,subtree:true,characterData:true})}
+  function init(){
+    patch();
+    var root=qs('#content');if(root)new MutationObserver(schedule).observe(root,{childList:true,subtree:true,characterData:true});
+    var ov=qs('#overlay');if(ov){
+      new MutationObserver(schedule).observe(ov,{childList:true,subtree:true});
+      ov.addEventListener('click',function(e){
+        var target=e.target;
+        if(target&&target.matches&&target.matches('.modal-bg,.drawer-bg')){e.preventDefault();closeActiveOverlay();return}
+        var a=target&&target.closest?target.closest('.thumbs a'):null;
+        if(a&&ov.contains(a)){var img=qs('img',a);if(img){e.preventDefault();e.stopPropagation();openProof(img.src)}}
+      },true);
+    }
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&qs('#overlay')&&qs('#overlay').firstElementChild){e.preventDefault();closeActiveOverlay()}});
+  }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
