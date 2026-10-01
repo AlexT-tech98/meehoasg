@@ -20,7 +20,7 @@
     var html=await r.text();
     html=html.replaceAll(
       'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api',
-      'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-v362'
+      'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-v363'
     );
     html=html.replace(/window\.__MEE_BOOT_STAGE__\s*=\s*'ready';/,
       "window.S=S;window.gas=gas;window.loadFlowers=loadFlowers;window.loadPage=loadPage;window.renderProduction=renderProduction;window.rememberOrders=rememberOrders;window.validateBuild=validateBuild;window.closeOverlay=closeOverlay;window.toast=toast;window.__MEE_BOOT_STAGE__='ready';");
@@ -42,6 +42,7 @@
       '<script src="/assets/meehoa-v35.js?v=4.6"><\/script>'+
       '<script src="/assets/meehoa-v361.js?v=4.6.1"><\/script>'+
       '<script src="/assets/meehoa-v362.js?v=4.6.2"><\/script>'+
+      '<script src="/assets/meehoa-v363.js?v=4.6.3"><\/script>'+
       '<script>document.body.style.visibility="visible";<\/script></body>');
     document.open();
     document.write(html);
