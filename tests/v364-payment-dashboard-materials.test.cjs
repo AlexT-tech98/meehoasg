@@ -9,8 +9,8 @@ const css=fs.readFileSync('assets/meehoa-v364.css','utf8');
 
 test('production routes through v364 and force-loads latest v364 assets',()=>{
   assert.match(entry,/meehoasg-api-v364/);
-  assert.match(entry,/meehoa-v364\.css\?v=4\.6\.6/);
-  assert.match(entry,/meehoa-v364\.js\?v=4\.6\.6/);
+  assert.match(entry,/meehoa-v364\.css\?v=4\.6\.7/);
+  assert.match(entry,/meehoa-v364\.js\?v=4\.6\.7/);
 });
 
 test('dashboard API is direct and exposes split settlement revenue',()=>{
@@ -56,6 +56,13 @@ test('payment patch targets actual payment route and bounded grid contract',()=>
   assert.match(css,/height:150px!important/);
 });
 
+test('payment select-all sets every live checkbox directly without change-event rerender loops',()=>{
+  assert.match(js,/function paymentChecks\(grid\)/);
+  assert.match(js,/paymentChecks\(grid\)\.forEach\(function\(x\)\{x\.checked=want\}\)/);
+  assert.doesNotMatch(js,/x\.dispatchEvent\(new Event\('change'/);
+  assert.match(js,/duyệt các mục đã chọn/);
+});
+
 test('all overlays have viewport close controls and Escape support',()=>{
   assert.match(js,/mee-overlay-global-close-v364/);
   assert.match(js,/closeActiveOverlay/);
@@ -91,7 +98,7 @@ function executePaymentPatch(page){
     querySelectorAll:(selector)=>selector==='.settlement-card'?[{}]:[],
     parentNode:{insertBefore:()=>{}}
   };
-  const root={querySelector:(selector)=>selector==='.order-grid'?grid:null,querySelectorAll:()=>[]};
+  const root={querySelector:(selector)=>selector==='.order-grid'?grid:null,querySelectorAll:()=>[],dataset:{},addEventListener:()=>{}};
   const overlay={firstElementChild:null,querySelector:()=>null,querySelectorAll:()=>[],addEventListener:()=>{},appendChild:()=>{}};
   const document={
     readyState:'complete',body:{classList},
