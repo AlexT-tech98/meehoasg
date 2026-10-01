@@ -8,6 +8,6 @@
   "background_color": "#f8f7f2",
   "theme_color": "#0f4937",
   "icons": [
-    {"src":"/assets/meehoa-mark.svg?v=5","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+    {"src":"/assets/meehoa-mark.svg?v=6","sizes":"any","type":"image/svg+xml","purpose":"any"}
   ]
 }
