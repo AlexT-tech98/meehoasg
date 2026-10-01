@@ -5,7 +5,10 @@
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 
   function patchPayment(){
-    if(!window.S||S.page!=='settlement')return;
+    if(!window.S||S.page!=='payment'){
+      document.body.classList.remove('mee-page-settlement-v364');
+      return;
+    }
     var root=qs('#content');if(!root)return;
     document.body.classList.add('mee-page-settlement-v364');
     var grid=qs('.order-grid',root);if(!grid)return;
