@@ -15,7 +15,7 @@
 <script>
 (async function(){
   try{
-    var r=await fetch('/html?prod-base=20260929-v46',{cache:'no-store'});
+    var r=await fetch('/html?prod-base=20261002-v47',{cache:'no-store'});
     if(!r.ok) throw new Error('Không tải được ứng dụng');
     var html=await r.text();
     html=html.replaceAll(
@@ -35,7 +35,7 @@
       '<link rel="stylesheet" href="/assets/meehoa-prod-fix.css?v=4.6">'+
       '<link rel="stylesheet" href="/assets/meehoa-v361.css?v=4.6.1">'+
       '<link rel="stylesheet" href="/assets/meehoa-v362.css?v=4.6.2">'+
-      '<link rel="stylesheet" href="/assets/meehoa-v364.css?v=4.6.7">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v364.css?v=4.6.8">'+
       '</head>');
     html=html.replace(/<\/body>/i,
       '<script src="/assets/meehoa-v3.js?v=4.6"><\/script>'+
