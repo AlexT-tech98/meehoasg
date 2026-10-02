@@ -1356,7 +1356,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     var pages = [['dashboard', 'Tổng quan', '⌂'], ['production', 'Sản xuất', '✿'], ['orders', 'Đơn hàng', '▦'], ['debt', 'Công nợ', '₫'], ['payment', 'Payment Check', '✓'], ['kpi', 'Báo cáo / KPI', '★'], ['flowers', 'Nguyên liệu', '❀'], ['admin', 'Cài đặt', '⚙']];
     function gasOnce(name, p) {
         if (p === void 0) { p = {}; }
-        var timeoutMs = name === 'getFlowerInventory' ? 90000 : 30000;
+        var timeoutMs = name === 'getFlowerInventory' || name === 'createOrder' || name === 'updateOrder' ? 90000 : 30000;
         var controller = new AbortController();
         var timer = setTimeout(function () { controller.abort(); }, timeoutMs);
         return fetch('https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api', {
@@ -1925,7 +1925,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         if(order.paymentType==='deposit'){var dep=moneyDigits(order.depositAmount);if(dep<order.flowerTotal*.5)return toast('Tiền cọc phải đạt tối thiểu 50% tiền hoa.',1);order.payment='Đã cọc '+new Intl.NumberFormat('vi-VN').format(dep)+' đ';}else if(order.paymentType==='full')order.payment='Đã thanh toán đủ (Full)';else order.payment='Chưa thanh toán (0 đ)';delete order.paymentType;delete order.depositAmount;['card','banner'].forEach(function(k){order[k]=fd.has(k);});
         var oldOrder=id?Object.assign({},orderById(id)):null,requestId=id?'':(window._orderRequestId||safeUuid());f.dataset.saving='1';if(btn){btn.disabled=true;btn.dataset.oldText=btn.textContent;btn.textContent=id?'Đang lưu…':'Đang tạo đơn…';}
         try{var files=[...((document.getElementById('imageFiles')||{}).files||[]),...(window._pasted||[])];order.imageFiles=await Promise.all(files.map(fileData));if(id)order.imageUrls=window._editExistingUrls||[];var r=await actionRun(function(){return gas(id?'updateOrder':'createOrder',{requestId:requestId,orderId:id,sourceSheet:oldOrder&&oldOrder.sourceSheet||'',sourceRow:oldOrder&&oldOrder.sourceRow||0,order:order});},id?'Đang lưu thay đổi…':'Đang tạo đơn…');if(!r.ok)throw new Error(r.message);
-            orderMutationDirty();var canonical;if(!id&&r.order){applyCanonicalOrder(r.order,null);canonical=r.order;}else canonical=await refreshOrderEntity(r.orderId||id,r.sourceSheet||(oldOrder&&oldOrder.sourceSheet),r.sourceRow||(oldOrder&&oldOrder.sourceRow),oldOrder);if(S.page==='dashboard')S.dirty.delete('getDashboardSummary');if(S.page==='production')S.dirty.delete('getProductionOrders');if(S.page==='orders')S.dirty.delete('getOrders');if(S.page==='debt')S.dirty.delete('getDebtReview');
+            orderMutationDirty();var canonical;if(r.order){applyCanonicalOrder(r.order,oldOrder);canonical=r.order;}else{canonical=Object.assign({},oldOrder||order,{id:r.orderId||id});refreshOrderEntity(r.orderId||id,r.sourceSheet||(oldOrder&&oldOrder.sourceSheet),r.sourceRow||(oldOrder&&oldOrder.sourceRow),oldOrder).catch(function(e){console.warn('Không tải lại được chi tiết đơn:',e);});}if(S.page==='dashboard')S.dirty.delete('getDashboardSummary');if(S.page==='production')S.dirty.delete('getProductionOrders');if(S.page==='orders')S.dirty.delete('getOrders');if(S.page==='debt')S.dirty.delete('getDebtReview');
             if(id){closeOverlay();toast(r.message||'Đã lưu thay đổi.');}else{window._orderRequestId='';showCreatedOrderCopy(canonical||order,r.orderId);toast(r.message||'Đã tạo đơn.');}
         }catch(err){toast(err.message,1);f.dataset.saving='0';if(btn){btn.disabled=false;btn.textContent=btn.dataset.oldText||(id?'Lưu thay đổi':'＋ Tạo đơn ngay');}}
     }
@@ -2027,7 +2027,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         }
         catch (e) { }
     } return 'req-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10); }
-    function fileData(f) { return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { return res({ data: r.result, mimeType: f.type, name: f.name }); }; r.onerror = rej; r.readAsDataURL(f); }); }
+    function fileData(f) { return new Promise(function (res, rej) { if (!f || !f.type.startsWith('image/')) return rej(new Error('Vui lòng chọn file ảnh.')); var img=new Image(),url=URL.createObjectURL(f);img.onload=function(){try{var scale=Math.min(1,1800/Math.max(img.naturalWidth,img.naturalHeight)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);var data=canvas.toDataURL('image/jpeg',.82);URL.revokeObjectURL(url);res({data:data,mimeType:'image/jpeg',name:(f.name||'image').replace(/\.[^.]+$/,'')+'.jpg'});}catch(e){URL.revokeObjectURL(url);rej(e);}};img.onerror=function(){URL.revokeObjectURL(url);rej(new Error('Không đọc được ảnh '+(f.name||'')));};img.src=url;}); }
     function setProductionDate(v) { S.filters.production.date = v; loadProduction(true); }
     function setProductionView(v) { S.view = v === 'grid' ? 'grid' : 'kanban'; renderProduction(); }
     function setDebtFilter(k, v) { if (['start', 'end', 'sale'].includes(k))
@@ -2080,7 +2080,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             var q = s.match(/[?&]id=([-\w]{20,})/);
             if (q) id = q[1];
         }
-        if (!id) return;
+        if (!id || step >= 2) { img.onerror = null; img.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#f7f1e9"/><text x="60" y="70" text-anchor="middle" font-size="42" fill="#c9a08e">✿</text></svg>'); return; }
         if (step === 0) {
             img.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w1000';
         } else if (step === 1) {
