@@ -1,0 +1,100 @@
+/* MEEHOA — single scroll-root contract
+ * 2026-10-02
+ *
+ * Policy:
+ * - The document/root viewport is the ONLY vertical scroll container for normal pages.
+ * - Nested vertical scrolling is reserved for intentional UI surfaces only:
+ *   sidebar nav, search dropdown, modal, drawer and calendar modal.
+ * - Data tables may scroll horizontally, never vertically.
+ * - Remove expensive backdrop-filter layers from sticky/page cards to reduce scroll repaint jank.
+ */
+
+/* One page scroll owner: html/document. */
+html{
+  height:auto!important;
+  min-height:100%!important;
+  overflow-x:hidden!important;
+  overflow-y:auto!important;
+  scroll-behavior:smooth;
+  overscroll-behavior-y:none;
+}
+
+/* Body contributes height to the root scroll; it must not become a second viewport. */
+body:not(.mee-overlay-open-v364):not(.mee-menu-open){
+  height:auto!important;
+  max-height:none!important;
+  min-height:100dvh!important;
+  overflow-x:hidden!important;
+  overflow-y:visible!important;
+  overscroll-behavior-y:auto!important;
+}
+
+/* Normal app shells must grow with content instead of owning their own scroll. */
+body:not(.mee-overlay-open-v364) .app,
+body:not(.mee-overlay-open-v364) .main,
+body:not(.mee-overlay-open-v364) #content{
+  height:auto!important;
+  max-height:none!important;
+  min-height:0;
+  overflow-x:visible!important;
+  overflow-y:visible!important;
+  overscroll-behavior:auto!important;
+}
+
+/* Tables can pan horizontally, but vertical wheel/touch must stay on the document. */
+.table-wrap{
+  overflow-x:auto!important;
+  overflow-y:visible!important;
+  overscroll-behavior-x:contain;
+  overscroll-behavior-y:auto!important;
+  -webkit-overflow-scrolling:touch;
+}
+
+/* Horizontal-only strips must never capture vertical scrolling. */
+.status-filter-tabs,
+.calendar-shortcuts{
+  overflow-x:auto!important;
+  overflow-y:hidden!important;
+  overscroll-behavior-x:contain;
+}
+
+/* Intentional nested scroll surfaces remain local. */
+.sidebar .nav,
+.search-dropdown,
+#overlay .modal,
+#overlay .drawer,
+.calendar-modal{
+  overscroll-behavior:contain!important;
+}
+
+/* Overlay/menu lock must still win over the root-scroll policy. */
+body.mee-overlay-open-v364,
+body.mee-menu-open{
+  overflow:hidden!important;
+  overscroll-behavior:none!important;
+}
+
+/* Reduce scroll repaint cost: sticky blur and per-card blur were visible jank sources. */
+.topbar{
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+  background:rgba(255,250,247,.985)!important;
+  contain:layout style;
+}
+body.mee-page-production .lane,
+body.mee-page-production .order,
+body.mee-page-production .ops-tile{
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+
+/* Avoid browser anchoring fighting app rerenders while data cards are replaced. */
+#content{
+  overflow-anchor:none;
+}
+
+/* Keep the native document scroll performant on touch devices. */
+@media(max-width:900px){
+  html{scroll-behavior:auto}
+  body:not(.mee-overlay-open-v364):not(.mee-menu-open){touch-action:pan-y pinch-zoom}
+}
