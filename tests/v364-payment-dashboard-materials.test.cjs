@@ -9,7 +9,7 @@ const css=fs.readFileSync('assets/meehoa-v364.css','utf8');
 
 test('production routes through v364 and force-loads latest v364 assets',()=>{
   assert.match(entry,/meehoasg-api-v364/);
-  assert.match(entry,/meehoa-v364\.css\?v=4\.6\.7/);
+  assert.match(entry,/meehoa-v364\.css\?v=4\.6\.8/);
   assert.match(entry,/meehoa-v364\.js\?v=4\.6\.7/);
 });
 
