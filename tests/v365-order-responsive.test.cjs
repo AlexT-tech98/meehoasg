@@ -2,9 +2,9 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 
-test('v365 shell points to new API and cached shell',()=>{
+test('refactor shell points to consolidated API core and cached shell',()=>{
   const s=fs.readFileSync('index.html','utf8');
-  assert.match(s,/meehoasg-api-v365/);
+  assert.match(s,/meehoasg-api-core/);
   assert.match(s,/meehoa-v365\.css/);
   assert.match(s,/meehoa-v365\.js/);
   assert.match(s,/localStorage\.getItem\(SHELL_KEY\)/);
