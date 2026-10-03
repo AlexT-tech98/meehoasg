@@ -3,11 +3,20 @@
 ## Goal
 Reduce runtime layering, duplicate observers and API proxy hops without changing production data or business behavior.
 
-## Safety contract
-- `main` remains the current production/rollback baseline until the consolidated build is accepted for cutover.
-- No production database rewrite is part of this refactor.
-- Historical assets/functions remain in the repository/Supabase temporarily as rollback references, but the consolidated browser entrypoint does not load the historical frontend files individually.
-- Consolidation work is isolated on `refactor/consolidate-production-core-20261003` / PR #4 until cutover.
+## Production status
+The consolidation was merged to `main` on 04/10/2026.
+
+Production merge commit:
+- `b946762a50fcda797d787e8a1361e31c53e5db1a`
+
+Post-merge evidence:
+- main regression workflow: **SUCCESS**
+- GitHub Pages build: **SUCCESS**
+- GitHub Pages deploy: **SUCCESS**
+- `meehoasg-api-core`: **ACTIVE v1**, JWT verification enabled
+- main `index.html` loads the consolidated core asset generation and points browser API traffic to `meehoasg-api-core`
+
+Historical assets/functions are retained temporarily as rollback references. No production database rewrite was performed by this refactor.
 
 ## Starting architecture confirmed
 
@@ -19,14 +28,14 @@ The separate JS generations also instantiated multiple MutationObservers against
 ### API
 The previous browser target was `meehoasg-api-v365`, with historical wrappers/fallbacks through v364/v363/v362/v361/v36 before legacy `meehoasg-api`.
 
-## Consolidated architecture implemented on the refactor branch
+## Consolidated production architecture
 
 ### Frontend runtime
 Canonical browser assets:
 - `assets/meehoa-core.css`
 - `assets/meehoa-core.js`
 
-`index.html` now loads only those two runtime assets, plus required static assets. Historical source files remain build inputs/rollback references and are no longer requested individually by the browser.
+Production `index.html` now loads only those two runtime assets, plus required static assets. Historical source files remain build inputs/rollback references and are no longer requested individually by the browser.
 
 The runtime bundle is generated deterministically by `scripts/build-runtime.cjs`, preserving the verified winning compatibility order while creating one deployable runtime generation.
 
@@ -79,36 +88,38 @@ Regression coverage explicitly protects:
 - Actual boot splash is styled without adding a transient extra loading screen.
 
 ## CI/build pipeline
-PR CI now performs, in order:
+CI performs, in order:
 1. flatten critical startup/read API routes into core2;
 2. build the consolidated frontend runtime;
 3. run the full regression suite;
-4. persist generated core outputs back to the refactor branch only when they truly changed.
+4. on the refactor branch only, persist generated core outputs when they truly changed.
 
 `runtime-metrics.json` is deterministic, so CI no longer creates a new commit merely because a timestamp changed.
 
 ## Cutover checklist
-Before changing production `main`:
-- [x] one CSS + one JS browser runtime on refactor entrypoint
+- [x] one CSS + one JS browser runtime
 - [x] API browser path bypasses all historical version wrappers
 - [x] critical startup/read routes implemented directly in API core2
 - [x] one native MutationObserver runtime
 - [x] regression suite migrated from old version-string assertions to consolidated behavior contracts
 - [x] scroll contract preserved inside the consolidated CSS ordering
-- [x] deploy `meehoasg-api-core` as an ACTIVE non-production Edge Function
+- [x] deploy `meehoasg-api-core` as ACTIVE
 - [x] deterministic build pipeline established
-- [ ] final CI pass on the current human-authored PR head with no generated diff
-- [ ] production cutover to `main`
-- [ ] post-cutover static smoke check and authenticated live acceptance
+- [x] final PR regression pass with no generated diff
+- [x] production cutover merged to `main`
+- [x] post-cutover main regression pass
+- [x] GitHub Pages build/deploy pass
+- [x] production static source check: main entrypoint references core assets/API
+- [ ] authenticated desktop/mobile live acceptance by an operator account
 
 ## Rollback
-The pre-consolidation `main` commit remains the rollback baseline until cutover. Historical Supabase API functions are intentionally not deleted during the cutover window.
+Pre-consolidation production baseline:
+- `f353ad48f70d05d30dd332c2198f24db93373347`
+
+Consolidation merge:
+- `b946762a50fcda797d787e8a1361e31c53e5db1a`
+
+If the consolidated runtime must be rolled back during stabilization, revert the consolidation merge while leaving the v9.2 production data-flow triggers untouched. Historical Supabase API functions are intentionally not deleted during the stabilization window.
 
 ## Definition of done
-The consolidation is complete when:
-- production `index.html` loads `meehoa-core.css` + `meehoa-core.js` only;
-- production browser requests `meehoasg-api-core` directly;
-- core2 serves startup/read hot paths directly and never proxies through historical API generations;
-- regression is green on the merged production commit;
-- production static smoke check passes;
-- authenticated desktop/mobile acceptance confirms the primary workflows.
+All automated/build/deployment portions of the consolidation are complete. The final operational acceptance item is an authenticated desktop/mobile smoke check of the primary workflows on `ops.meehoasg.com`.
