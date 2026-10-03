@@ -6,8 +6,8 @@ const entry = fs.readFileSync('index.html', 'utf8');
 const api = fs.readFileSync('supabase/functions/meehoasg-api-v361/index.js', 'utf8');
 const ui = fs.readFileSync('assets/meehoa-v361.js', 'utf8');
 
-test('v361 production UI layer remains loaded behind the current proxy', () => {
-  assert.match(entry, /meehoasg-api-v36(?:1|2|3|4|5)/);
+test('v361 UI layer remains loaded while refactor routes API through the core', () => {
+  assert.match(entry, /meehoasg-api-core/);
   assert.match(entry, /meehoa-v361\.js\?v=4\.6\.1/);
 });
 
