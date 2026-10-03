@@ -7,8 +7,8 @@ const index = fs.readFileSync('index.html', 'utf8');
 const ui = fs.readFileSync('assets/meehoa-v35.js', 'utf8');
 const mark = fs.readFileSync('assets/meehoa-mark.svg', 'utf8');
 
-test('v36 routes browser traffic through the new API proxy', () => {
-  assert.match(index, /meehoasg-api-v36/);
+test('refactor routes browser traffic through consolidated API core', () => {
+  assert.match(index, /meehoasg-api-core/);
   assert.match(index, /meehoa-v35\.js\?v=4\.6/);
   assert.match(index, /window\.S=S;window\.gas=gas/);
 });
