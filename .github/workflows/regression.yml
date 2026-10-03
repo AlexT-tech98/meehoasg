@@ -29,7 +29,7 @@ jobs:
       - name: Persist generated runtime bundle on refactor branch
         if: github.event_name == 'pull_request' && github.head_ref == 'refactor/consolidate-production-core-20261003'
         run: |
-          if git diff --quiet -- assets/meehoa-core.css assets/meehoa-core.js runtime-metrics.json; then
+          if [ -z "$(git status --porcelain -- assets/meehoa-core.css assets/meehoa-core.js runtime-metrics.json)" ]; then
             echo "Runtime bundle already current."
             exit 0
           fi
