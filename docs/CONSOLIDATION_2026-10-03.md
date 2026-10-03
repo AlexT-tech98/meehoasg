@@ -45,9 +45,10 @@ Measured build metrics (`runtime-metrics.json`):
 The performance gain here is primarily fewer requests, fewer native observers, simpler cache invalidation and elimination of runtime version-file layering; it is not presented as byte-size minification.
 
 ### API runtime
-Canonical branch implementation:
+Canonical implementation:
 - `supabase/functions/meehoasg-api-core/index.js`
 - build marker: `2026.10.04-core2`
+- Supabase function: `meehoasg-api-core`, **ACTIVE v1**, JWT verification enabled.
 
 The browser points directly to `meehoasg-api-core`; it no longer calls v36/v361/v362/v363/v364/v365 endpoints.
 
@@ -82,11 +83,11 @@ PR CI now performs, in order:
 1. flatten critical startup/read API routes into core2;
 2. build the consolidated frontend runtime;
 3. run the full regression suite;
-4. persist generated core outputs back to the refactor branch.
+4. persist generated core outputs back to the refactor branch only when they truly changed.
 
-Generated outputs are reproducible rather than hand-edited bundles.
+`runtime-metrics.json` is deterministic, so CI no longer creates a new commit merely because a timestamp changed.
 
-## Remaining cutover checklist
+## Cutover checklist
 Before changing production `main`:
 - [x] one CSS + one JS browser runtime on refactor entrypoint
 - [x] API browser path bypasses all historical version wrappers
@@ -94,8 +95,9 @@ Before changing production `main`:
 - [x] one native MutationObserver runtime
 - [x] regression suite migrated from old version-string assertions to consolidated behavior contracts
 - [x] scroll contract preserved inside the consolidated CSS ordering
-- [ ] deploy `meehoasg-api-core` as an ACTIVE non-production Edge Function
-- [ ] final CI pass on the current PR head after documentation/final generated outputs
+- [x] deploy `meehoasg-api-core` as an ACTIVE non-production Edge Function
+- [x] deterministic build pipeline established
+- [ ] final CI pass on the current human-authored PR head with no generated diff
 - [ ] production cutover to `main`
 - [ ] post-cutover static smoke check and authenticated live acceptance
 
