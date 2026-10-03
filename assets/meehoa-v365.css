@@ -1,0 +1,160 @@
+/* MEEHOA v3.6.5 — responsive shell, compact left rail, playful login, order-form ergonomics */
+
+/* ===== Desktop: replace hamburger navigation with a compact permanent left rail ===== */
+@media (min-width: 901px){
+  .sidebar{
+    transform:none!important;
+    visibility:visible!important;
+    pointer-events:auto!important;
+    left:0!important;top:0!important;bottom:0!important;
+    width:164px!important;
+    height:100dvh!important;
+    padding:14px 10px!important;
+    border-right:1px solid rgba(72,92,82,.08)!important;
+    background:linear-gradient(180deg,#fffdf9 0%,#fff7f2 46%,#eff9f4 100%)!important;
+    box-shadow:10px 0 30px rgba(45,68,57,.045)!important;
+    overflow:hidden!important;
+  }
+  .main{
+    margin-left:164px!important;
+    width:calc(100% - 164px)!important;
+    max-width:calc(100% - 164px)!important;
+  }
+  .mee-menu-btn,.mee-menu-backdrop{display:none!important}
+  .sidebar .brand{padding:4px 6px 14px!important;gap:8px!important}
+  .sidebar .mee-brand-wordmark{width:104px!important}
+  .sidebar .nav{gap:5px!important;padding-right:1px!important}
+  .sidebar .nav button{
+    min-height:43px!important;
+    padding:9px 10px!important;
+    border-radius:13px!important;
+    font-size:12px!important;
+    line-height:1.2!important;
+    white-space:normal!important;
+  }
+  .sidebar .nav button.active{border-left:0!important;box-shadow:inset 0 0 0 1px rgba(42,111,88,.07)!important}
+  .sidebar .side-user{padding-top:10px!important}
+  .sidebar .side-user-card{gap:7px!important}
+  .sidebar .user-info b{font-size:11.5px!important}
+  .sidebar .user-info span,.sidebar .user-info .sub{font-size:9.5px!important}
+  .topbar{padding-left:20px!important;padding-right:20px!important}
+  .content{max-width:1680px!important;padding-left:22px!important;padding-right:22px!important}
+}
+
+/* ===== Login: playful flower-studio welcome, still professional ===== */
+.login:not(.hidden){
+  background:
+    radial-gradient(circle at 12% 15%,rgba(255,218,111,.78),transparent 23rem),
+    radial-gradient(circle at 88% 13%,rgba(255,157,178,.52),transparent 24rem),
+    radial-gradient(circle at 86% 84%,rgba(143,205,239,.42),transparent 27rem),
+    radial-gradient(circle at 11% 86%,rgba(161,226,190,.62),transparent 27rem),
+    linear-gradient(145deg,#fff8e9 0%,#fff2f7 48%,#effbf6 100%)!important;
+}
+.login:not(.hidden):before{
+  content:"🌼   🌷   🌿"!important;
+  left:3vw!important;bottom:4vh!important;
+  font-size:clamp(44px,7vw,90px)!important;
+  letter-spacing:.08em!important;
+  color:initial!important;
+  opacity:.72!important;
+  transform:rotate(-6deg)!important;
+}
+.login:not(.hidden):after{
+  content:"🐶  🐱"!important;
+  right:4vw!important;top:7vh!important;
+  font-size:clamp(48px,7vw,86px)!important;
+  letter-spacing:.12em!important;
+  color:initial!important;
+  opacity:.88!important;
+  transform:rotate(4deg)!important;
+}
+.login-card{
+  width:min(450px,calc(100vw - 28px))!important;
+  padding:30px!important;
+  border-radius:30px!important;
+  background:rgba(255,255,255,.86)!important;
+  border:1px solid rgba(255,255,255,.96)!important;
+  box-shadow:0 32px 80px rgba(85,55,46,.14),0 0 0 8px rgba(255,255,255,.18)!important;
+}
+.login-card:before{
+  content:"MEEHOA · HÔM NAY MÌNH LÀM HOA GÌ NÈ?"!important;
+  background:linear-gradient(90deg,#fff0ab,#ffe3ea,#e5f7ed)!important;
+  color:#6d5b53!important;
+  border:1px solid rgba(255,255,255,.86)!important;
+}
+.login-card:after{
+  content:"🐾"!important;
+  background:linear-gradient(145deg,#fff2ad,#ffdfe9 48%,#ddf3e7)!important;
+  font-size:24px!important;
+}
+.login-card h2{font-size:30px!important;letter-spacing:-.045em!important}
+.login-card h2:after{content:" 🌷";font-size:.8em}
+.login-card .sub{font-size:13px!important;color:#8b766d!important}
+.login-card input{background:#fffdfb!important;border-color:rgba(92,70,60,.12)!important}
+
+/* ===== Order form: multiline text, friendly readable layout ===== */
+#orderForm.mee-order-form textarea,
+#orderForm textarea[data-mee-multiline="1"]{
+  width:100%!important;
+  min-height:74px!important;
+  height:auto!important;
+  resize:vertical!important;
+  overflow-wrap:anywhere!important;
+  white-space:pre-wrap!important;
+}
+#orderForm textarea[name="flower"],#orderForm textarea[name="note"],#orderForm textarea[name="address"]{min-height:92px!important}
+#orderForm textarea[name="cardText"],#orderForm textarea[name="bannerText"],#orderForm textarea[name="charmText"],#orderForm textarea[name="paperText"]{min-height:68px!important}
+#orderForm .mee-card-qty-v365{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) 118px!important;
+  gap:10px!important;
+  align-items:end!important;
+  margin:7px 0 10px!important;
+  padding:10px 12px!important;
+  border:1px solid rgba(209,157,47,.16)!important;
+  border-radius:13px!important;
+  background:linear-gradient(105deg,#fffdf8,#fff5d8)!important;
+}
+#orderForm .mee-card-qty-v365 label{margin:0!important;font-size:10px!important}
+#orderForm .mee-card-qty-v365 .mee-card-price{font-size:11px;color:#8e7658;margin-top:3px}
+#orderForm .mee-card-qty-v365 input{height:42px!important;text-align:center!important;font-weight:800!important}
+#orderForm .mee-money-v365{font-variant-numeric:tabular-nums!important}
+
+/* Hide duplicate create-entry points requested by ops. Keep module/FAB entry point. */
+.topbar .actions button[data-mee-hide-create-v365],
+body.mee-page-dashboard-v365 #content button[data-mee-hide-create-v365]{display:none!important}
+
+/* ===== Global responsive pass ===== */
+html,body,.app,.main,#content{max-width:100%!important}
+#content>*{min-width:0!important}
+img,video,canvas{max-width:100%}
+.form-grid,.dashboard-grid,.stats,.stat-grid-5,.order-grid,.production-grid,.sales-kpi-grid{min-width:0!important}
+
+@media (max-width: 1200px){
+  .stat-grid-5{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+  .dashboard-grid{grid-template-columns:1fr!important}
+  .mee-chart-grid{grid-template-columns:1fr!important}
+}
+
+@media (max-width: 900px){
+  .main{width:100%!important;max-width:100%!important;margin-left:0!important}
+  .topbar{min-height:64px!important;height:auto!important;padding-top:8px!important;padding-bottom:8px!important}
+  .content{padding-left:max(12px,env(safe-area-inset-left))!important;padding-right:max(12px,env(safe-area-inset-right))!important}
+  .stat-grid-5{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  #orderForm .mee-card-qty-v365{grid-template-columns:1fr 104px!important}
+  .login:not(.hidden):before{font-size:52px!important;left:-6px!important;bottom:2vh!important}
+  .login:not(.hidden):after{font-size:48px!important;right:3vw!important;top:3vh!important}
+}
+
+@media (max-width: 620px){
+  .stat-grid-5,.stats{grid-template-columns:1fr!important}
+  .section-head{align-items:flex-start!important;gap:10px!important}
+  .section-head>div{min-width:0!important}
+  .section-head .btn,.section-head .date-filter-btn{max-width:100%!important}
+  #orderForm.mee-order-form{border-radius:20px 20px 0 0!important}
+  #orderForm .mee-form-section{padding:12px!important}
+  #orderForm .mee-card-qty-v365{grid-template-columns:1fr!important}
+  #orderForm .mee-card-qty-v365 input{text-align:left!important}
+  .login-card{padding:24px 18px!important;border-radius:24px!important}
+  .login-card h2{font-size:26px!important}
+}
