@@ -1,136 +1,112 @@
-# MEEHOASG Production Consolidation — 2026-10-03
+# MEEHOASG Production Consolidation — 2026-10-03/04
 
 ## Goal
-Reduce runtime layering and maintenance risk without changing current business behavior or production data.
+Reduce runtime layering, duplicate observers and API proxy hops without changing production data or business behavior.
 
 ## Safety contract
-- `main` / current production stays untouched until the consolidated build passes regression + live acceptance.
-- No production database rewrite as part of the frontend consolidation.
-- Keep current production commit as rollback baseline.
-- Consolidation happens on `refactor/consolidate-production-core-20261003`.
+- `main` remains the current production/rollback baseline until the consolidated build is accepted for cutover.
+- No production database rewrite is part of this refactor.
+- Historical assets/functions remain in the repository/Supabase temporarily as rollback references, but the consolidated browser entrypoint does not load the historical frontend files individually.
+- Consolidation work is isolated on `refactor/consolidate-production-core-20261003` / PR #4 until cutover.
 
-## Confirmed layering today
-
-### Frontend entrypoint
-`index.html` currently injects multiple generations at runtime:
-
-CSS:
-- `meehoa-v3.css`
-- `meehoa-v3-fix.css`
-- `meehoa-v3-hotfix.css`
-- `meehoa-v34.css`
-- `meehoa-v35.css`
-- `meehoa-prod-fix.css`
-- `meehoa-v361.css`
-- `meehoa-v362.css`
-- `meehoa-v364.css`
-- `meehoa-scroll-contract.css`
-- `meehoa-v365.css`
-
-JS:
-- `meehoa-v3.js`
-- `meehoa-v34.js`
-- `meehoa-v35.js`
-- `meehoa-v361.js`
-- `meehoa-v362.js`
-- `meehoa-v363.js`
-- `meehoa-v364.js`
-- `meehoa-v365.js`
-
-This means fixes are frequently expressed as later overrides rather than edits to one canonical implementation.
-
-### API chain
-The active frontend targets `meehoasg-api-v365`.
-
-Confirmed upstream chain:
-
-`meehoasg-api-v365`
-→ `meehoasg-api-v364`
-→ `meehoasg-api-v363`
-→ `meehoasg-api-v362`
-→ `meehoasg-api-v361`
-→ `meehoasg-api-v36`
-→ legacy `meehoasg-api`
-
-Some layers short-circuit individual operations, but fallback/proxy behavior still exists across generations. This adds request hops and makes ownership of a behavior difficult to reason about.
-
-## Consolidation target
+## Starting architecture confirmed
 
 ### Frontend
-Move to one canonical runtime generation:
-- `assets/production-core.css`
-- `assets/production-app.js`
+The browser previously requested 18 separate compatibility assets (10 CSS + 8 JS), spanning v3 through v365. One referenced CSS asset (`meehoa-v361.css`) did not exist, creating a dead request.
 
-Rules:
-- No version-to-version override chain.
-- One listener per interaction.
-- One MutationObserver only where strictly required; prefer direct render hooks.
-- One responsive system.
-- One modal/drawer contract.
-- One scroll-root contract.
-- Preserve current behavior for Orders, Production, Dashboard, Payment Check, Materials, KPI, order create/edit, image management, role permissions and shortcuts.
+The separate JS generations also instantiated multiple MutationObservers against overlapping UI surfaces.
 
 ### API
-Move to one canonical API endpoint implementation:
-- `supabase/functions/meehoasg-api-production/index.js`
+The previous browser target was `meehoasg-api-v365`, with historical wrappers/fallbacks through v364/v363/v362/v361/v36 before legacy `meehoasg-api`.
 
-Rules:
-- Direct database implementation for production operations.
-- No generation-to-generation HTTP proxy chain.
-- Preserve current auth/session contract, SALE read-all/edit-own rule, settlement behavior, card quantity pricing, Dashboard settlement split, image retention, Materials fallback/AI behavior, and compatibility response shape required by the frontend.
+## Consolidated architecture implemented on the refactor branch
 
-## Execution phases
+### Frontend runtime
+Canonical browser assets:
+- `assets/meehoa-core.css`
+- `assets/meehoa-core.js`
 
-### Phase 1 — inventory and ownership map
-- Map every loaded CSS selector to its final winning rule.
-- Map every patched frontend function/event/observer to the final runtime behavior.
-- Map API operation names and determine which generation currently owns each operation.
-- Flag duplicate listeners, observers, render passes and proxy calls.
+`index.html` now loads only those two runtime assets, plus required static assets. Historical source files remain build inputs/rollback references and are no longer requested individually by the browser.
 
-### Phase 2 — build canonical frontend
-- Merge final CSS into `production-core.css`.
-- Merge final JS into `production-app.js`.
-- Change branch-only entrypoint to load canonical assets only.
-- Keep old assets in repository temporarily for diff/rollback, but do not load them.
+The runtime bundle is generated deterministically by `scripts/build-runtime.cjs`, preserving the verified winning compatibility order while creating one deployable runtime generation.
 
-### Phase 3 — build canonical API
-- Flatten current `v36 → v365` behavior into one implementation.
-- Add operation-level regression fixtures before replacing the endpoint.
-- Deploy as a new non-production function name first.
+A shared MutationObserver multiplexer keeps compatibility modules functional while reducing the underlying native observers to one.
 
-### Phase 4 — benchmark and acceptance
-Test desktop + mobile for:
-- cold app open / shortcut open
-- returning app open
-- login/session restore
-- Dashboard first meaningful data
-- Orders load/search/filter
-- Production Grid/Kanban
-- Payment Check select-all/bulk approval
-- Materials
-- order create/edit with image add/remove
-- modal/drawer/lightbox close behavior
-- scroll smoothness / no nested page scroll
-- SALE read-all/edit-own
+Measured build metrics (`runtime-metrics.json`):
+- frontend CSS/JS requests: **18 → 2**
+- source CSS: **73,743 bytes**
+- source JS: **74,717 bytes**
+- consolidated CSS: **74,269 bytes**
+- consolidated JS: **76,800 bytes** (includes the shared observer multiplexer)
+- compatibility MutationObserver declarations: **10**
+- native MutationObserver instances after consolidation: **1**
+- dead `meehoa-v361.css` browser request: **removed**
 
-Measure at minimum:
-- number of CSS/JS requests
-- JS/CSS transferred bytes
-- API request count for initial Dashboard
-- time to shell mounted
-- time to Dashboard data visible
-- duplicate API calls during one navigation
+The performance gain here is primarily fewer requests, fewer native observers, simpler cache invalidation and elimination of runtime version-file layering; it is not presented as byte-size minification.
 
-### Phase 5 — cutover
-Only after regression and live acceptance:
-- point production entrypoint to canonical frontend assets
-- point frontend to canonical production API
-- keep previous production commit/function available for immediate rollback
-- remove obsolete runtime references from `index.html`
+### API runtime
+Canonical branch implementation:
+- `supabase/functions/meehoasg-api-core/index.js`
+- build marker: `2026.10.04-core2`
+
+The browser points directly to `meehoasg-api-core`; it no longer calls v36/v361/v362/v363/v364/v365 endpoints.
+
+Critical startup/read paths are direct in core2:
+- `loginAndBootstrap`
+- `getCurrentUserAndBootstrap`
+- `getProductionOrders`
+- `getOrders`
+- `getDashboardSummary`
+- `getKpi`
+- `getFlowerInventory`
+
+Less-frequent compatibility/write operations that have not yet been reimplemented in core may fall back **one hop directly** to legacy `meehoasg-api`. There is no generation-to-generation proxy chain in the core.
+
+## Preserved business contracts
+Regression coverage explicitly protects:
+- SALE sees all orders immediately, while edit permission remains owner-only.
+- Dashboard and KPI use the same canonical Sale identity from `app_users` (`username` + `display_name`).
+- KPI revenue is settled-only.
+- Dashboard keeps split unsettled/settled revenue.
+- Payment Check route/grid/select-all behavior remains available.
+- Card quantity affects accessory pricing.
+- Create/edit order image retention/removal remains available.
+- Copy order info excludes Order ID and shortcut reload remains available.
+- Materials keeps AI/local fallback and review behavior.
+- Modal/drawer/lightbox close controls remain available.
+- Single-scroll contract and mobile thumbnail/responsive fixes remain covered.
+- Actual boot splash is styled without adding a transient extra loading screen.
+
+## CI/build pipeline
+PR CI now performs, in order:
+1. flatten critical startup/read API routes into core2;
+2. build the consolidated frontend runtime;
+3. run the full regression suite;
+4. persist generated core outputs back to the refactor branch.
+
+Generated outputs are reproducible rather than hand-edited bundles.
+
+## Remaining cutover checklist
+Before changing production `main`:
+- [x] one CSS + one JS browser runtime on refactor entrypoint
+- [x] API browser path bypasses all historical version wrappers
+- [x] critical startup/read routes implemented directly in API core2
+- [x] one native MutationObserver runtime
+- [x] regression suite migrated from old version-string assertions to consolidated behavior contracts
+- [x] scroll contract preserved inside the consolidated CSS ordering
+- [ ] deploy `meehoasg-api-core` as an ACTIVE non-production Edge Function
+- [ ] final CI pass on the current PR head after documentation/final generated outputs
+- [ ] production cutover to `main`
+- [ ] post-cutover static smoke check and authenticated live acceptance
+
+## Rollback
+The pre-consolidation `main` commit remains the rollback baseline until cutover. Historical Supabase API functions are intentionally not deleted during the cutover window.
 
 ## Definition of done
-- Production entrypoint loads one canonical CSS and one canonical JS bundle (plus required static assets only).
-- Frontend does not rely on historical `v3/v34/v35/v361/v362/v363/v364/v365` override order.
-- Production request path does not proxy through historical API generations.
-- Existing regression suite passes after being rewritten to test canonical behavior, not old filenames/version strings.
-- Mobile and desktop live acceptance passes before merge to `main`.
+The consolidation is complete when:
+- production `index.html` loads `meehoa-core.css` + `meehoa-core.js` only;
+- production browser requests `meehoasg-api-core` directly;
+- core2 serves startup/read hot paths directly and never proxies through historical API generations;
+- regression is green on the merged production commit;
+- production static smoke check passes;
+- authenticated desktop/mobile acceptance confirms the primary workflows.
