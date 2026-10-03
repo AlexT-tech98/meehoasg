@@ -15,6 +15,6 @@ assert.ok(s.includes("identityRule:'APP_USERS_CANONICAL'"),'KPI must use app_use
 assert.ok(s.includes("if(!r.settled)continue"),'KPI revenue must only use settled orders');
 assert.ok(s.includes('cardQty(row)*10000'),'card quantity must affect accessory total');
 assert.ok(s.includes('imageRetentionApplied:true'),'edit-order image deletion/retention must survive consolidation');
-assert.ok(s.includes("proxy:'core1'"),'perf output must identify consolidated core');
+assert.ok(s.includes("proxy:'core2'"),'perf output must identify consolidated core2');
 assert.ok(s.includes("legacyFallback:!['loginAndBootstrap','getCurrentUserAndBootstrap','getProductionOrders','getOrders','getDashboardSummary','getKpi','getFlowerInventory'].includes(name)"),'critical startup/read routes must not report legacy fallback');
 console.log('consolidated core2 contract OK');
