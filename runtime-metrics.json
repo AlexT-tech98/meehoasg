@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-03T17:51:32.308Z",
+  "generatedAt": "2026-10-03T18:02:33.218Z",
   "cssFiles": [
     "meehoa-v3.css",
     "meehoa-v3-fix.css",
@@ -27,5 +27,7 @@
   "sourceCssBytes": 73743,
   "sourceJsBytes": 74717,
   "coreCssBytes": 74269,
-  "coreJsBytes": 75144
+  "coreJsBytes": 76800,
+  "sourceMutationObservers": 10,
+  "nativeMutationObserversAfter": 1
 }
