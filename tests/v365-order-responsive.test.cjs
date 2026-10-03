@@ -30,14 +30,21 @@ test('responsive CSS provides desktop left rail without overriding the login the
   assert.match(s,/mee-card-qty-v365/);
 });
 
-test('launch splash uses illustrated dog and cat elements instead of emoji icons',()=>{
-  const s=fs.readFileSync('index.html','utf8');
-  assert.match(s,/MEEHOA · VẬN HÀNH MỖI NGÀY/);
-  assert.match(s,/class=\"pet pet-cat\"/);
-  assert.match(s,/class=\"pet pet-dog\"/);
-  assert.match(s,/class=\"flower-doodle flower-a\"/);
-  assert.match(s,/Đang mở Meehoa Ops…/);
-  assert.doesNotMatch(s,/🐶|🐱|🌷|🌼/);
+test('the real bootSplash is replaced and styled; no transient loading card remains in index body',()=>{
+  const entry=fs.readFileSync('index.html','utf8');
+  const css=fs.readFileSync('assets/meehoa-v365.css','utf8');
+  assert.match(entry,/OLD_SPLASH/);
+  assert.match(entry,/NEW_SPLASH/);
+  assert.match(entry,/html=html\.replace\(OLD_SPLASH,NEW_SPLASH\)/);
+  assert.match(entry,/mee-splash-cat/);
+  assert.match(entry,/mee-splash-dog/);
+  assert.match(entry,/MEEHOA · VẬN HÀNH MỖI NGÀY/);
+  assert.match(entry,/Đang mở Meehoa Ops…/);
+  assert.match(entry,/<div id=\"meeBoot\"><\/div>/);
+  assert.doesNotMatch(entry,/<div class=\"boot-card\">/);
+  assert.match(css,/#bootSplash\.boot-splash:not\(\.hidden\)/);
+  assert.match(css,/mee-splash-card/);
+  assert.doesNotMatch(entry,/🐶|🐱|🌷|🌼/);
 });
 
 test('API wrapper prices cards by quantity',()=>{
