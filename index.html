@@ -21,8 +21,10 @@ html,body{margin:0;min-height:100%;background:#fbf8f4;font-family:Inter,-apple-s
 </style>
 <script>
 (function(){
-  var SHELL_KEY='meehoa-shell-20261003-v365-splash3';
+  var SHELL_KEY='meehoa-shell-refactor-core-20261003-1';
   var SHELL_URL='/html?prod-base=20261003-v365';
+  var API_LEGACY='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api';
+  var API_CORE='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-core';
   var OLD_SPLASH='<div id="bootSplash" class="boot-splash hidden"><div class="boot-splash-card"><div class="brand-mark">M</div><div><div>MEEHOASG</div><small id="bootSplashText" class="sub">Đang mở dữ liệu hôm nay…</small></div></div></div>';
   var NEW_SPLASH='<div id="bootSplash" class="boot-splash hidden">'+
     '<svg class="mee-splash-flower mee-splash-flower-a" viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="#e99bad" stroke-width="5" stroke-linecap="round"><path d="M50 44C22 8 4 39 32 52C1 61 22 88 48 62C52 94 86 78 67 56C96 57 92 23 61 39C62 9 32 11 42 39"/><circle cx="52" cy="51" r="8" fill="#ffe2a3" stroke="none"/></g></svg>'+
@@ -37,10 +39,7 @@ html,body{margin:0;min-height:100%;background:#fbf8f4;font-family:Inter,-apple-s
       '<div class="mee-splash-progress" aria-hidden="true"><i></i><i></i><i></i></div>'+
     '</div></div>';
   function prepare(html){
-    html=html.replaceAll(
-      'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api',
-      'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-v365'
-    );
+    html=html.replaceAll(API_LEGACY,API_CORE);
     html=html.replace(OLD_SPLASH,NEW_SPLASH);
     html=html.replace(/window\.__MEE_BOOT_STAGE__\s*=\s*'ready';/,
       "window.S=S;window.gas=gas;window.loadFlowers=loadFlowers;window.loadPage=loadPage;window.renderProduction=renderProduction;window.rememberOrders=rememberOrders;window.validateBuild=validateBuild;window.closeOverlay=closeOverlay;window.toast=toast;window.__MEE_BOOT_STAGE__='ready';");
