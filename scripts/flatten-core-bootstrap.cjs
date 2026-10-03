@@ -3,7 +3,8 @@ const path=require('node:path');
 const file=path.join(__dirname,'..','supabase','functions','meehoasg-api-core','index.js');
 let s=fs.readFileSync(file,'utf8');
 if(s.includes("const BUILD='2026.10.04-core2'")){
-  console.log('Core bootstrap already flattened.');
+  const next=s.replace("proxy:'core1'","proxy:'core2'");
+  if(next!==s){fs.writeFileSync(file,next);console.log('Core2 marker normalized.')}else console.log('Core bootstrap already flattened.');
   process.exit(0);
 }
 
@@ -33,6 +34,7 @@ const dispatchNew="if(name==='loginAndBootstrap')result=await loginAndBootstrapC
 if(!s.includes(dispatchOld))throw new Error('dispatch anchor not found');
 s=s.replace(dispatchOld,dispatchNew);
 s=s.replace("legacyFallback:!['getOrders','getDashboardSummary','getKpi','getFlowerInventory'].includes(name)","legacyFallback:!['loginAndBootstrap','getCurrentUserAndBootstrap','getProductionOrders','getOrders','getDashboardSummary','getKpi','getFlowerInventory'].includes(name)");
+s=s.replace("proxy:'core1'","proxy:'core2'");
 
 fs.writeFileSync(file,s);
 console.log('Flattened login/session bootstrap + production into API core2.');
