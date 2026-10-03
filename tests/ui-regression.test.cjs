@@ -50,7 +50,7 @@ test('search visibility is determined by module id, not page title text', () => 
   assert.doesNotMatch(visibilityFn, /Đơn hàng\|Sản xuất/);
 });
 
-test('production entrypoint uses the current UI cache generation', () => {
+test('refactor entrypoint keeps current UI layers while routing to consolidated API core', () => {
   assert.match(entry, /prod-base=20261003-v365/);
   assert.match(entry, /meehoa-v34\.css\?v=4\.6/);
   assert.match(entry, /meehoa-v364\.css\?v=4\.6\.8/);
@@ -58,7 +58,7 @@ test('production entrypoint uses the current UI cache generation', () => {
   assert.match(entry, /meehoa-v35\.js\?v=4\.6/);
   assert.match(entry, /meehoa-v365\.js\?v=4\.6\.5/);
   assert.match(entry, /meehoa-mark\.svg\?v=7/);
-  assert.match(entry, /meehoasg-api-v365/);
+  assert.match(entry, /meehoasg-api-core/);
   assert.match(entry, /meehoa-scroll-contract\.css\?v=1\.0\.0/);
-  assert.match(entry, /meehoa-shell-20261003-v365-splash3/);
+  assert.match(entry, /meehoa-shell-refactor-core-20261003-1/);
 });
