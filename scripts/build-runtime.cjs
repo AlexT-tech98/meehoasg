@@ -71,7 +71,7 @@ const sourceCssBytes = cssFiles.reduce((n, f) => n + fs.statSync(path.join(asset
 const sourceJsBytes = jsFiles.reduce((n, f) => n + fs.statSync(path.join(assets, f)).size, 0);
 const sourceMutationObservers = jsChunks.reduce((n, x) => n + (x.src.match(/new\s+MutationObserver\s*\(/g) || []).length, 0);
 const metrics = {
-  generatedAt: new Date().toISOString(),
+  schemaVersion: 1,
   cssFiles,
   jsFiles,
   sourceRequestsBefore: cssFiles.length + jsFiles.length,
