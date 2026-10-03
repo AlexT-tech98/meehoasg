@@ -17,7 +17,7 @@ test('order patch adds card quantity and multiline fields',()=>{
   assert.match(s,/10\.000đ × số lượng/);
   assert.match(s,/replaceTextInput/);
   assert.match(s,/flowerTotal','depositAmount','charmFee','paperFee','vat/);
-  assert.match(s,/data\.meeHideCreateV365/);
+  assert.match(s,/dataset\.meeHideCreateV365/);
 });
 
 test('responsive CSS provides desktop left rail and playful login',()=>{
