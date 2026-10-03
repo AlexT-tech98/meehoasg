@@ -1,0 +1,18 @@
+const fs=require('fs');
+const assert=require('assert');
+const p='supabase/functions/meehoasg-api-core/index.js';
+assert.ok(fs.existsSync(p),'consolidated core must exist');
+const s=fs.readFileSync(p,'utf8');
+assert.ok(s.includes("const LEGACY_API=`${SUPABASE_URL}/functions/v1/meehoasg-api`"),'core may only fall back directly to legacy API');
+for(const old of ['meehoasg-api-v36','meehoasg-api-v361','meehoasg-api-v362','meehoasg-api-v363','meehoasg-api-v364','meehoasg-api-v365']) assert.ok(!s.includes(`/functions/v1/${old}`),`core must not chain through ${old}`);
+assert.ok(s.includes("name==='getOrders'"),'orders must be served directly');
+assert.ok(s.includes("name==='getDashboardSummary'"),'dashboard must be served directly');
+assert.ok(s.includes("name==='getKpi'"),'KPI must be served directly');
+assert.ok(s.includes("name==='getFlowerInventory'"),'materials must be served directly');
+assert.ok(s.includes("visibilityRule:'SALE_READ_ALL_EDIT_OWN'"),'sale visibility rule must be explicit');
+assert.ok(s.includes("identityRule:'APP_USERS_CANONICAL'"),'KPI must use app_users as canonical identity');
+assert.ok(s.includes("if(!r.settled)continue"),'KPI revenue must only use settled orders');
+assert.ok(s.includes('cardQty(row)*10000'),'card quantity must affect accessory total');
+assert.ok(s.includes('imageRetentionApplied:true'),'edit-order image deletion/retention must survive consolidation');
+assert.ok(s.includes("proxy:'core1'"),'perf output must identify consolidated core');
+console.log('consolidated core contract OK');
