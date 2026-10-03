@@ -10,8 +10,8 @@ const js = read('assets/meehoa-v362.js');
 const js363 = read('assets/meehoa-v363.js');
 const css = read('assets/meehoa-v362.css');
 
-test('production routes through v364 while retaining v362/v363 compatibility layers', () => {
-  assert.match(entry, /meehoasg-api-v364/);
+test('production routes through v365 while retaining v362/v363 compatibility layers', () => {
+  assert.match(entry, /meehoasg-api-v365/);
   assert.match(entry, /meehoa-v362\.css\?v=4\.6\.2/);
   assert.match(entry, /meehoa-v362\.js\?v=4\.6\.2/);
   assert.match(entry, /meehoa-v363\.js\?v=4\.6\.3/);
@@ -38,7 +38,7 @@ test('materials no longer turns an AI outage into every order needing review', (
   assert.match(unavailable, /reviewOrders:\[\]/);
 });
 
-test('legacy payment patch remains present behind v364', () => {
+test('legacy payment patch remains present behind v365', () => {
   assert.match(js, /mee-settlement-grid/);
   assert.match(js363, /mee-settlement-select-all/);
   assert.match(js363, /Chọn tất cả/);
