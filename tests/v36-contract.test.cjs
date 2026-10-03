@@ -7,9 +7,9 @@ const index = fs.readFileSync('index.html', 'utf8');
 const ui = fs.readFileSync('assets/meehoa-v35.js', 'utf8');
 const mark = fs.readFileSync('assets/meehoa-mark.svg', 'utf8');
 
-test('refactor routes browser traffic through consolidated API core', () => {
+test('refactor routes browser traffic through consolidated API and frontend cores', () => {
   assert.match(index, /meehoasg-api-core/);
-  assert.match(index, /meehoa-v35\.js\?v=4\.6/);
+  assert.match(index, /meehoa-core\.js\?v=20261004-1/);
   assert.match(index, /window\.S=S;window\.gas=gas/);
 });
 
