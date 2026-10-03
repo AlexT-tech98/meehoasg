@@ -15,35 +15,33 @@
 <link rel="preload" href="/html?prod-base=20261003-v365" as="fetch">
 <style>
 html,body{margin:0;min-height:100%;background:#fbf8f4;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-#meeBoot{min-height:100dvh;display:grid;place-items:center;overflow:hidden;position:relative;padding:max(18px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom));box-sizing:border-box;background:radial-gradient(circle at 14% 12%,rgba(255,224,138,.58),transparent 25rem),radial-gradient(circle at 88% 16%,rgba(255,190,208,.48),transparent 26rem),radial-gradient(circle at 84% 86%,rgba(180,224,248,.40),transparent 28rem),radial-gradient(circle at 12% 86%,rgba(185,232,204,.50),transparent 28rem),linear-gradient(145deg,#fffaf1 0%,#fff6f8 50%,#f3fbf7 100%);color:#302b29}
-#meeBoot .boot-card{position:relative;width:min(390px,calc(100vw - 36px));padding:30px 26px 28px;border-radius:30px;background:rgba(255,255,255,.88);border:1px solid rgba(255,255,255,.96);box-shadow:0 28px 80px rgba(82,58,48,.12),0 0 0 8px rgba(255,255,255,.16);text-align:center;box-sizing:border-box;isolation:isolate}
-#meeBoot .boot-badge{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:999px;background:linear-gradient(90deg,#fff1b8,#ffe8ef,#e8f6ee);font-size:10px;font-weight:800;letter-spacing:.08em;color:#78665d;text-transform:uppercase}
-#meeBoot .boot-logo{width:66px;height:66px;margin:18px auto 14px;display:grid;place-items:center;border-radius:21px;background:linear-gradient(145deg,#1e7a60,#7bc3a8 58%,#e59aa7);box-shadow:0 12px 30px rgba(34,112,86,.18)}
-#meeBoot .boot-logo img{width:48px;height:48px;object-fit:contain}
-#meeBoot h1{margin:0;font-size:25px;line-height:1.12;letter-spacing:-.035em;color:#2d2927}
-#meeBoot p{margin:8px 0 0;font-size:13px;line-height:1.5;color:#8a7770}
-#meeBoot .boot-progress{display:flex;justify-content:center;gap:6px;margin-top:18px}
-#meeBoot .boot-progress i{width:7px;height:7px;border-radius:50%;background:#d9d0ca;animation:meePulse 1.05s ease-in-out infinite}
-#meeBoot .boot-progress i:nth-child(2){animation-delay:.16s}#meeBoot .boot-progress i:nth-child(3){animation-delay:.32s}
-@keyframes meePulse{0%,100%{transform:translateY(0);opacity:.4}50%{transform:translateY(-5px);opacity:1;background:#4b9d80}}
-#meeBoot .pet{position:absolute;width:112px;height:112px;z-index:-1;filter:drop-shadow(0 12px 22px rgba(81,63,55,.08));pointer-events:none}
-#meeBoot .pet-cat{right:-50px;top:-46px;transform:rotate(8deg)}
-#meeBoot .pet-dog{left:-50px;bottom:-47px;transform:rotate(-8deg)}
-#meeBoot .flower-doodle{position:absolute;width:74px;height:74px;opacity:.62;pointer-events:none}
-#meeBoot .flower-a{left:4vw;top:12vh;transform:rotate(-13deg)}#meeBoot .flower-b{right:5vw;bottom:10vh;transform:rotate(16deg)}
-#meeBoot .boot-error .boot-progress{display:none}#meeBoot .boot-error .boot-badge{background:#fff0f0;color:#a33e57}
-@media(max-width:560px){#meeBoot .boot-card{width:min(350px,calc(100vw - 32px));padding:27px 22px 25px;border-radius:27px}#meeBoot h1{font-size:23px}#meeBoot .pet{width:96px;height:96px}.flower-doodle{display:none!important}}
-@media(prefers-reduced-motion:reduce){#meeBoot .boot-progress i{animation:none}}
+#meeBoot{min-height:100dvh;background:#fbf8f4}
+#meeBootError{display:none;min-height:100dvh;place-items:center;padding:24px;color:#443a35;background:#fbf8f4;text-align:center}
+#meeBootError.show{display:grid}
 </style>
 <script>
 (function(){
-  var SHELL_KEY='meehoa-shell-20261003-v365';
+  var SHELL_KEY='meehoa-shell-20261003-v365-splash3';
   var SHELL_URL='/html?prod-base=20261003-v365';
+  var OLD_SPLASH='<div id="bootSplash" class="boot-splash hidden"><div class="boot-splash-card"><div class="brand-mark">M</div><div><div>MEEHOASG</div><small id="bootSplashText" class="sub">Đang mở dữ liệu hôm nay…</small></div></div></div>';
+  var NEW_SPLASH='<div id="bootSplash" class="boot-splash hidden">'+
+    '<svg class="mee-splash-flower mee-splash-flower-a" viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="#e99bad" stroke-width="5" stroke-linecap="round"><path d="M50 44C22 8 4 39 32 52C1 61 22 88 48 62C52 94 86 78 67 56C96 57 92 23 61 39C62 9 32 11 42 39"/><circle cx="52" cy="51" r="8" fill="#ffe2a3" stroke="none"/></g></svg>'+
+    '<svg class="mee-splash-flower mee-splash-flower-b" viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="#77b99d" stroke-width="5" stroke-linecap="round"><path d="M50 44C22 8 4 39 32 52C1 61 22 88 48 62C52 94 86 78 67 56C96 57 92 23 61 39C62 9 32 11 42 39"/><circle cx="52" cy="51" r="8" fill="#ffe6af" stroke="none"/></g></svg>'+
+    '<div class="boot-splash-card mee-splash-card">'+
+      '<svg class="mee-splash-pet mee-splash-cat" viewBox="0 0 120 120" aria-hidden="true"><path d="M31 39L24 15L46 29C52 26 59 24 66 24C74 24 82 27 88 31L108 17L103 42C111 51 115 63 113 77C110 97 93 108 69 108C43 108 24 95 22 74C20 60 23 48 31 39Z" fill="#f4b4bd"/><path d="M39 63C43 59 48 59 52 63M77 63C81 59 86 59 90 63" stroke="#5f4d4a" stroke-width="4" stroke-linecap="round" fill="none"/><path d="M62 72L68 72L65 77Z" fill="#5f4d4a"/><path d="M65 78C61 84 55 84 52 81M65 78C69 84 75 84 78 81" stroke="#5f4d4a" stroke-width="3" stroke-linecap="round" fill="none"/></svg>'+
+      '<svg class="mee-splash-pet mee-splash-dog" viewBox="0 0 120 120" aria-hidden="true"><path d="M38 31C19 30 12 49 20 68C25 81 37 87 47 76L48 105H91L91 74C103 83 114 74 115 57C116 39 103 30 91 34C83 25 73 20 62 20C53 20 45 24 38 31Z" fill="#d9ae80"/><path d="M30 37C19 35 16 48 23 58C28 64 35 60 38 52Z" fill="#9c744f"/><path d="M95 38C107 34 112 46 106 57C101 65 94 60 90 52Z" fill="#9c744f"/><circle cx="50" cy="57" r="4" fill="#4f443d"/><circle cx="80" cy="57" r="4" fill="#4f443d"/><path d="M60 67C63 64 68 64 71 67L66 72Z" fill="#4f443d"/><path d="M66 73C61 80 53 79 50 75M66 73C71 80 79 79 82 75" stroke="#4f443d" stroke-width="3" stroke-linecap="round" fill="none"/></svg>'+
+      '<div class="mee-splash-badge">MEEHOA · VẬN HÀNH MỖI NGÀY</div>'+
+      '<div class="mee-splash-logo"><img src="/assets/meehoa-mark.svg?v=7" alt="Meehoa"></div>'+
+      '<div class="mee-splash-title">MEEHOASG</div>'+
+      '<small id="bootSplashText" class="sub">Đang mở Meehoa Ops…</small>'+
+      '<div class="mee-splash-progress" aria-hidden="true"><i></i><i></i><i></i></div>'+
+    '</div></div>';
   function prepare(html){
     html=html.replaceAll(
       'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api',
       'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-v365'
     );
+    html=html.replace(OLD_SPLASH,NEW_SPLASH);
     html=html.replace(/window\.__MEE_BOOT_STAGE__\s*=\s*'ready';/,
       "window.S=S;window.gas=gas;window.loadFlowers=loadFlowers;window.loadPage=loadPage;window.renderProduction=renderProduction;window.rememberOrders=rememberOrders;window.validateBuild=validateBuild;window.closeOverlay=closeOverlay;window.toast=toast;window.__MEE_BOOT_STAGE__='ready';");
     html=html.replace(/<head>/i,'<head><base href="/"><meta name="theme-color" content="#0f4937"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Meehoa OPS"><link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=7"><link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=7"><link rel="manifest" href="/manifest.webmanifest?v=7">');
@@ -59,7 +57,7 @@ html,body{margin:0;min-height:100%;background:#fbf8f4;font-family:Inter,-apple-s
       '<link rel="stylesheet" href="/assets/meehoa-v362.css?v=4.6.2">'+
       '<link rel="stylesheet" href="/assets/meehoa-v364.css?v=4.6.8">'+
       '<link rel="stylesheet" href="/assets/meehoa-scroll-contract.css?v=1.0.0">'+
-      '<link rel="stylesheet" href="/assets/meehoa-v365.css?v=4.6.6">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v365.css?v=4.6.7">'+
       '</head>');
     html=html.replace(/<\/body>/i,
       '<script src="/assets/meehoa-v3.js?v=4.6"><\/script>'+
@@ -82,8 +80,7 @@ html,body{margin:0;min-height:100%;background:#fbf8f4;font-family:Inter,-apple-s
       var html=await r.text();try{localStorage.setItem(SHELL_KEY,html)}catch(_){ }
       mount(html);
     }catch(e){
-      var card=document.querySelector('#meeBoot .boot-card');
-      if(card){card.classList.add('boot-error');card.querySelector('.boot-badge').textContent='MEEHOA · KẾT NỐI CHƯA SẴN SÀNG';card.querySelector('h1').textContent='Chưa vào được Meehoa';card.querySelector('p').textContent='Anh tải lại trang một lần giúp em nhé.'}
+      var x=document.getElementById('meeBootError');if(x)x.classList.add('show');
     }
   }
   window.addEventListener('DOMContentLoaded',boot,{once:true});
@@ -91,18 +88,7 @@ html,body{margin:0;min-height:100%;background:#fbf8f4;font-family:Inter,-apple-s
 </script>
 </head>
 <body>
-<div id="meeBoot">
-  <svg class="flower-doodle flower-a" viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="#e99bad" stroke-width="5" stroke-linecap="round"><path d="M50 44C22 8 4 39 32 52C1 61 22 88 48 62C52 94 86 78 67 56C96 57 92 23 61 39C62 9 32 11 42 39"/><circle cx="52" cy="51" r="8" fill="#ffe2a3" stroke="none"/></g></svg>
-  <svg class="flower-doodle flower-b" viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="#77b99d" stroke-width="5" stroke-linecap="round"><path d="M50 44C22 8 4 39 32 52C1 61 22 88 48 62C52 94 86 78 67 56C96 57 92 23 61 39C62 9 32 11 42 39"/><circle cx="52" cy="51" r="8" fill="#ffe6af" stroke="none"/></g></svg>
-  <div class="boot-card">
-    <svg class="pet pet-cat" viewBox="0 0 120 120" aria-hidden="true"><path d="M31 39L24 15L46 29C52 26 59 24 66 24C74 24 82 27 88 31L108 17L103 42C111 51 115 63 113 77C110 97 93 108 69 108C43 108 24 95 22 74C20 60 23 48 31 39Z" fill="#f4b4bd"/><path d="M39 63C43 59 48 59 52 63M77 63C81 59 86 59 90 63" stroke="#5f4d4a" stroke-width="4" stroke-linecap="round" fill="none"/><path d="M62 72L68 72L65 77Z" fill="#5f4d4a"/><path d="M65 78C61 84 55 84 52 81M65 78C69 84 75 84 78 81" stroke="#5f4d4a" stroke-width="3" stroke-linecap="round" fill="none"/></svg>
-    <svg class="pet pet-dog" viewBox="0 0 120 120" aria-hidden="true"><path d="M38 31C19 30 12 49 20 68C25 81 37 87 47 76L48 105H91L91 74C103 83 114 74 115 57C116 39 103 30 91 34C83 25 73 20 62 20C53 20 45 24 38 31Z" fill="#d9ae80"/><path d="M30 37C19 35 16 48 23 58C28 64 35 60 38 52Z" fill="#9c744f"/><path d="M95 38C107 34 112 46 106 57C101 65 94 60 90 52Z" fill="#9c744f"/><circle cx="50" cy="57" r="4" fill="#4f443d"/><circle cx="80" cy="57" r="4" fill="#4f443d"/><path d="M60 67C63 64 68 64 71 67L66 72Z" fill="#4f443d"/><path d="M66 73C61 80 53 79 50 75M66 73C71 80 79 79 82 75" stroke="#4f443d" stroke-width="3" stroke-linecap="round" fill="none"/></svg>
-    <div class="boot-badge">MEEHOA · VẬN HÀNH MỖI NGÀY</div>
-    <div class="boot-logo"><img src="/assets/meehoa-mark.svg?v=7" alt="Meehoa"></div>
-    <h1>Đang mở Meehoa Ops…</h1>
-    <p>Chuẩn bị dữ liệu và góc làm việc của mình.</p>
-    <div class="boot-progress" aria-label="Đang tải"><i></i><i></i><i></i></div>
-  </div>
-</div>
+<div id="meeBoot"></div>
+<div id="meeBootError"><div><b>Chưa vào được Meehoa</b><br><small>Vui lòng tải lại trang một lần.</small></div></div>
 </body>
 </html>
