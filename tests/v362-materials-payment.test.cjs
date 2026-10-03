@@ -9,12 +9,16 @@ const compat = read('supabase/functions/meehoasg-api-v363/index.js');
 const js = read('assets/meehoa-v362.js');
 const js363 = read('assets/meehoa-v363.js');
 const css = read('assets/meehoa-v362.css');
+const coreJs = read('assets/meehoa-core.js');
+const coreCss = read('assets/meehoa-core.css');
 
-test('refactor routes through API core while retaining v362/v363 UI compatibility layers', () => {
+test('refactor routes through API core while preserving v362/v363 behavior inside consolidated assets', () => {
   assert.match(entry, /meehoasg-api-core/);
-  assert.match(entry, /meehoa-v362\.css\?v=4\.6\.2/);
-  assert.match(entry, /meehoa-v362\.js\?v=4\.6\.2/);
-  assert.match(entry, /meehoa-v363\.js\?v=4\.6\.3/);
+  assert.match(entry, /meehoa-core\.css\?v=20261004-1/);
+  assert.match(entry, /meehoa-core\.js\?v=20261004-1/);
+  assert.match(coreCss, /===== meehoa-v362\.css =====/);
+  assert.match(coreJs, /===== meehoa-v362\.js =====/);
+  assert.match(coreJs, /===== meehoa-v363\.js =====/);
 });
 
 test('v363 preserves the browser build contract instead of blocking login', () => {
@@ -38,7 +42,7 @@ test('materials no longer turns an AI outage into every order needing review', (
   assert.match(unavailable, /reviewOrders:\[\]/);
 });
 
-test('legacy payment patch remains present in the UI stack during consolidation', () => {
+test('legacy payment patch remains present in consolidated UI during transition', () => {
   assert.match(js, /mee-settlement-grid/);
   assert.match(js363, /mee-settlement-select-all/);
   assert.match(js363, /Chọn tất cả/);
