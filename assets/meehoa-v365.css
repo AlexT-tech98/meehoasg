@@ -43,6 +43,71 @@
 
 /* Login intentionally inherits the pre-v3.6.5 production styling. */
 
+/* ===== The REAL session boot splash ===== */
+#bootSplash.boot-splash:not(.hidden){
+  position:fixed!important;
+  inset:0!important;
+  z-index:3000!important;
+  display:grid!important;
+  place-items:center!important;
+  overflow:hidden!important;
+  padding:max(22px,env(safe-area-inset-top)) 20px max(22px,env(safe-area-inset-bottom))!important;
+  background:
+    radial-gradient(circle at 12% 15%,rgba(255,220,123,.62),transparent 24rem),
+    radial-gradient(circle at 88% 14%,rgba(255,171,194,.46),transparent 25rem),
+    radial-gradient(circle at 86% 84%,rgba(161,214,244,.38),transparent 27rem),
+    radial-gradient(circle at 10% 86%,rgba(158,222,188,.52),transparent 27rem),
+    linear-gradient(145deg,#fff9ec 0%,#fff3f7 49%,#eefaf5 100%)!important;
+  color:#302b29!important;
+}
+#bootSplash .mee-splash-card{
+  position:relative!important;
+  width:min(390px,calc(100vw - 36px))!important;
+  padding:30px 26px 27px!important;
+  border-radius:30px!important;
+  background:rgba(255,255,255,.9)!important;
+  border:1px solid rgba(255,255,255,.98)!important;
+  box-shadow:0 30px 80px rgba(82,58,48,.12),0 0 0 8px rgba(255,255,255,.16)!important;
+  text-align:center!important;
+  isolation:isolate!important;
+  display:block!important;
+}
+#bootSplash .mee-splash-badge{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  padding:7px 11px!important;
+  border-radius:999px!important;
+  background:linear-gradient(90deg,#fff0aa,#ffe4ec,#e4f5ec)!important;
+  color:#756158!important;
+  font-size:9.5px!important;
+  font-weight:800!important;
+  letter-spacing:.08em!important;
+  text-transform:uppercase!important;
+}
+#bootSplash .mee-splash-logo{
+  width:66px!important;height:66px!important;
+  margin:18px auto 13px!important;
+  display:grid!important;place-items:center!important;
+  border-radius:21px!important;
+  background:linear-gradient(145deg,#1b755a,#78bea3 58%,#e69aa8)!important;
+  box-shadow:0 12px 30px rgba(34,112,86,.18)!important;
+}
+#bootSplash .mee-splash-logo img{width:48px!important;height:48px!important;object-fit:contain!important}
+#bootSplash .mee-splash-title{font-size:24px!important;font-weight:800!important;letter-spacing:-.035em!important;color:#2d2927!important;line-height:1.1!important}
+#bootSplash #bootSplashText{display:block!important;margin-top:7px!important;font-size:13px!important;line-height:1.45!important;color:#8a7770!important}
+#bootSplash .mee-splash-progress{display:flex!important;justify-content:center!important;gap:6px!important;margin-top:18px!important}
+#bootSplash .mee-splash-progress i{width:7px!important;height:7px!important;border-radius:50%!important;background:#d8cfca!important;animation:meeSplashPulse 1.05s ease-in-out infinite!important}
+#bootSplash .mee-splash-progress i:nth-child(2){animation-delay:.16s!important}
+#bootSplash .mee-splash-progress i:nth-child(3){animation-delay:.32s!important}
+#bootSplash .mee-splash-pet{position:absolute!important;width:112px!important;height:112px!important;z-index:-1!important;filter:drop-shadow(0 12px 22px rgba(81,63,55,.08))!important;pointer-events:none!important}
+#bootSplash .mee-splash-cat{right:-50px!important;top:-46px!important;transform:rotate(8deg)!important}
+#bootSplash .mee-splash-dog{left:-50px!important;bottom:-47px!important;transform:rotate(-8deg)!important}
+#bootSplash .mee-splash-flower{position:absolute!important;width:76px!important;height:76px!important;opacity:.62!important;pointer-events:none!important}
+#bootSplash .mee-splash-flower-a{left:4vw!important;top:12vh!important;transform:rotate(-13deg)!important}
+#bootSplash .mee-splash-flower-b{right:5vw!important;bottom:10vh!important;transform:rotate(16deg)!important}
+@keyframes meeSplashPulse{0%,100%{transform:translateY(0);opacity:.4}50%{transform:translateY(-5px);opacity:1;background:#4b9d80}}
+
 /* ===== Order form: multiline text, friendly readable layout ===== */
 #orderForm.mee-order-form textarea,
 #orderForm textarea[data-mee-multiline="1"]{
@@ -104,4 +169,8 @@ img,video,canvas{max-width:100%}
   #orderForm .mee-form-section{padding:12px!important}
   #orderForm .mee-card-qty-v365{grid-template-columns:1fr!important}
   #orderForm .mee-card-qty-v365 input{text-align:left!important}
+  #bootSplash .mee-splash-card{width:min(350px,calc(100vw - 32px))!important;padding:27px 22px 25px!important;border-radius:27px!important}
+  #bootSplash .mee-splash-pet{width:96px!important;height:96px!important}
+  #bootSplash .mee-splash-flower{display:none!important}
 }
+@media(prefers-reduced-motion:reduce){#bootSplash .mee-splash-progress i{animation:none!important}}
