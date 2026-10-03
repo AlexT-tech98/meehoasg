@@ -7,10 +7,12 @@ const api=fs.readFileSync('supabase/functions/meehoasg-api-v364/index.js','utf8'
 const js=fs.readFileSync('assets/meehoa-v364.js','utf8');
 const css=fs.readFileSync('assets/meehoa-v364.css','utf8');
 
-test('production routes through v364 and force-loads latest v364 assets',()=>{
-  assert.match(entry,/meehoasg-api-v364/);
+test('production routes through v365 while force-loading v364 compatibility assets',()=>{
+  assert.match(entry,/meehoasg-api-v365/);
   assert.match(entry,/meehoa-v364\.css\?v=4\.6\.8/);
   assert.match(entry,/meehoa-v364\.js\?v=4\.6\.7/);
+  assert.match(entry,/meehoa-v365\.css\?v=4\.6\.5/);
+  assert.match(entry,/meehoa-v365\.js\?v=4\.6\.5/);
 });
 
 test('dashboard API is direct and exposes split settlement revenue',()=>{
