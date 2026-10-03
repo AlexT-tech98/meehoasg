@@ -54,10 +54,11 @@ test('production entrypoint uses the current UI cache generation', () => {
   assert.match(entry, /prod-base=20261003-v365/);
   assert.match(entry, /meehoa-v34\.css\?v=4\.6/);
   assert.match(entry, /meehoa-v364\.css\?v=4\.6\.8/);
-  assert.match(entry, /meehoa-v365\.css\?v=4\.6\.6/);
+  assert.match(entry, /meehoa-v365\.css\?v=4\.6\.7/);
   assert.match(entry, /meehoa-v35\.js\?v=4\.6/);
   assert.match(entry, /meehoa-v365\.js\?v=4\.6\.5/);
   assert.match(entry, /meehoa-mark\.svg\?v=7/);
   assert.match(entry, /meehoasg-api-v365/);
   assert.match(entry, /meehoa-scroll-contract\.css\?v=1\.0\.0/);
+  assert.match(entry, /meehoa-shell-20261003-v365-splash3/);
 });
