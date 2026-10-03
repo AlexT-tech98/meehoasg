@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "cssFiles": [
+    "meehoa-v3.css",
+    "meehoa-v3-fix.css",
+    "meehoa-v3-hotfix.css",
+    "meehoa-v34.css",
+    "meehoa-v35.css",
+    "meehoa-prod-fix.css",
+    "meehoa-v362.css",
+    "meehoa-v364.css",
+    "meehoa-scroll-contract.css",
+    "meehoa-v365.css"
+  ],
+  "jsFiles": [
+    "meehoa-v3.js",
+    "meehoa-v34.js",
+    "meehoa-v35.js",
+    "meehoa-v361.js",
+    "meehoa-v362.js",
+    "meehoa-v363.js",
+    "meehoa-v364.js",
+    "meehoa-v365.js"
+  ],
+  "sourceRequestsBefore": 18,
+  "runtimeRequestsAfter": 2,
+  "sourceCssBytes": 73743,
+  "sourceJsBytes": 74717,
+  "coreCssBytes": 74269,
+  "coreJsBytes": 76800,
+  "sourceMutationObservers": 10,
+  "nativeMutationObserversAfter": 1
+}

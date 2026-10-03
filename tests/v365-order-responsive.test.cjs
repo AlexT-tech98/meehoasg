@@ -2,13 +2,13 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 
-test('v365 shell points to new API and cached shell',()=>{
+test('refactor shell points to consolidated API and frontend cores',()=>{
   const s=fs.readFileSync('index.html','utf8');
-  assert.match(s,/meehoasg-api-v365/);
-  assert.match(s,/meehoa-v365\.css/);
-  assert.match(s,/meehoa-v365\.js/);
+  assert.match(s,/meehoasg-api-core/);
+  assert.match(s,/meehoa-core\.css\?v=20261004-1/);
+  assert.match(s,/meehoa-core\.js\?v=20261004-1/);
   assert.match(s,/localStorage\.getItem\(SHELL_KEY\)/);
-  assert.match(s,/meehoa-scroll-contract\.css/);
+  assert.doesNotMatch(s,/meehoa-scroll-contract\.css\?v=/);
 });
 
 test('order patch adds card quantity and multiline fields',()=>{

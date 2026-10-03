@@ -5,10 +5,12 @@ const fs = require('node:fs');
 const entry = fs.readFileSync('index.html', 'utf8');
 const api = fs.readFileSync('supabase/functions/meehoasg-api-v361/index.js', 'utf8');
 const ui = fs.readFileSync('assets/meehoa-v361.js', 'utf8');
+const core = fs.readFileSync('assets/meehoa-core.js', 'utf8');
 
-test('v361 production UI layer remains loaded behind the current proxy', () => {
-  assert.match(entry, /meehoasg-api-v36(?:1|2|3|4|5)/);
-  assert.match(entry, /meehoa-v361\.js\?v=4\.6\.1/);
+test('v361 UI behavior is preserved inside the consolidated frontend core', () => {
+  assert.match(entry, /meehoasg-api-core/);
+  assert.match(entry, /meehoa-core\.js\?v=20261004-1/);
+  assert.match(core, /===== meehoa-v361\.js =====/);
 });
 
 test('dashboard splits unsettled and settled revenue while CMS remains settled-only', () => {

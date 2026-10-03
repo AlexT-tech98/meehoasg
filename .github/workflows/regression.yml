@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -16,9 +16,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Flatten critical API bootstrap routes
+        run: node scripts/flatten-core-bootstrap.cjs
+      - name: Build consolidated runtime assets
+        run: node scripts/build-runtime.cjs
       - name: Run regression suite
         run: node --test tests/*.test.cjs
+      - name: Persist generated consolidation outputs on refactor branch
+        if: github.event_name == 'pull_request' && github.head_ref == 'refactor/consolidate-production-core-20261003'
+        run: |
+          FILES="supabase/functions/meehoasg-api-core/index.js assets/meehoa-core.css assets/meehoa-core.js runtime-metrics.json"
+          if [ -z "$(git status --porcelain -- $FILES)" ]; then
+            echo "Generated consolidation outputs already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add $FILES
+          git commit -m "build: refresh consolidated production cores"
+          git push origin HEAD:${{ github.head_ref }}

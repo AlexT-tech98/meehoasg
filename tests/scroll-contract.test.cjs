@@ -5,14 +5,16 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const css = fs.readFileSync(path.join(root, 'assets', 'meehoa-scroll-contract.css'), 'utf8');
+const coreCss = fs.readFileSync(path.join(root, 'assets', 'meehoa-core.css'), 'utf8');
 const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const base = fs.readFileSync(path.join(root, 'html'), 'utf8');
 
-test('production loads the scroll contract after the existing UI layers', () => {
-  const oldPos = index.indexOf('/assets/meehoa-v364.css');
-  const scrollPos = index.indexOf('/assets/meehoa-scroll-contract.css?v=1.0.0');
-  assert.ok(oldPos >= 0, 'v364 css missing');
-  assert.ok(scrollPos > oldPos, 'scroll contract must load last');
+test('production bundles the scroll contract after v364 compatibility CSS', () => {
+  assert.match(index, /meehoa-core\.css\?v=20261004-1/);
+  const oldPos = coreCss.indexOf('===== meehoa-v364.css =====');
+  const scrollPos = coreCss.indexOf('===== meehoa-scroll-contract.css =====');
+  assert.ok(oldPos >= 0, 'v364 CSS block missing from core');
+  assert.ok(scrollPos > oldPos, 'scroll contract block must remain after v364 in core');
 });
 
 test('normal pages have one vertical scroll owner', () => {

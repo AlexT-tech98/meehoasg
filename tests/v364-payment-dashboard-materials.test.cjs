@@ -6,13 +6,17 @@ const entry=fs.readFileSync('index.html','utf8');
 const api=fs.readFileSync('supabase/functions/meehoasg-api-v364/index.js','utf8');
 const js=fs.readFileSync('assets/meehoa-v364.js','utf8');
 const css=fs.readFileSync('assets/meehoa-v364.css','utf8');
+const coreJs=fs.readFileSync('assets/meehoa-core.js','utf8');
+const coreCss=fs.readFileSync('assets/meehoa-core.css','utf8');
 
-test('production routes through v365 while force-loading v364 compatibility assets',()=>{
-  assert.match(entry,/meehoasg-api-v365/);
-  assert.match(entry,/meehoa-v364\.css\?v=4\.6\.8/);
-  assert.match(entry,/meehoa-v364\.js\?v=4\.6\.7/);
-  assert.match(entry,/meehoa-v365\.css\?v=4\.6\.7/);
-  assert.match(entry,/meehoa-v365\.js\?v=4\.6\.5/);
+test('refactor routes through API core and consolidated frontend assets',()=>{
+  assert.match(entry,/meehoasg-api-core/);
+  assert.match(entry,/meehoa-core\.css\?v=20261004-1/);
+  assert.match(entry,/meehoa-core\.js\?v=20261004-1/);
+  assert.match(coreCss,/===== meehoa-v364\.css =====/);
+  assert.match(coreCss,/===== meehoa-v365\.css =====/);
+  assert.match(coreJs,/===== meehoa-v364\.js =====/);
+  assert.match(coreJs,/===== meehoa-v365\.js =====/);
 });
 
 test('dashboard API is direct and exposes split settlement revenue',()=>{
