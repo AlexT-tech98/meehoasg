@@ -20,12 +20,24 @@ test('order patch adds card quantity and multiline fields',()=>{
   assert.match(s,/dataset\.meeHideCreateV365/);
 });
 
-test('responsive CSS provides desktop left rail and playful login',()=>{
+test('responsive CSS provides desktop left rail without overriding the login theme',()=>{
   const s=fs.readFileSync('assets/meehoa-v365.css','utf8');
   assert.match(s,/@media \(min-width: 901px\)/);
   assert.match(s,/width:164px!important/);
-  assert.match(s,/🐶  🐱/);
+  assert.match(s,/Login intentionally inherits the pre-v3\.6\.5 production styling/);
+  assert.doesNotMatch(s,/content:\"🐶  🐱\"/);
+  assert.doesNotMatch(s,/HÔM NAY MÌNH LÀM HOA GÌ NÈ/);
   assert.match(s,/mee-card-qty-v365/);
+});
+
+test('launch splash uses illustrated dog and cat elements instead of emoji icons',()=>{
+  const s=fs.readFileSync('index.html','utf8');
+  assert.match(s,/MEEHOA · VẬN HÀNH MỖI NGÀY/);
+  assert.match(s,/class=\"pet pet-cat\"/);
+  assert.match(s,/class=\"pet pet-dog\"/);
+  assert.match(s,/class=\"flower-doodle flower-a\"/);
+  assert.match(s,/Đang mở Meehoa Ops…/);
+  assert.doesNotMatch(s,/🐶|🐱|🌷|🌼/);
 });
 
 test('API wrapper prices cards by quantity',()=>{
