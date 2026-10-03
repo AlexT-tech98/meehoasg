@@ -8,23 +8,29 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Meehoa OPS">
 <title>Meehoa OPS</title>
-<link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=6">
-<link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=6">
-<link rel="manifest" href="/manifest.webmanifest?v=6">
-<style>html,body{margin:0;min-height:100%;background:#fffaf5}body{visibility:hidden}</style>
+<link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=7">
+<link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=7">
+<link rel="manifest" href="/manifest.webmanifest?v=7">
+<link rel="preconnect" href="https://zxnfhshnavbmvdthrmrd.supabase.co" crossorigin>
+<link rel="preload" href="/html?prod-base=20261003-v365" as="fetch">
+<style>
+html,body{margin:0;min-height:100%;background:#fffaf5;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#meeBoot{min-height:100dvh;display:grid;place-items:center;background:radial-gradient(circle at 12% 18%,#ffe7a9 0,transparent 24rem),radial-gradient(circle at 88% 15%,#ffdce7 0,transparent 25rem),radial-gradient(circle at 84% 84%,#dff2ff 0,transparent 26rem),radial-gradient(circle at 12% 84%,#dbf4e7 0,transparent 26rem),#fff8f2;color:#4c413c}
+#meeBoot .card{width:min(320px,calc(100vw - 36px));padding:24px;border-radius:28px;background:rgba(255,255,255,.82);box-shadow:0 22px 70px rgba(80,55,46,.10);text-align:center;border:1px solid rgba(255,255,255,.94)}
+#meeBoot .pets{font-size:34px;margin-bottom:8px}#meeBoot b{display:block;font-size:19px}#meeBoot span{display:block;margin-top:5px;font-size:12px;color:#8a766d}
+</style>
 <script>
-(async function(){
-  try{
-    var r=await fetch('/html?prod-base=20261002-v47',{cache:'no-store'});
-    if(!r.ok) throw new Error('Không tải được ứng dụng');
-    var html=await r.text();
+(function(){
+  var SHELL_KEY='meehoa-shell-20261003-v365';
+  var SHELL_URL='/html?prod-base=20261003-v365';
+  function prepare(html){
     html=html.replaceAll(
       'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api',
-      'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-v364'
+      'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-v365'
     );
     html=html.replace(/window\.__MEE_BOOT_STAGE__\s*=\s*'ready';/,
       "window.S=S;window.gas=gas;window.loadFlowers=loadFlowers;window.loadPage=loadPage;window.renderProduction=renderProduction;window.rememberOrders=rememberOrders;window.validateBuild=validateBuild;window.closeOverlay=closeOverlay;window.toast=toast;window.__MEE_BOOT_STAGE__='ready';");
-    html=html.replace(/<head>/i,'<head><base href="/"><meta name="theme-color" content="#0f4937"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Meehoa OPS"><link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=6"><link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=6"><link rel="manifest" href="/manifest.webmanifest?v=6">');
+    html=html.replace(/<head>/i,'<head><base href="/"><meta name="theme-color" content="#0f4937"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Meehoa OPS"><link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=7"><link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=7"><link rel="manifest" href="/manifest.webmanifest?v=7">');
     html=html.replace(/<title>[^<]*<\/title>/i,'<title>Meehoa OPS</title>');
     html=html.replace(/<\/head>/i,
       '<link rel="stylesheet" href="/assets/meehoa-v3.css?v=4.6">'+
@@ -37,6 +43,7 @@
       '<link rel="stylesheet" href="/assets/meehoa-v362.css?v=4.6.2">'+
       '<link rel="stylesheet" href="/assets/meehoa-v364.css?v=4.6.8">'+
       '<link rel="stylesheet" href="/assets/meehoa-scroll-contract.css?v=1.0.0">'+
+      '<link rel="stylesheet" href="/assets/meehoa-v365.css?v=4.6.5">'+
       '</head>');
     html=html.replace(/<\/body>/i,
       '<script src="/assets/meehoa-v3.js?v=4.6"><\/script>'+
@@ -46,16 +53,25 @@
       '<script src="/assets/meehoa-v362.js?v=4.6.2"><\/script>'+
       '<script src="/assets/meehoa-v363.js?v=4.6.3"><\/script>'+
       '<script src="/assets/meehoa-v364.js?v=4.6.7"><\/script>'+
-      '<script>document.body.style.visibility="visible";<\/script></body>');
-    document.open();
-    document.write(html);
-    document.close();
-  }catch(e){
-    document.body.style.visibility='visible';
-    document.body.innerHTML='<div style="min-height:100dvh;display:grid;place-items:center;font:14px system-ui;color:#5d514b">Không tải được ứng dụng. Vui lòng tải lại trang.</div>';
+      '<script src="/assets/meehoa-v365.js?v=4.6.5"><\/script>'+
+      '</body>');
+    return html;
   }
+  function mount(raw){document.open();document.write(prepare(raw));document.close()}
+  async function boot(){
+    try{
+      var cached='';try{cached=localStorage.getItem(SHELL_KEY)||''}catch(_){ }
+      if(cached){mount(cached);return}
+      var r=await fetch(SHELL_URL,{cache:'force-cache'});if(!r.ok)throw new Error('Không tải được ứng dụng');
+      var html=await r.text();try{localStorage.setItem(SHELL_KEY,html)}catch(_){ }
+      mount(html);
+    }catch(e){
+      document.getElementById('meeBoot').innerHTML='<div class="card"><div class="pets">🌷🐶🐱🌿</div><b>Chưa vào được Meehoa</b><span>Vui lòng tải lại trang một lần.</span></div>';
+    }
+  }
+  window.addEventListener('DOMContentLoaded',boot,{once:true});
 })();
 </script>
 </head>
-<body></body>
+<body><div id="meeBoot"><div class="card"><div class="pets">🌼 🐶 🐱 🌷</div><b>Meehoa đang mở cửa…</b><span>Đang chuẩn bị đơn hoa và dữ liệu vận hành.</span></div></div></body>
 </html>
