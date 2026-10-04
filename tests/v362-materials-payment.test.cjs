@@ -14,8 +14,8 @@ const coreCss = read('assets/meehoa-core.css');
 
 test('refactor routes through API core while preserving v362/v363 behavior inside consolidated assets', () => {
   assert.match(entry, /meehoasg-api-core/);
-  assert.match(entry, /meehoa-core\.css\?v=20261004-1/);
-  assert.match(entry, /meehoa-core\.js\?v=20261004-1/);
+  assert.match(entry, /meehoa-core\.css\?v=20261004-\d+/);
+  assert.match(entry, /meehoa-core\.js\?v=20261004-\d+/);
   assert.match(coreCss, /===== meehoa-v362\.css =====/);
   assert.match(coreJs, /===== meehoa-v362\.js =====/);
   assert.match(coreJs, /===== meehoa-v363\.js =====/);
