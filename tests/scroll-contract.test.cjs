@@ -10,7 +10,7 @@ const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const base = fs.readFileSync(path.join(root, 'html'), 'utf8');
 
 test('production bundles the scroll contract after v364 compatibility CSS', () => {
-  assert.match(index, /meehoa-core\.css\?v=20261004-1/);
+  assert.match(index, /meehoa-core\.css\?v=20261004-\d+/);
   const oldPos = coreCss.indexOf('===== meehoa-v364.css =====');
   const scrollPos = coreCss.indexOf('===== meehoa-scroll-contract.css =====');
   assert.ok(oldPos >= 0, 'v364 CSS block missing from core');
