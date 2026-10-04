@@ -7,8 +7,10 @@
   function dateVN(v){var s=String(v||'');var m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?m[3]+'/'+m[2]+'/'+m[1]:s}
   function parseId(form){var s=form&&form.getAttribute('onsubmit')||'';var m=s.match(/saveOrder\(event,'([^']*)'/);return m?m[1]:''}
   function findOrderDeep(id){
-    if(!id||!window.S)return null;var seen=new Set();
-    function walk(v){if(!v||typeof v!=='object'||seen.has(v))return null;seen.add(v);if(v.id===id)return v;if(Array.isArray(v)){for(var i=0;i<v.length;i++){var r=walk(v[i]);if(r)return r}}else{for(var k in v){if(k==='user'||k==='options')continue;var r2=walk(v[k]);if(r2)return r2}}return null}
+    if(!id||!window.S)return null;
+    if(S.orders&&typeof S.orders.get==='function'){var remembered=S.orders.get(id);if(remembered)return remembered}
+    var seen=new Set();
+    function walk(v){if(!v||typeof v!=='object'||seen.has(v))return null;seen.add(v);if(v.id===id)return v;if(v instanceof Map){var direct=v.get(id);if(direct)return direct;for(var mv of v.values()){var mr=walk(mv);if(mr)return mr}return null}if(Array.isArray(v)){for(var i=0;i<v.length;i++){var r=walk(v[i]);if(r)return r}}else{for(var k in v){if(k==='user'||k==='options')continue;var r2=walk(v[k]);if(r2)return r2}}return null}
     return walk(S.data)||walk(S.cache)||null;
   }
   function replaceTextInput(input){
@@ -48,28 +50,43 @@
     if(!o)return'';var q=Math.max(1,Number(o.cardQty||1));var accessory=[o.card?'Thiệp: '+(o.cardText||'')+' ('+vnd(q*10000)+')':'',o.banner?'Banner: '+(o.bannerText||'')+' (35.000đ)':'',Number(o.charmFee)?'Charm: '+(o.charmText||'')+' ('+vnd(o.charmFee)+')':'',Number(o.paperFee)?'Thay giấy: '+(o.paperText||'')+' ('+vnd(o.paperFee)+')':''].filter(Boolean);
     return ['THÔNG TIN ĐƠN HÀNG','Khách hàng: '+(o.customer||''),'SĐT: '+(o.phone||''),'Ngày nhận: '+dateVN(o.date)+(o.time?' · '+o.time:''),'Mẫu hoa: '+(o.flower||''),'Note: '+(o.note||'')].concat(accessory,['Vận chuyển: '+(o.shipping||''),'Địa chỉ: '+(o.address||''),'Tiền hoa: '+vnd(o.flowerTotal!==undefined?o.flowerTotal:o.total),'Thanh toán: '+(o.payment||'')]).filter(function(x){return !/: $/.test(x)}).join('\n');
   }
+  function legacyCopy(value){
+    var ta=document.createElement('textarea');
+    ta.value=value;ta.setAttribute('readonly','');ta.setAttribute('aria-hidden','true');
+    ta.style.position='fixed';ta.style.left='0';ta.style.top='0';ta.style.width='2px';ta.style.height='2px';ta.style.padding='0';ta.style.border='0';ta.style.opacity='0.01';ta.style.fontSize='16px';ta.style.zIndex='-1';
+    document.body.appendChild(ta);ta.focus();ta.select();try{ta.setSelectionRange(0,value.length)}catch(_){ }
+    var ok=false;try{ok=!!document.execCommand&&document.execCommand('copy')}catch(_){ok=false}ta.remove();return ok;
+  }
   function copyNow(value,label){
     value=String(value||'');if(!value)return Promise.resolve(false);
-    var ok=false,ta=document.createElement('textarea');ta.value=value;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.left='-9999px';ta.style.top='0';document.body.appendChild(ta);ta.focus();ta.select();try{ta.setSelectionRange(0,value.length)}catch(_){ }try{ok=!!document.execCommand&&document.execCommand('copy')}catch(_){ok=false}ta.remove();
-    if(ok){if(window.toast)window.toast('Đã sao chép '+label);return Promise.resolve(true)}
-    if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(value).then(function(){if(window.toast)window.toast('Đã sao chép '+label);return true}).catch(function(){window.prompt('Nhấn giữ để sao chép:',value);return false});
-    window.prompt('Nhấn giữ để sao chép:',value);return Promise.resolve(false);
+    function success(){if(window.toast)window.toast('Đã sao chép '+label);return true}
+    function manual(){try{window.prompt('Nhấn giữ để sao chép:',value)}catch(_){ }return false}
+    if(navigator.clipboard&&typeof navigator.clipboard.writeText==='function'){
+      try{return navigator.clipboard.writeText(value).then(success).catch(function(){return legacyCopy(value)?success():manual()})}catch(_){ }
+    }
+    return Promise.resolve(legacyCopy(value)?success():manual());
   }
   function wrapCopy(){
-    if(!window.MEEOPS7||MEEOPS7._meeCopy365)return;
-    MEEOPS7.copyOrderById=function(id){var o=findOrderDeep(id);if(!o)return false;return copyNow(buildCopyText(o),'thông tin đơn hàng')};
-    MEEOPS7.copyOrderField=function(id,field,label){var o=findOrderDeep(id);if(!o)return false;return copyNow(o[field]||'',label||field)};
+    if(!window.MEEOPS7)return;
+    MEEOPS7.copyOrderById=function(id){var o=findOrderDeep(id);if(!o){if(window.toast)window.toast('Không tìm thấy dữ liệu đơn để sao chép.',1);return false}return copyNow(buildCopyText(o),'thông tin đơn hàng')};
+    MEEOPS7.copyOrderField=function(id,field,label){var o=findOrderDeep(id);if(!o){if(window.toast)window.toast('Không tìm thấy dữ liệu đơn để sao chép.',1);return false}return copyNow(o[field]||'',label||field)};
     MEEOPS7._meeCopy365=true;
+  }
+  function patchCreatedCopy(){
+    var btn=qs('#copyCreated'),ov=qs('#overlay');if(!btn||!ov)return;
+    if(btn.dataset.meeCopyFixed365==='1')return;
+    btn.dataset.meeCopyFixed365='1';
+    btn.onclick=function(e){if(e){e.preventDefault();e.stopPropagation()}var pre=qs('pre',ov);var text=pre?pre.textContent||pre.innerText||'':'';return copyNow(text,'thông tin đơn hàng')};
   }
   function installReload(){
     if(qs('#meeReloadApp'))return;var host=qs('.side-user')||qs('.sidebar');if(!host)return;var b=document.createElement('button');b.id='meeReloadApp';b.type='button';b.className='btn secondary full mee-reload-app-v365';b.textContent='↻ Tải lại ứng dụng';b.onclick=function(){try{Object.keys(localStorage).filter(function(k){return k.indexOf('meehoa-shell-')===0}).forEach(function(k){localStorage.removeItem(k)})}catch(_){ }location.reload()};host.insertBefore(b,host.firstChild);
   }
-  function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();wrapCopy();installReload()}
+  function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();wrapCopy();patchCreatedCopy();installReload()}
   function wrapOpenForm(){
     if(!window.MEEOPS7||!MEEOPS7.openOrderForm||MEEOPS7.openOrderForm._mee365)return;
     var orig=MEEOPS7.openOrderForm;
     var wrapped=function(id){var r=orig.apply(this,arguments);setTimeout(patchOrderForm,0);setTimeout(patchOrderForm,160);return r};wrapped._mee365=true;MEEOPS7.openOrderForm=wrapped;
   }
-  function init(){wrapOpenForm();patch();var root=qs('#content');if(root)new MutationObserver(function(){setTimeout(patch,20)}).observe(root,{childList:true,subtree:true});var ov=qs('#overlay');if(ov)new MutationObserver(function(){setTimeout(patchOrderForm,20)}).observe(ov,{childList:true,subtree:true});document.addEventListener('visibilitychange',function(){if(!document.hidden)patch()})}
+  function init(){wrapOpenForm();patch();var root=qs('#content');if(root)new MutationObserver(function(){setTimeout(patch,20)}).observe(root,{childList:true,subtree:true});var ov=qs('#overlay');if(ov)new MutationObserver(function(){setTimeout(function(){patchOrderForm();patchCreatedCopy();wrapCopy()},0)}).observe(ov,{childList:true,subtree:true});document.addEventListener('visibilitychange',function(){if(!document.hidden)patch()})}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
