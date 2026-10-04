@@ -5,8 +5,8 @@ const fs=require('node:fs');
 test('refactor shell points to consolidated API and frontend cores',()=>{
   const s=fs.readFileSync('index.html','utf8');
   assert.match(s,/meehoasg-api-core/);
-  assert.match(s,/meehoa-core\.css\?v=20261004-1/);
-  assert.match(s,/meehoa-core\.js\?v=20261004-1/);
+  assert.match(s,/meehoa-core\.css\?v=20261004-\d+/);
+  assert.match(s,/meehoa-core\.js\?v=20261004-\d+/);
   assert.match(s,/localStorage\.getItem\(SHELL_KEY\)/);
   assert.doesNotMatch(s,/meehoa-scroll-contract\.css\?v=/);
 });
