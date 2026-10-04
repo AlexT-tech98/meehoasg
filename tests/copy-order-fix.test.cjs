@@ -8,7 +8,8 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'assets', 'meehoa-v365.js
 test('drawer copy resolves orders from canonical remembered order map', () => {
   assert.match(src, /S\.orders&&typeof S\.orders\.get==='function'/);
   assert.match(src, /S\.orders\.get\(id\)/);
-  assert.match(src, /MEEOPS7\.copyOrderById=function\(id\)/);
+  assert.match(src, /MEEOPS7\.copyOrderById=copyOrder/);
+  assert.match(src, /function delegatedCopyTap\(e\)/);
 });
 
 test('created-order copy button is rebound to the robust copy path', () => {
@@ -18,9 +19,10 @@ test('created-order copy button is rebound to the robust copy path', () => {
   assert.match(src, /copyNow\(text,'thông tin đơn hàng'\)/);
 });
 
-test('copy path prefers Clipboard API and has a legacy selection fallback', () => {
-  assert.match(src, /navigator\.clipboard&&typeof navigator\.clipboard\.writeText==='function'/);
-  assert.match(src, /function legacyCopy\(value\)/);
+test('copy path uses synchronous selection first and still has Clipboard API/manual fallback', () => {
+  assert.match(src, /function selectionCopy\(value\)/);
+  assert.match(src, /function textareaCopy\(value\)/);
   assert.match(src, /document\.execCommand&&document\.execCommand\('copy'\)/);
-  assert.match(src, /window\.prompt\('Nhấn giữ để sao chép:'/);
+  assert.match(src, /navigator\.clipboard&&typeof navigator\.clipboard\.writeText==='function'/);
+  assert.match(src, /window\.prompt\('Sao chép thủ công nội dung bên dưới:'/);
 });
