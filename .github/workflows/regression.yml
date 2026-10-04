@@ -28,12 +28,12 @@ jobs:
         run: node scripts/build-runtime.cjs
       - name: Run regression suite
         run: node --test tests/*.test.cjs
-      - name: Persist generated consolidation outputs on refactor branch
-        if: github.event_name == 'pull_request' && github.head_ref == 'refactor/consolidate-production-core-20261003'
+      - name: Persist generated production cores on same-repo PRs
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: |
           FILES="supabase/functions/meehoasg-api-core/index.js assets/meehoa-core.css assets/meehoa-core.js runtime-metrics.json"
           if [ -z "$(git status --porcelain -- $FILES)" ]; then
-            echo "Generated consolidation outputs already current."
+            echo "Generated production cores already current."
             exit 0
           fi
           git config user.name "github-actions[bot]"
