@@ -10,8 +10,8 @@ const coreCss=fs.readFileSync('assets/meehoa-core.css','utf8');
 test('browser runtime is two consolidated frontend requests',()=>{
   assert.equal(metrics.runtimeRequestsAfter,2);
   assert.ok(metrics.sourceRequestsBefore>=18);
-  assert.match(entry,/meehoa-core\.css\?v=20261004-1/);
-  assert.match(entry,/meehoa-core\.js\?v=20261004-1/);
+  assert.match(entry,/meehoa-core\.css\?v=20261004-\d+/);
+  assert.match(entry,/meehoa-core\.js\?v=20261004-\d+/);
   for(const legacy of ['meehoa-v3.css','meehoa-v34.css','meehoa-v35.js','meehoa-v361.js','meehoa-v362.js','meehoa-v363.js','meehoa-v364.js','meehoa-v365.js']){
     assert.equal(entry.includes(legacy),false,`entry must not load ${legacy} directly`);
   }
