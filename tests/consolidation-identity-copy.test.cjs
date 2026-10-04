@@ -30,8 +30,9 @@ test('dashboard and KPI are canonicalized by the same identity rule',()=>{
 test('order copy excludes order id and uses synchronous clipboard fallback',()=>{
   assert.match(ui,/function buildCopyText\(o\)/);
   assert.doesNotMatch(ui,/Mã đơn:/);
-  assert.match(ui,/document\.execCommand\('copy'\)/);
-  assert.match(ui,/MEEOPS7\.copyOrderById=function/);
+  assert.match(ui,/document\.execCommand&&document\.execCommand\('copy'\)/);
+  assert.match(ui,/MEEOPS7\.copyOrderById=copyOrder/);
+  assert.match(ui,/document\.addEventListener\('click',delegatedCopyTap,true\)/);
 });
 
 test('shortcut has in-app reload control without signing out',()=>{
