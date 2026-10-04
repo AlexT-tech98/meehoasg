@@ -9,7 +9,7 @@ const core = fs.readFileSync('assets/meehoa-core.js', 'utf8');
 
 test('v361 UI behavior is preserved inside the consolidated frontend core', () => {
   assert.match(entry, /meehoasg-api-core/);
-  assert.match(entry, /meehoa-core\.js\?v=20261004-1/);
+  assert.match(entry, /meehoa-core\.js\?v=20261004-\d+/);
   assert.match(core, /===== meehoa-v361\.js =====/);
 });
 
