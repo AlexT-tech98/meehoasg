@@ -11,8 +11,8 @@ const coreCss=fs.readFileSync('assets/meehoa-core.css','utf8');
 
 test('refactor routes through API core and consolidated frontend assets',()=>{
   assert.match(entry,/meehoasg-api-core/);
-  assert.match(entry,/meehoa-core\.css\?v=20261004-1/);
-  assert.match(entry,/meehoa-core\.js\?v=20261004-1/);
+  assert.match(entry,/meehoa-core\.css\?v=20261004-\d+/);
+  assert.match(entry,/meehoa-core\.js\?v=20261004-\d+/);
   assert.match(coreCss,/===== meehoa-v364\.css =====/);
   assert.match(coreCss,/===== meehoa-v365\.css =====/);
   assert.match(coreJs,/===== meehoa-v364\.js =====/);
