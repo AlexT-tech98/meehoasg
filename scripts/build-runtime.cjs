@@ -25,7 +25,8 @@ const jsFiles = [
   'meehoa-v362.js',
   'meehoa-v363.js',
   'meehoa-v364.js',
-  'meehoa-v365.js'
+  'meehoa-v365.js',
+  'meehoa-v366.js'
 ];
 
 const sharedObserverPrelude = `/* MEEHOA shared MutationObserver multiplexer */
