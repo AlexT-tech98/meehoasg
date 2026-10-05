@@ -11,7 +11,7 @@ const v35=read('assets/meehoa-v35.js');
 const v361=read('assets/meehoa-v361.js');
 const v362=read('assets/meehoa-v362.js');
 const v364=read('assets/meehoa-v364.js');
-const v365=read('assets/meehoa-v365.js');
+const v366=read('assets/meehoa-v366.js');
 
 const retired=[
   'assets/meehoa-hotfix-20261005.js',
@@ -42,12 +42,14 @@ test('retired fix/hotfix compatibility files are physically removed',()=>{
   assert.match(build,/Non-canonical runtime layer is forbidden/);
 });
 
-test('dashboard has exactly one source owner plus the latest hourly widget',()=>{
+test('dashboard owns summary, report and hourly tracking without duplicate ops ownership',()=>{
   assert.doesNotMatch(v3,/addDashboardCharts|parseStatusCounts/);
   assert.doesNotMatch(v35,/function patchDashboard|Doanh thu theo nhân viên \/ ngày/);
   assert.match(v361,/function patchDashboard/);
+  assert.match(v361,/function hourlyModel/);
+  assert.match(v361,/meeHourlySingleV361/);
   assert.doesNotMatch(v361,/injectStyles|patchFit|mee-v361-charts/);
-  assert.match(v365,/meeHourlySingleV365/);
+  assert.doesNotMatch(v366,/renderHourly|cleanupHourly|meeHourlySingleV365|hourlyBusy|hourlyLastAt/);
 });
 
 test('payment has one latest owner',()=>{
@@ -57,10 +59,10 @@ test('payment has one latest owner',()=>{
 });
 
 test('copy and create confirmation remain only in latest ops runtime',()=>{
-  assert.match(v365,/function buildCopyText/);
-  assert.match(v365,/function textareaCopy/);
-  assert.match(v365,/mee_pending_create/);
-  assert.match(v365,/meehoasg-create-status/);
+  assert.match(v366,/function buildCopyText/);
+  assert.match(v366,/function textareaCopy/);
+  assert.match(v366,/mee_pending_create/);
+  assert.match(v366,/meehoasg-create-status/);
 });
 
 test('search fails closed outside Orders rather than exposing a dead production control',()=>{
