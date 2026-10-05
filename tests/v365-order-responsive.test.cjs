@@ -12,7 +12,7 @@ test('refactor shell points to consolidated API and frontend cores',()=>{
 });
 
 test('order patch adds card quantity and multiline fields',()=>{
-  const s=fs.readFileSync('assets/meehoa-v365.js','utf8');
+  const s=fs.readFileSync('assets/meehoa-v366.js','utf8');
   assert.match(s,/name=\"cardQty\"/);
   assert.match(s,/10\.000đ × số lượng/);
   assert.match(s,/replaceTextInput/);
