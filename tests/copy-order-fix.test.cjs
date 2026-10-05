@@ -19,10 +19,11 @@ test('created-order copy button is rebound to the robust copy path', () => {
   assert.match(src, /copyNow\(text,'thông tin đơn hàng'\)/);
 });
 
-test('copy path uses synchronous selection first and still has Clipboard API/manual fallback', () => {
-  assert.match(src, /function selectionCopy\(value\)/);
+test('copy path is textarea-first and keeps Clipboard API/manual fallback', () => {
   assert.match(src, /function textareaCopy\(value\)/);
   assert.match(src, /document\.execCommand&&document\.execCommand\('copy'\)/);
+  assert.match(src, /if\(textareaCopy\(value\)\)return Promise\.resolve\(success\(\)\)/);
   assert.match(src, /navigator\.clipboard&&typeof navigator\.clipboard\.writeText==='function'/);
   assert.match(src, /window\.prompt\('Sao chép thủ công nội dung bên dưới:'/);
+  assert.doesNotMatch(src, /function selectionCopy\(value\)/);
 });
