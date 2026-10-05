@@ -9,8 +9,8 @@ const entry = fs.readFileSync('index.html', 'utf8');
 
 test('canonical v365 parses and production shell loads only consolidated core', () => {
   assert.doesNotThrow(() => new vm.Script(js));
-  assert.match(entry, /meehoa-core\.js\?v=20261005-canonical1/);
-  assert.match(entry, /meehoa-core\.css\?v=20261005-canonical1/);
+  assert.match(entry, /meehoa-core\.js\?v=20261005-canonical2/);
+  assert.match(entry, /meehoa-core\.css\?v=20261005-canonical2/);
   assert.doesNotMatch(entry, /meehoa-runtime-fix-20261005/);
   assert.doesNotMatch(entry, /meehoa-hotfix-20261005/);
   assert.doesNotMatch(entry, /meehoa-ops-hotfix2/);

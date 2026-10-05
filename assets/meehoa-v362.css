@@ -1,4 +1,4 @@
-/* MEEHOA v3.6.2 — materials diagnostics + compact Payment Check */
+/* Canonical owner: materials AI diagnostics. */
 .mee-ai-error{
   display:flex;align-items:flex-start;gap:12px;
   margin:14px 0 18px;padding:15px 16px;
@@ -14,51 +14,3 @@
 .mee-ai-error .sub{color:#8e5b67}
 .mee-ai-error-models{margin-top:7px;font-size:11px;color:#9b7079}
 .mee-ai-model{background:#eef4ff!important;color:#2e68d9!important;border-color:#c8ddff!important}
-
-body.mee-page-settlement-v362 .mee-settlement-selectbar{
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
-  margin:10px 0 12px;padding:10px 12px;border:1px solid var(--border);
-  border-radius:13px;background:#fff;position:sticky;top:74px;z-index:8;
-  box-shadow:0 6px 20px rgba(30,55,45,.05)
-}
-body.mee-page-settlement-v362 .mee-select-all-label{
-  display:flex;align-items:center;gap:8px;margin:0!important;
-  font-size:13px!important;text-transform:none!important;letter-spacing:0!important;
-  color:var(--text-primary)!important;cursor:pointer
-}
-body.mee-page-settlement-v362 .mee-select-all-label input{
-  width:18px!important;height:18px!important;margin:0!important;padding:0!important
-}
-body.mee-page-settlement-v362 .mee-selected-count{font-size:12px;color:var(--text-muted);font-weight:700}
-body.mee-page-settlement-v362 .mee-settlement-grid{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));
-  gap:14px;align-items:start
-}
-body.mee-page-settlement-v362 .mee-settlement-grid>.settle{
-  margin:0!important;padding:15px!important;border-radius:18px!important;
-  border:1px solid rgba(82,59,52,.10)!important;background:#fff!important;
-  box-shadow:0 9px 25px rgba(66,44,37,.06)!important;
-  min-width:0!important;overflow:hidden!important
-}
-body.mee-page-settlement-v362 .mee-settlement-grid>.settle>div:first-child{min-width:0!important}
-body.mee-page-settlement-v362 .settle .sub,
-body.mee-page-settlement-v362 .settle div{overflow-wrap:anywhere}
-body.mee-page-settlement-v362 .settle .bill{
-  display:block!important;width:100%!important;height:168px!important;
-  max-height:168px!important;object-fit:cover!important;object-position:top!important;
-  border-radius:12px!important;margin-top:10px!important;cursor:zoom-in!important;
-  border:1px solid rgba(82,59,52,.08)!important;background:#f6f4f1!important
-}
-.mee-proof-lightbox{z-index:999!important;padding:18px!important}
-.mee-proof-view{
-  position:relative;max-width:min(900px,94vw);max-height:92vh;margin:auto;
-  background:#fff;border-radius:18px;padding:12px;box-shadow:0 30px 90px rgba(0,0,0,.25)
-}
-.mee-proof-view img{display:block;max-width:100%;max-height:86vh;object-fit:contain;border-radius:12px}
-.mee-proof-view .close{position:absolute;right:18px;top:18px;z-index:2}
-
-@media(max-width:760px){
-  body.mee-page-settlement-v362 .mee-settlement-grid{grid-template-columns:1fr}
-  body.mee-page-settlement-v362 .mee-settlement-selectbar{top:66px}
-  body.mee-page-settlement-v362 .settle .bill{height:150px!important;max-height:150px!important}
-}
