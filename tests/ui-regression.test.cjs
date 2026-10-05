@@ -45,11 +45,11 @@ test('production/materials module observes only app surfaces and owns no dashboa
   assert.doesNotMatch(v35Js, /injectV36Styles/);
 });
 
-test('search visibility is determined by module id, not page title text', () => {
-  assert.match(v3Js, /page==='orders'\|\|page==='production'/);
+test('global search is shown only on Orders until production search has a real implementation', () => {
+  assert.match(v3Js, /var show=page==='orders'/);
+  assert.doesNotMatch(v3Js, /page==='orders'\|\|page==='production'/);
   const visibilityFn = v3Js.slice(v3Js.indexOf('function updateSearchVisibility'), v3Js.indexOf('function cleanKpiCopy'));
   assert.doesNotMatch(visibilityFn, /pageTitle/);
-  assert.doesNotMatch(visibilityFn, /Đơn hàng\|Sản xuất/);
 });
 
 test('production entrypoint loads consolidated core only', () => {
