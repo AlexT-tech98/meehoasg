@@ -16,6 +16,15 @@
     function walk(v){if(!v||typeof v!=='object'||seen.has(v))return null;seen.add(v);if(v.id===id)return v;if(v instanceof Map){var d=v.get(id);if(d)return d;for(var mv of v.values()){var mr=walk(mv);if(mr)return mr}return null}if(Array.isArray(v)){for(var i=0;i<v.length;i++){var a=walk(v[i]);if(a)return a}}else{for(var k in v){if(k==='user'||k==='options')continue;var r=walk(v[k]);if(r)return r}}return null}
     return walk(S.data)||walk(S.cache)||walk(S.orders)||null;
   }
+  function idFromAction(el){
+    if(!el)return'';var node=el.closest&&el.closest('[onclick*="openDrawer"],[onclick*="openOrderForm"],[onclick*="copyOrderById"],[onclick*="openShipFeeForm"]');
+    if(!node)return'';var code=node.getAttribute('onclick')||'',m=code.match(/(?:openDrawer|openOrderForm|copyOrderById|openShipFeeForm)\(['"]([^'"]+)/);return m?m[1]:'';
+  }
+  function overlayOrderId(root){
+    var nodes=qsa('[data-mee-copy-order-id],[onclick*="openDrawer"],[onclick*="openOrderForm"],[onclick*="copyOrderById"],[onclick*="openShipFeeForm"]',root||document);
+    for(var i=0;i<nodes.length;i++){var direct=nodes[i].dataset&&nodes[i].dataset.meeCopyOrderId;if(direct)return direct;var id=idFromAction(nodes[i]);if(id)return id}
+    return'';
+  }
   async function call(action,payload){
     if(!window.S||!S.token)throw new Error('Phiên đăng nhập không hợp lệ.');
     var r=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action:action,token:S.token},payload||{}))});
@@ -29,15 +38,26 @@
   function canEditShip(){return !!(window.S&&S.user&&['ADMIN','THO_OPS'].includes(S.user.role))}
   function patchShipButtons(root){
     root=root||document;
-    qsa('[onclick*="openShipFeeForm"]',root).forEach(function(btn){
-      if(!canEditShip())btn.remove();
-    });
+    qsa('[onclick*="openShipFeeForm"]',root).forEach(function(btn){if(!canEditShip())btn.remove()});
   }
   function patchProductionSelection(root){
     if(!window.S||S.page!=='production')return;
     qsa('input[type="checkbox"][onchange*="togglePick"]',root||document).forEach(function(cb){
       var code=cb.getAttribute('onchange')||'',m=code.match(/togglePick\(['"]([^'"]+)/),o=m?orderById(m[1]):null;
       if(o&&!o.canOperate){cb.checked=false;cb.disabled=true;cb.title='Đơn đã khóa hoặc tài khoản không có quyền thao tác';if(S.selected)S.selected.delete(o.id)}
+    });
+  }
+  function patchCardFinance(root){
+    root=root||document;
+    qsa('.debt-breakdown',root).forEach(function(box){
+      var id=idFromAction(box),o=orderById(id);if(!o||!o.card)return;var qty=Math.max(1,Number(o.cardQty)||1),fee=Number(o.cardFee)||qty*10000;
+      var walker=document.createTreeWalker(box,NodeFilter.SHOW_TEXT),node;
+      while((node=walker.nextNode()))if(/\+10\.000đ thiệp/.test(node.nodeValue||''))node.nodeValue=(node.nodeValue||'').replace(/\+10\.000đ thiệp/, '+'+money(fee)+' thiệp'+(qty>1?' (×'+qty+')':''));
+    });
+    var ov=root.id==='overlay'?root:qs('#overlay');if(!ov)return;var oid=overlayOrderId(ov),order=orderById(oid);if(!order||!order.card)return;
+    var q=Math.max(1,Number(order.cardQty)||1),amount=Number(order.cardFee)||q*10000;
+    qsa('span',ov).forEach(function(label){
+      var text=(label.textContent||'').trim();if(text.indexOf('+ Thiệp')!==0)return;var row=label.parentElement,b=row&&qs('b',row);if(b)b.textContent=money(amount);if(q>1&&!/×\s*\d+/.test(text))label.textContent=text.replace(/^\+ Thiệp/,'+ Thiệp × '+q);
     });
   }
   function install(){
@@ -73,7 +93,7 @@
     MEEOPS7.togglePick=function(id,v){var o=orderById(id);if(v&&o&&!o.canOperate){if(window.toast)toast('Đơn đã khóa hoặc bạn không có quyền thao tác.',1);return}return oldToggle&&oldToggle.apply(this,arguments)};
     return true;
   }
-  function patch(){install();patchShipButtons(qs('#overlay')||document);patchProductionSelection(qs('#content')||document)}
+  function patch(){install();patchShipButtons(qs('#overlay')||document);patchProductionSelection(qs('#content')||document);patchCardFinance(qs('#content')||document);patchCardFinance(qs('#overlay')||document)}
   function init(){patch();var content=qs('#content'),overlay=qs('#overlay');if(content)new MutationObserver(function(){setTimeout(patch,20)}).observe(content,{childList:true,subtree:true});if(overlay)new MutationObserver(function(){setTimeout(patch,0)}).observe(overlay,{childList:true,subtree:true});}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
