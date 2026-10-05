@@ -37,7 +37,9 @@
   function updateSearchVisibility(){
     var active=qs('[data-p].active');
     var page=(window.S&&S.page)||(active&&active.getAttribute('data-p'))||'';
-    var show=page==='orders'||page==='production';
+    /* Production's legacy search field never filtered production orders. Hide it there
+       until a production-owned search implementation exists instead of showing a dead control. */
+    var show=page==='orders';
     document.body.classList.toggle('mee-search-page',show);
     document.body.classList.toggle('mee-page-production',page==='production');
     document.body.classList.toggle('mee-page-kpi',page==='kpi');
