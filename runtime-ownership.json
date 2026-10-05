@@ -1,0 +1,30 @@
+{
+  "shell": {
+    "purpose": "Navigation, branding, search visibility and shipping icons",
+    "files": ["meehoa-v3.js", "meehoa-v3.css"]
+  },
+  "orderFormLayout": {
+    "purpose": "Order form section layout and drawer gallery base",
+    "files": ["meehoa-v34.js", "meehoa-v34.css"]
+  },
+  "productionAndMaterials": {
+    "purpose": "Production range picker, production card layout and materials UI",
+    "files": ["meehoa-v35.js", "meehoa-v35.css"]
+  },
+  "dashboard": {
+    "purpose": "Dashboard operational summary and sales/day report",
+    "files": ["meehoa-v361.js", "meehoa-v361.css"]
+  },
+  "materialsDiagnostics": {
+    "purpose": "Materials AI status and failure diagnostics",
+    "files": ["meehoa-v362.js", "meehoa-v362.css"]
+  },
+  "paymentOverlayImages": {
+    "purpose": "Payment Check, overlay controls, image management and proof viewer",
+    "files": ["meehoa-v364.js", "meehoa-v364.css"]
+  },
+  "latestOpsRuntime": {
+    "purpose": "Latest order ergonomics, copy, create confirmation, hourly tracking, delete flow and responsive shell contracts",
+    "files": ["meehoa-v365.js", "meehoa-v365.css"]
+  }
+}
