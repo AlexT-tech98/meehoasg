@@ -39,3 +39,11 @@ test('locked production orders cannot enter bulk selection',()=>{
   assert.match(ui,/if\(o&&!o\.canOperate\)\{cb\.checked=false;cb\.disabled=true/);
   assert.match(ui,/if\(v&&o&&!o\.canOperate\)/);
 });
+
+test('multi-card amount is repaired in debt and drawer display',()=>{
+  assert.match(ui,/function patchCardFinance/);
+  assert.match(ui,/Number\(o\.cardFee\)\|\|qty\*10000/);
+  assert.match(ui,/\+10\\\.000đ thiệp/);
+  assert.match(ui,/\+ Thiệp × /);
+  assert.match(ui,/b\.textContent=money\(amount\)/);
+});
