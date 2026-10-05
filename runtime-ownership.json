@@ -26,5 +26,9 @@
   "latestOpsRuntime": {
     "purpose": "Latest order ergonomics, copy, create confirmation, hourly tracking, delete flow and responsive shell contracts",
     "files": ["meehoa-v365.js", "meehoa-v365.css"]
+  },
+  "shippingAndSettlement": {
+    "purpose": "Florist-owned shipping fee entry, settlement submission and locked-order bulk operation guards",
+    "files": ["meehoa-order-actions.js"]
   }
 }
