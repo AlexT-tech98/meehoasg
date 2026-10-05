@@ -1,4 +1,4 @@
-/* MEEHOA V3.5 — range picker + quiet loading */
+/* Canonical owner: production range picker, production layout, materials UI. */
 .page-status{display:none!important}
 .loading-pill{width:54px!important;min-width:54px!important;height:54px!important;padding:0!important;border-radius:18px!important;display:grid!important;place-items:center!important;font-size:0!important;background:#fff!important;box-shadow:0 14px 34px rgba(67,44,38,.10)!important}
 .loading-pill:before{content:"✿"!important;display:block!important;font-size:23px!important;color:#ef8797!important}
@@ -7,7 +7,6 @@
 .calendar-actions .btn.primary:disabled{opacity:.42!important;cursor:not-allowed!important;box-shadow:none!important}
 .production-filter .date-filter-btn{min-width:220px!important;justify-content:space-between!important}
 
-/* Approved Meehoa brand */
 .mee-brand-mark{background:#f7f5ef!important;overflow:hidden!important;padding:0!important;box-shadow:0 7px 20px rgba(20,54,79,.12)!important}
 .mee-brand-mark img{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important}
 .sidebar .brand-copy{min-width:0!important;flex:1!important}
@@ -16,15 +15,24 @@
 .login-card .mee-brand-mark img{object-fit:cover!important}
 .mee-shipping-icon{display:inline-grid!important;place-items:center!important;width:22px!important;height:22px!important;margin-right:5px!important;border-radius:7px!important;background:#f2f8f5!important;font-size:13px!important;vertical-align:middle!important}
 
-/* Florist / production: same cheerful botanical atmosphere as login + order form */
 body.mee-page-production #content{position:relative!important;isolation:isolate!important;border-radius:28px!important;padding-top:22px!important;background:radial-gradient(circle at 7% 4%,rgba(255,216,111,.30),transparent 18rem),radial-gradient(circle at 96% 8%,rgba(245,139,156,.22),transparent 19rem),radial-gradient(circle at 93% 94%,rgba(143,197,223,.20),transparent 20rem),radial-gradient(circle at 6% 90%,rgba(191,231,211,.34),transparent 20rem),linear-gradient(145deg,rgba(255,250,243,.94),rgba(255,245,248,.88) 48%,rgba(241,250,246,.94))!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.74)!important}
 body.mee-page-production #content:before,body.mee-page-production #content:after{position:absolute!important;z-index:-1!important;pointer-events:none!important;color:rgba(255,255,255,.72)!important;line-height:1!important;filter:drop-shadow(0 12px 20px rgba(80,55,45,.05))!important}
 body.mee-page-production #content:before{content:"✿  ❀"!important;font-size:86px!important;right:12px!important;top:60px!important;transform:rotate(12deg)!important}
 body.mee-page-production #content:after{content:"❀  ✿"!important;font-size:72px!important;left:8px!important;bottom:18px!important;transform:rotate(-13deg)!important}
-body.mee-page-production .lane,body.mee-page-production .order,body.mee-page-production .ops-tile{background:rgba(255,255,255,.88)!important;backdrop-filter:blur(4px)!important;-webkit-backdrop-filter:blur(4px)!important;border-color:rgba(86,63,55,.07)!important;box-shadow:0 10px 28px rgba(74,50,42,.07)!important}
+body.mee-page-production .lane,body.mee-page-production .order,body.mee-page-production .ops-tile{background:rgba(255,255,255,.94)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border-color:rgba(86,63,55,.07)!important;box-shadow:0 10px 28px rgba(74,50,42,.07)!important}
 body.mee-page-production .lane-title{background:linear-gradient(90deg,#eff9f4,#fff4f6 58%,#fff8dc)!important;border-radius:14px!important;padding:10px 12px!important}
+body.mee-page-production .ops-grid{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(360px,1fr))!important;gap:16px!important;align-items:stretch!important}
+body.mee-page-production .ops-tile{grid-template-columns:84px minmax(0,1fr)!important;gap:13px!important;align-items:start!important;min-width:0!important;height:100%!important}
+body.mee-page-production .ops-tile>div:last-child{min-width:0!important;display:flex!important;flex-direction:column!important;gap:4px!important}
+body.mee-page-production .ops-tile .order-top{gap:10px!important;align-items:flex-start!important;min-width:0!important}
+body.mee-page-production .ops-tile .order-top>b{min-width:0!important;overflow-wrap:anywhere!important;line-height:1.35!important}
+body.mee-page-production .ops-thumb-wrap{width:84px!important;height:84px!important;min-width:84px!important;min-height:84px!important;overflow:hidden!important;border-radius:13px!important}
+body.mee-page-production .ops-thumb-wrap img{display:block!important;width:100%!important;height:100%!important;object-fit:cover!important}
+body.mee-page-production .ops-lines{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;align-items:start!important;gap:6px 12px!important;margin-top:4px!important;min-width:0!important}
+body.mee-page-production .ops-lines>*{min-width:0!important;overflow-wrap:anywhere!important}
+body.mee-page-production .ops-lines>.multiline{line-height:1.45!important;color:var(--text-primary)!important}
+body.mee-page-production .ops-tile .actions{margin-top:auto!important;padding-top:10px!important;flex-wrap:wrap!important}
 
-/* Deterministic range picker */
 .mee-calendar-bg{padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))!important;align-items:center!important}
 .calendar-modal{max-height:calc(100dvh - 24px)!important;overflow:auto!important;overscroll-behavior:contain!important}
 .calendar-grid{user-select:none!important;-webkit-user-select:none!important}
@@ -34,13 +42,49 @@ body.mee-page-production .lane-title{background:linear-gradient(90deg,#eff9f4,#f
 .calendar-selection{align-items:center!important}
 .calendar-selection>span{font-weight:800!important;color:#9b8b83!important}
 
+.mee-materials-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin:14px 0 18px;padding:18px;border-radius:20px;background:linear-gradient(135deg,#eff9f5,#fff 52%,#fff2f5);border:1px solid rgba(21,94,71,.08)}
+.mee-materials-hero h3{margin:0 0 4px;font-size:18px}
+.mee-materials-summary{display:flex;gap:8px;flex-wrap:wrap}
+.mee-summary-chip{border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700;background:#fff;border:1px solid #e6ebe8}
+.mee-summary-chip.review{background:#fff1f2;color:#b52f4d;border-color:#ffd0d8}
+.mee-materials-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px}
+.mee-material-card{appearance:none;text-align:left;border:1px solid #e6ebe8;border-radius:18px;background:#fff;padding:16px;min-height:118px;box-shadow:0 8px 22px rgba(30,55,45,.05);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease;cursor:pointer}
+.mee-material-card:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(30,55,45,.09);border-color:#a9d8c5}
+.mee-material-card:focus-visible{outline:3px solid rgba(21,94,71,.18);outline-offset:2px}
+.mee-material-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.mee-material-name{font-size:16px;font-weight:800;line-height:1.3;color:#183329}
+.mee-material-count{display:inline-flex;align-items:center;justify-content:center;min-width:54px;padding:5px 9px;border-radius:999px;background:#eaf8f1;color:#166e50;border:1px solid #bee8d4;font-size:12px;font-weight:800}
+.mee-material-hint{margin-top:18px;font-size:12px;color:#7f8d86}.mee-material-hint:after{content:' →';font-weight:800;color:#3d745f}
+.mee-review-panel{margin-top:18px;padding:17px;border-radius:20px;background:linear-gradient(135deg,#fff4f4,#fff9ed);border:1px solid #ffd3d7}
+.mee-review-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px}
+.mee-review-head h3{margin:0;color:#a42e45}
+.mee-review-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+.mee-review-card{border:1px solid #ffd8da;border-radius:14px;background:rgba(255,255,255,.85);padding:12px;cursor:pointer}
+.mee-review-card b{display:block;margin-bottom:5px}.mee-review-card .sub{color:#8b6168}.mee-review-card:hover{border-color:#ef9fac}
+.mee-material-drawer-list{display:flex;flex-direction:column;gap:10px}
+.mee-material-order{border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff}
+.mee-material-order-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:6px}
+.mee-material-order .flower-copy{white-space:pre-wrap;color:var(--text-secondary);line-height:1.45}
+.mee-material-order .btn{margin-top:9px}
+
 @media(max-width:900px){
   .production-filter .date-filter-btn{width:100%!important;min-width:0!important}
   .mee-brand-wordmark{width:142px!important}
   body.mee-page-production #content{border-radius:22px!important;padding-top:14px!important}
   body.mee-page-production #content:before{font-size:58px!important;top:82px!important;right:-5px!important}
   body.mee-page-production #content:after{font-size:52px!important;left:-4px!important}
+  body.mee-page-production .ops-grid{grid-template-columns:minmax(0,1fr)!important}
   .calendar-modal{width:min(430px,calc(100vw - 20px))!important;padding:15px!important;border-radius:22px!important}
   .calendar-shortcuts{overflow-x:auto!important;flex-wrap:nowrap!important;padding-bottom:2px!important}
   .calendar-shortcuts .btn{flex:0 0 auto!important}
+  .mee-materials-hero{padding:14px!important;border-radius:16px!important}
+  .mee-materials-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
+  .mee-material-card{padding:13px!important;min-height:108px!important}
+}
+@media(max-width:560px){
+  body.mee-page-production .ops-tile{grid-template-columns:72px minmax(0,1fr)!important;padding:12px!important}
+  body.mee-page-production .ops-thumb-wrap{width:72px!important;height:72px!important;min-width:72px!important;min-height:72px!important}
+  body.mee-page-production .ops-lines{grid-template-columns:minmax(0,1fr)!important;gap:4px!important}
+  body.mee-page-production .ops-lines>b{font-size:14px!important}
+  .mee-materials-grid,.mee-review-grid{grid-template-columns:minmax(0,1fr)!important}
 }
