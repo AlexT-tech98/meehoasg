@@ -39,7 +39,7 @@ test('settlement amount uses card quantity and database canonicalization',()=>{
 });
 
 test('database boundary permits own-sale shipping but blocks non-owner sale',()=>{
-  assert.match(shippingMigration,/ship_fee_updated_role,'?\)'? = 'SALE'|ship_fee_updated_role,''\) = 'SALE'/);
+  assert.match(shippingMigration,/coalesce\(new\.ship_fee_updated_role,''\) = 'SALE'/);
   assert.match(shippingMigration,/u\.username = new\.ship_fee_updated_by/);
   assert.match(shippingMigration,/old\.sale/);
   assert.match(shippingMigration,/SHIP_FEE_OWNER_REQUIRED/);
