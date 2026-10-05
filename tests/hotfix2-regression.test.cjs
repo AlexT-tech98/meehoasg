@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const test = require('node:test');
 
+// This contract runs after the consolidated core has been generated from canonical v365 sources.
 const js = fs.readFileSync('assets/meehoa-v365.js', 'utf8');
 const entry = fs.readFileSync('index.html', 'utf8');
 
