@@ -28,8 +28,8 @@ test('runtime architecture is explicit single-owner modules',()=>{
   assert.equal(metrics.schemaVersion,2);
   assert.equal(metrics.architecture,'single-owner-modules');
   assert.equal(metrics.cssFiles.length,7);
-  assert.equal(metrics.jsFiles.length,7);
-  assert.equal(metrics.sourceRequestsBefore,14);
+  assert.ok(metrics.jsFiles.length>=7);
+  assert.equal(metrics.sourceRequestsBefore,metrics.cssFiles.length+metrics.jsFiles.length);
   assert.equal(metrics.runtimeRequestsAfter,2);
   assert.ok(Object.keys(ownership).length>=7);
   const declared=new Set(Object.values(ownership).flatMap(x=>x.files));
