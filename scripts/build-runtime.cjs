@@ -27,7 +27,8 @@ const jsFiles = [
   'meehoa-v361.js',
   'meehoa-v362.js',
   'meehoa-v364.js',
-  'meehoa-v365.js'
+  'meehoa-v365.js',
+  'meehoa-order-actions.js'
 ];
 
 const forbiddenRuntimeNames = /(?:fix|hotfix|runtime-fix|ops-hotfix|scroll-contract)/i;
