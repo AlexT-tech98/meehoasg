@@ -140,6 +140,26 @@
 .topbar .actions button[data-mee-hide-create-v365],
 body.mee-page-dashboard-v365 #content button[data-mee-hide-create-v365]{display:none!important}
 
+/* ===== Dashboard: one canonical operational hour tracker ===== */
+body.mee-page-dashboard-v365 .mee-chart-grid{display:none!important}
+.mee-hour-card{
+  background:#fff;
+  border:1px solid rgba(82,59,52,.08);
+  border-radius:20px;
+  padding:16px;
+  margin:0 0 18px;
+  box-shadow:0 8px 24px rgba(66,44,37,.06)
+}
+.mee-hour-title{display:flex;justify-content:space-between;gap:12px;align-items:center;font-size:12px;font-weight:850;margin-bottom:12px}
+.mee-hour-title small{font-size:11px;font-weight:600;color:#8a7c75}
+.mee-hour-bars{display:grid;gap:8px}
+.mee-hour-row{display:grid;grid-template-columns:86px 1fr 34px;gap:10px;align-items:center;font-size:12px}
+.mee-hour-track{height:12px;background:#f0edea;border-radius:99px;overflow:hidden}
+.mee-hour-fill{height:100%;background:#286b58;border-radius:99px}
+.mee-delete-order{margin-top:8px!important}
+.copyable[data-mee-copy-bound365="1"]{cursor:pointer!important;border-radius:8px;padding:4px 6px;margin-left:-6px}
+.copyable[data-mee-copy-bound365="1"]:hover{background:rgba(21,94,71,.06)}
+
 /* ===== Global responsive pass ===== */
 html,body,.app,.main,#content{max-width:100%!important}
 #content>*{min-width:0!important}
@@ -158,6 +178,7 @@ img,video,canvas{max-width:100%}
   .content{padding-left:max(12px,env(safe-area-inset-left))!important;padding-right:max(12px,env(safe-area-inset-right))!important}
   .stat-grid-5{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   #orderForm .mee-card-qty-v365{grid-template-columns:1fr 104px!important}
+  .mee-hour-row{grid-template-columns:78px 1fr 28px!important;gap:8px!important}
 }
 
 @media (max-width: 620px){
