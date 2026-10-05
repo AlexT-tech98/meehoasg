@@ -11,7 +11,7 @@ const LEGACY_API=`${SUPABASE_URL}/functions/v1/meehoasg-api`;
 const ALLOWED=['https://ops.meehoasg.com','http://ops.meehoasg.com','https://meehoasg.com','http://meehoasg.com'];
 
 function clean(v){return String(v??'').trim()}
-function num(v){const n=Number(String(v??0).replace(/[^\d.-]/g,''));return Number.isFinite(n)?n:0}
+function num(v){if(typeof v==='number')return Number.isFinite(v)?v:0;let raw=String(v??'0').replace(/[^\d.,-]/g,'');if(raw.includes(',')&&raw.includes('.'))raw=raw.replaceAll('.','').replace(',','.');else if(/^-?\d{1,3}(?:[.,]\d{3})+$/.test(raw))raw=raw.replace(/[.,]/g,'');else raw=raw.replace(',','.');const n=Number(raw);return Number.isFinite(n)?n:0}
 function norm(v){return clean(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').toLowerCase().replace(/\s+/g,' ')}
 function saleKey(v){return norm(v).replace(/[^a-z0-9]/g,'')}
 function dateToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}
