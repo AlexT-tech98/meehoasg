@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
-const src = fs.readFileSync('assets/meehoa-v365.js','utf8');
+const src = fs.readFileSync('assets/meehoa-v366.js','utf8');
 
 test('copy path uses textarea first so plain-text newlines survive clipboard copy', () => {
   assert.match(src, /if\(textareaCopy\(value\)\)return Promise\.resolve\(success\(\)\)/);
