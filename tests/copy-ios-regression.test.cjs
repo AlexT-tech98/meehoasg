@@ -4,21 +4,23 @@ const fs = require('node:fs');
 
 const src = fs.readFileSync('assets/meehoa-v365.js','utf8');
 
-test('copy path tries synchronous selection copy before async clipboard fallback', () => {
-  assert.match(src, /selectionCopy\(value\)\|\|textareaCopy\(value\)/);
-  const selectionPos = src.indexOf('selectionCopy(value)');
+test('copy path uses textarea first so plain-text newlines survive clipboard copy', () => {
+  assert.match(src, /if\(textareaCopy\(value\)\)return Promise\.resolve\(success\(\)\)/);
+  const textareaPos = src.indexOf('textareaCopy(value)');
   const clipboardPos = src.indexOf('navigator.clipboard');
-  assert.ok(selectionPos >= 0 && clipboardPos > selectionPos);
+  assert.ok(textareaPos >= 0 && clipboardPos > textareaPos);
+  assert.doesNotMatch(src, /selectionCopy\(value\)\|\|textareaCopy\(value\)/);
 });
 
-test('overlay mutations rebind all copy actions after MEEOPS7 becomes available', () => {
-  assert.match(src, /function patchCopyActions\(\)/);
-  assert.match(src, /patchCreatedCopy\(\);wrapCopy\(\)/);
-  assert.match(src, /new MutationObserver\(function\(\)\{setTimeout\(function\(\)\{patchOrderForm\(\);patchCopyActions\(\)\}/);
+test('full-order copy text is sectioned and joined with literal line breaks', () => {
+  for (const label of ['THÔNG TIN ĐƠN HÀNG','MẪU HOA','GIAO NHẬN','THANH TOÁN']) assert.match(src, new RegExp(label));
+  assert.match(src, /join\('\\n'\)\.trim\(\)/);
 });
 
-test('delegated capture handles created, full-order and field copy taps in one user gesture', () => {
-  assert.match(src, /document\.addEventListener\('click',delegatedCopyTap,true\)/);
-  assert.match(src, /#copyCreated,\[onclick\*="copyOrderById"\],\[onclick\*="copyOrderField"\]/);
-  assert.match(src, /stopImmediatePropagation\(\)/);
+test('drawer copy targets are rebound directly after overlay render', () => {
+  assert.match(src, /function bindCopyTargets\(\)/);
+  assert.match(src, /\[onclick\*="copyOrderById"\]/);
+  assert.match(src, /\[onclick\*="copyOrderField"\]/);
+  assert.match(src, /removeAttribute\('onclick'\)/);
+  assert.match(src, /addEventListener\('click',run\)/);
 });
