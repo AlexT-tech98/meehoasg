@@ -1,15 +1,13 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "architecture": "single-owner-modules",
   "cssFiles": [
     "meehoa-v3.css",
-    "meehoa-v3-fix.css",
-    "meehoa-v3-hotfix.css",
     "meehoa-v34.css",
     "meehoa-v35.css",
-    "meehoa-prod-fix.css",
+    "meehoa-v361.css",
     "meehoa-v362.css",
     "meehoa-v364.css",
-    "meehoa-scroll-contract.css",
     "meehoa-v365.css"
   ],
   "jsFiles": [
@@ -18,16 +16,15 @@
     "meehoa-v35.js",
     "meehoa-v361.js",
     "meehoa-v362.js",
-    "meehoa-v363.js",
     "meehoa-v364.js",
     "meehoa-v365.js"
   ],
-  "sourceRequestsBefore": 18,
+  "sourceRequestsBefore": 14,
   "runtimeRequestsAfter": 2,
-  "sourceCssBytes": 74871,
-  "sourceJsBytes": 85808,
-  "coreCssBytes": 75397,
-  "coreJsBytes": 87891,
+  "sourceCssBytes": 66862,
+  "sourceJsBytes": 60139,
+  "coreCssBytes": 67237,
+  "coreJsBytes": 62166,
   "sourceMutationObservers": 10,
   "nativeMutationObserversAfter": 1
 }
