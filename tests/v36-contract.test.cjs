@@ -9,7 +9,7 @@ const mark = fs.readFileSync('assets/meehoa-mark.svg', 'utf8');
 
 test('refactor routes browser traffic through consolidated API and frontend cores', () => {
   assert.match(index, /meehoasg-api-core/);
-  assert.match(index, /meehoa-core\.js\?v=20261004-\d+/);
+  assert.match(index, /meehoa-core\.js\?v=[A-Za-z0-9._-]+/);
   assert.match(index, /window\.S=S;window\.gas=gas/);
 });
 

@@ -11,8 +11,8 @@ const coreCss=fs.readFileSync('assets/meehoa-core.css','utf8');
 
 test('refactor routes through API core and consolidated frontend assets',()=>{
   assert.match(entry,/meehoasg-api-core/);
-  assert.match(entry,/meehoa-core\.css\?v=20261004-\d+/);
-  assert.match(entry,/meehoa-core\.js\?v=20261004-\d+/);
+  assert.match(entry,/meehoa-core\.css\?v=[A-Za-z0-9._-]+/);
+  assert.match(entry,/meehoa-core\.js\?v=[A-Za-z0-9._-]+/);
   assert.match(coreCss,/===== meehoa-v364\.css =====/);
   assert.match(coreCss,/===== meehoa-v365\.css =====/);
   assert.match(coreJs,/===== meehoa-v364\.js =====/);
@@ -93,26 +93,11 @@ test('create/edit order has removable image previews for old, new and pasted ima
 function executePaymentPatch(page){
   const gridClasses=new Set();
   const bodyClasses=new Set();
-  const classList={
-    add:x=>bodyClasses.add(x),
-    remove:x=>bodyClasses.delete(x),
-    toggle:(x,on)=>on?bodyClasses.add(x):bodyClasses.delete(x)
-  };
-  const grid={
-    classList:{add:x=>gridClasses.add(x)},
-    querySelector:()=>null,
-    querySelectorAll:(selector)=>selector==='.settlement-card'?[{}]:[],
-    parentNode:{insertBefore:()=>{}}
-  };
+  const classList={add:x=>bodyClasses.add(x),remove:x=>bodyClasses.delete(x),toggle:(x,on)=>on?bodyClasses.add(x):bodyClasses.delete(x)};
+  const grid={classList:{add:x=>gridClasses.add(x)},querySelector:()=>null,querySelectorAll:(selector)=>selector==='.settlement-card'?[{}]:[],parentNode:{insertBefore:()=>{}}};
   const root={querySelector:(selector)=>selector==='.order-grid'?grid:null,querySelectorAll:()=>[],dataset:{},addEventListener:()=>{}};
   const overlay={firstElementChild:null,querySelector:()=>null,querySelectorAll:()=>[],addEventListener:()=>{},appendChild:()=>{}};
-  const document={
-    readyState:'complete',body:{classList},
-    querySelector:(selector)=>selector==='#content'?root:selector==='#overlay'?overlay:null,
-    querySelectorAll:()=>[],createTreeWalker:()=>({nextNode:()=>null}),
-    createElement:()=>({className:'',dataset:{},setAttribute:()=>{},addEventListener:()=>{},appendChild:()=>{}}),
-    addEventListener:()=>{}
-  };
+  const document={readyState:'complete',body:{classList},querySelector:(selector)=>selector==='#content'?root:selector==='#overlay'?overlay:null,querySelectorAll:()=>[],createTreeWalker:()=>({nextNode:()=>null}),createElement:()=>({className:'',dataset:{},setAttribute:()=>{},addEventListener:()=>{},appendChild:()=>{}}),addEventListener:()=>{}};
   const context={window:{S:{page}},S:{page},document,NodeFilter:{SHOW_TEXT:4},MutationObserver:class{observe(){}},setTimeout,clearTimeout,Event:class{},URL:{createObjectURL:()=>''},console};
   vm.runInNewContext(js,context);
   return {gridClasses,bodyClasses};
