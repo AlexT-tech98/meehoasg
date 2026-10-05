@@ -1,0 +1,49 @@
+/* Canonical owner: dashboard summary + sales/day report. */
+.mee-dashboard-summary{
+  display:grid!important;
+  grid-template-columns:1.05fr 1.15fr .8fr!important;
+  gap:12px!important;
+  margin:0 0 18px!important
+}
+.mee-dashboard-summary .mee-summary-card{
+  min-width:0;border:1px solid rgba(68,82,75,.08);border-radius:18px;padding:15px 16px;
+  background:#fff;box-shadow:0 8px 24px rgba(58,45,39,.055);position:relative;overflow:hidden
+}
+.mee-dashboard-summary .mee-summary-card.orders{background:linear-gradient(145deg,#fff,#fff7df)}
+.mee-dashboard-summary .mee-summary-card.revenue{background:linear-gradient(145deg,#fff,#eef9f4)}
+.mee-dashboard-summary .mee-summary-card.debt{background:linear-gradient(145deg,#fff,#fff0f4)}
+.mee-summary-kicker{font-size:10.5px;line-height:1.2;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#7b8a82;margin-bottom:7px}
+.mee-summary-main{font-size:26px;font-weight:850;letter-spacing:-.04em;color:#20342b;line-height:1.08}
+.mee-summary-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.mee-summary-mini{padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.74);border:1px solid rgba(65,89,76,.07)}
+.mee-summary-mini span{display:block;font-size:10.5px;color:#7b8b83}
+.mee-summary-mini b{display:block;margin-top:2px;font-size:15px;color:#2c3a34}
+.mee-revenue-lines{display:grid;gap:8px;margin-top:5px}
+.mee-revenue-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.75);border:1px solid rgba(65,89,76,.07)}
+.mee-revenue-line span{font-size:11.5px;color:#697b72}
+.mee-revenue-line b{font-size:16px;white-space:nowrap}
+.mee-revenue-line.pending b{color:#a16a12}
+.mee-revenue-line.settled b{color:#166d50}
+.mee-debt-note{font-size:11px;color:#8e6b74;margin-top:8px}
+
+.mee-sales-daily-section{margin:22px 0 8px!important;padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important}
+.mee-v361-report-card{border:1px solid rgba(65,89,76,.09);border-radius:20px;background:#fff;padding:17px;box-shadow:0 10px 28px rgba(30,55,45,.055)}
+.mee-v361-report-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:13px}
+.mee-v361-report-head h3{margin:0;font-size:16px}
+.mee-v361-report-head .sub{margin-top:3px}
+.mee-v361-rule{display:inline-flex;gap:6px;align-items:center;border-radius:999px;padding:6px 10px;background:#f4f8f5;border:1px solid #e1ebe5;font-size:11px;font-weight:750;color:#4d6b5e}
+.mee-v361-table-wrap{overflow-x:auto;overflow-y:visible;border:1px solid #e9eeeb;border-radius:14px}
+.mee-v361-table{width:100%;border-collapse:collapse;min-width:720px}
+.mee-v361-table th,.mee-v361-table td{padding:10px 12px;border-bottom:1px solid #eef2ef;text-align:left;vertical-align:middle}
+.mee-v361-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.055em;color:#7e8d85;background:#fafcfb}
+.mee-v361-table td:nth-last-child(-n+2),.mee-v361-table th:nth-last-child(-n+2){text-align:right}
+.mee-v361-table tr:last-child td{border-bottom:0}
+.mee-money-pending{font-weight:800;color:#9a6513}
+.mee-money-settled{font-weight:800;color:#166d50}
+.mee-v361-empty{padding:20px;text-align:center;color:#8b9891;font-size:12px}
+
+@media(max-width:760px){
+  .mee-dashboard-summary{grid-template-columns:minmax(0,1fr)!important}
+  .mee-summary-main{font-size:23px}
+  .mee-v361-report-card{padding:13px}
+}
