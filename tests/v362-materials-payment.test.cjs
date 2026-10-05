@@ -5,26 +5,20 @@ const test = require('node:test');
 const read = p => fs.readFileSync(p, 'utf8');
 const entry = read('index.html');
 const api = read('supabase/functions/meehoasg-api-v362/index.js');
-const compat = read('supabase/functions/meehoasg-api-v363/index.js');
-const js = read('assets/meehoa-v362.js');
-const js363 = read('assets/meehoa-v363.js');
-const css = read('assets/meehoa-v362.css');
+const materials = read('assets/meehoa-v362.js');
+const payment = read('assets/meehoa-v364.js');
+const paymentCss = read('assets/meehoa-v364.css');
 const coreJs = read('assets/meehoa-core.js');
 const coreCss = read('assets/meehoa-core.css');
 
-test('refactor routes through API core while preserving v362/v363 behavior inside consolidated assets', () => {
+test('API core and canonical materials/payment owners are consolidated without v363 compatibility runtime', () => {
   assert.match(entry, /meehoasg-api-core/);
   assert.match(entry, /meehoa-core\.css\?v=[A-Za-z0-9._-]+/);
   assert.match(entry, /meehoa-core\.js\?v=[A-Za-z0-9._-]+/);
   assert.match(coreCss, /===== meehoa-v362\.css =====/);
   assert.match(coreJs, /===== meehoa-v362\.js =====/);
-  assert.match(coreJs, /===== meehoa-v363\.js =====/);
-});
-
-test('v363 preserves the browser build contract instead of blocking login', () => {
-  assert.match(compat, /UI_BUILD = '2026\.09\.28-supabase-v3'/);
-  assert.match(compat, /build: UI_BUILD/);
-  assert.match(compat, /proxyBuild: PROXY_BUILD/);
+  assert.match(coreJs, /===== meehoa-v364\.js =====/);
+  assert.doesNotMatch(coreJs, /===== meehoa-v363\.js =====/);
 });
 
 test('materials tries current Gemini models and exposes AI diagnostics', () => {
@@ -42,15 +36,17 @@ test('materials no longer turns an AI outage into every order needing review', (
   assert.match(unavailable, /reviewOrders:\[\]/);
 });
 
-test('legacy payment patch remains present in consolidated UI during transition', () => {
-  assert.match(js, /mee-settlement-grid/);
-  assert.match(js363, /mee-settlement-select-all/);
-  assert.match(js363, /Chọn tất cả/);
-  assert.match(css, /grid-template-columns:repeat\(auto-fit,minmax\(310px,1fr\)\)/);
-  assert.match(css, /height:168px!important/);
+test('v362 owns materials diagnostics only and no longer patches payment', () => {
+  assert.match(materials, /patchMaterialsStatus/);
+  assert.doesNotMatch(materials, /patchSettlement/);
+  assert.doesNotMatch(materials, /S\.page!=='settlement'/);
 });
 
-test('order-card paid status compatibility copy remains available', () => {
-  assert.match(js363, /Bankful full hoa/);
-  assert.match(js363, /Đã tất toán/);
+test('v364 is the only payment UI owner and uses the real payment route', () => {
+  assert.match(payment, /S\.page!=='payment'/);
+  assert.match(payment, /mee-settlement-grid-v364/);
+  assert.match(payment, /mee-settlement-select-all-v364/);
+  assert.match(payment, /Bankful full hoa/);
+  assert.match(paymentCss, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(paymentCss, /height:150px!important/);
 });
