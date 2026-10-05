@@ -16,7 +16,7 @@ test('refactor routes through API core and consolidated frontend assets',()=>{
   assert.match(coreCss,/===== meehoa-v364\.css =====/);
   assert.match(coreCss,/===== meehoa-v365\.css =====/);
   assert.match(coreJs,/===== meehoa-v364\.js =====/);
-  assert.match(coreJs,/===== meehoa-v365\.js =====/);
+  assert.match(coreJs,/===== meehoa-v366\.js =====/);
 });
 
 test('dashboard API is direct and exposes split settlement revenue',()=>{

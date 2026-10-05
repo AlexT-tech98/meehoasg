@@ -319,7 +319,7 @@
 })();
 
 /* ===== meehoa-v361.js ===== */
-/* Canonical runtime owner: dashboard summary + sales/day report. */
+/* Canonical runtime owner: dashboard summary, hourly tracking + sales/day report. */
 (function(){
   'use strict';
   window.__MEE_DASHBOARD_V361__=true;
@@ -327,6 +327,58 @@
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function money(n){return new Intl.NumberFormat('vi-VN').format(Number(n)||0)+' đ'}
   function dateVN(iso){if(!iso)return'';var p=String(iso).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:iso}
+  function today(){var d=new Date(),p=function(n){return String(n).padStart(2,'0')};return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())}
+  function hourLabel(h){var x=String(h).padStart(2,'0');return x+':00–'+x+':59'}
+
+  var hourlyState={dashboardRef:null,day:'',rows:null,loading:false,error:''};
+
+  function hourlyModel(items){
+    var map={};
+    (items||[]).forEach(function(o){
+      var m=String(o&&o.time||'').match(/^(\d{1,2}):/);if(!m)return;
+      var h=Number(m[1]);if(h<0||h>23)return;
+      map[h]=(map[h]||0)+1;
+    });
+    var hours=Object.keys(map).map(Number).sort(function(a,b){return a-b});
+    if(!hours.length)return[];
+    var max=Math.max.apply(null,hours.map(function(h){return map[h]}));
+    return hours.map(function(h){return {hour:h,label:hourLabel(h),count:map[h],percent:max?map[h]/max*100:0}});
+  }
+
+  function hourlyHtml(rows){
+    return (rows||[]).map(function(x){return '<div class="mee-hour-row"><b>'+esc(x.label)+'</b><div class="mee-hour-track"><div class="mee-hour-fill" style="width:'+Number(x.percent||0).toFixed(2)+'%"></div></div><b>'+Number(x.count||0)+'</b></div>'}).join('');
+  }
+
+  function hourSection(el){
+    var section=qs('#meeHourlySingleV361',el);
+    if(!section){section=document.createElement('section');section.id='meeHourlySingleV361';section.className='mee-hour-card';var grid=qs('.stat-grid-5',el);if(grid)grid.insertAdjacentElement('afterend',section);else el.insertBefore(section,el.firstChild)}
+    return section;
+  }
+
+  function renderHourly(el){
+    if(!el)return;
+    var section=hourSection(el),rows=hourlyState.rows||[];
+    if(hourlyState.loading&&!rows.length){section.innerHTML='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Đang tải…</small></div>';return}
+    if(hourlyState.error){section.innerHTML='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Không tải được dữ liệu</small></div><div class="mee-v361-empty">'+esc(hourlyState.error)+' <button type="button" class="btn secondary" onclick="MEE_DASHBOARD_V361_RETRY()">Thử lại</button></div>';return}
+    if(!rows.length){section.innerHTML='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Chỉ hiện giờ có đơn</small></div><div class="mee-v361-empty">Hôm nay chưa có đơn có giờ nhận.</div>';return}
+    section.innerHTML='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Chỉ hiện giờ có đơn</small></div><div class="mee-hour-bars">'+hourlyHtml(rows)+'</div>';
+  }
+
+  async function loadHourly(el,force){
+    if(!window.gas||!window.S||S.page!=='dashboard')return;
+    var day=today();
+    if(!force&&hourlyState.day===day&&hourlyState.rows){renderHourly(el);return}
+    if(hourlyState.loading)return;
+    hourlyState.loading=true;hourlyState.day=day;hourlyState.error='';renderHourly(el);
+    try{
+      var r=await window.gas('getOrders',{start:day,end:day,page:1,pageSize:200,q:''});
+      if(!r||!r.ok)throw new Error(r&&r.message?r.message:'Không nhận được dữ liệu đơn hàng.');
+      hourlyState.rows=hourlyModel(r.items||[]);hourlyState.error='';
+    }catch(e){hourlyState.rows=null;hourlyState.error=e&&e.message?e.message:'Không tải được thống kê đơn hàng theo giờ.'}
+    finally{hourlyState.loading=false;if(window.S&&S.page==='dashboard')renderHourly(qs('#content'))}
+  }
+
+  window.MEE_DASHBOARD_V361_RETRY=function(){hourlyState.rows=null;hourlyState.error='';hourlyState.day='';loadHourly(qs('#content'),true)};
 
   function buildSummary(r,el){
     var s=r.summary||{},grid=qs('.stat-grid-5',el);if(!grid)return;
@@ -355,7 +407,10 @@
     if(!window.S||S.page!=='dashboard')return;
     var r=S.data&&S.data.dashboard,el=qs('#content');if(!r||!el)return;
     buildSummary(r,el);buildReport(r,el);
+    if(hourlyState.dashboardRef!==r){hourlyState.dashboardRef=r;loadHourly(el,true)}else renderHourly(el);
   }
+
+  if(window.__MEE_TEST_MODE__)window.__MEE_DASHBOARD_V361_TEST__={hourlyModel:hourlyModel,hourlyHtml:hourlyHtml};
 
   var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patchDashboard,45)}
   function init(){patchDashboard();var content=qs('#content');if(content)new MutationObserver(function(ms){if(ms.some(function(m){return m.type==='childList'&&(m.addedNodes.length||m.removedNodes.length)}))schedule()}).observe(content,{childList:true,subtree:true})}
@@ -595,20 +650,18 @@
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
 
-/* ===== meehoa-v365.js ===== */
+/* ===== meehoa-v366.js ===== */
+/* Canonical latest ops runtime: order ergonomics, copy, create confirmation and delete flow. Dashboard hourly tracking is owned by v361. */
 (function(){
   'use strict';
   var STATUS_URL='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-create-status';
   var DELETE_URL='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-delete-order';
-  var hourlyBusy=false,hourlyLastAt=0;
 
   function qs(s,r){return (r||document).querySelector(s)}
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
   function money(v){var d=String(v==null?'':v).replace(/\D/g,'');return d?new Intl.NumberFormat('vi-VN').format(Number(d)):''}
   function vnd(v){return new Intl.NumberFormat('vi-VN').format(Number(v||0))+'đ'}
   function dateVN(v){var s=String(v||'');var m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?m[3]+'/'+m[2]+'/'+m[1]:s}
-  function today(){var d=new Date(),p=function(n){return String(n).padStart(2,'0')};return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())}
-  function hourLabel(h){var x=String(h).padStart(2,'0');return x+':00–'+x+':59'}
   function parseId(form){var s=form&&form.getAttribute('onsubmit')||'';var m=s.match(/saveOrder\(event,'([^']*)'/);return m?m[1]:''}
 
   function findOrderDeep(id){
@@ -800,29 +853,6 @@
     wrapped._mee365CreateConfirm=true;MEEOPS7.saveOrder=wrapped;
   }
 
-  function cleanupHourly(content){qsa('.mee-hour-card',content).forEach(function(el){if(el.id!=='meeHourlySingleV365')el.remove()})}
-  async function renderHourly(force){
-    if(!window.S||S.page!=='dashboard'||!window.gas)return;
-    var content=qs('#content');if(!content)return;
-    cleanupHourly(content);
-    if(hourlyBusy)return;
-    var existing=qs('#meeHourlySingleV365',content),now=Date.now();
-    if(existing&&!force&&now-hourlyLastAt<15000)return;
-    hourlyBusy=true;
-    try{
-      var d=today(),r=await gas('getOrders',{start:d,end:d,page:1,pageSize:200,q:''});if(!r||!r.ok)return;
-      var map={};(r.items||[]).forEach(function(o){var m=String(o.time||'').match(/^(\d{1,2}):/);if(!m)return;var h=Number(m[1]);if(h<0||h>23)return;map[h]=(map[h]||0)+1});
-      var hours=Object.keys(map).map(Number).sort(function(a,b){return a-b});
-      existing=qs('#meeHourlySingleV365',content);
-      if(!hours.length){if(existing)existing.remove();return}
-      var max=Math.max.apply(null,hours.map(function(h){return map[h]})),card=existing||document.createElement('section');
-      card.id='meeHourlySingleV365';card.className='mee-hour-card';
-      card.innerHTML='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Chỉ hiện giờ có đơn</small></div><div class="mee-hour-bars">'+hours.map(function(h){return '<div class="mee-hour-row"><b>'+hourLabel(h)+'</b><div class="mee-hour-track"><div class="mee-hour-fill" style="width:'+(map[h]/max*100)+'%"></div></div><b>'+map[h]+'</b></div>'}).join('')+'</div>';
-      if(!existing){var stats=qs('.stat-grid-5',content);if(stats)stats.insertAdjacentElement('afterend',card)}
-      cleanupHourly(content);hourlyLastAt=Date.now();
-    }catch(_){ }finally{hourlyBusy=false}
-  }
-
   function drawerOrderId(){
     var ov=qs('#overlay');if(!ov)return'';
     var bound=qs('[data-mee-copy-order-id]',ov);if(bound)return bound.dataset.meeCopyOrderId||'';
@@ -858,10 +888,7 @@
     host.insertBefore(b,host.firstChild);
   }
 
-  function patch(){
-    patchBodyPage();patchCreateButtons();patchOrderForm();patchCopyActions();patchCreate();patchDelete();installReload();
-    if(window.S&&S.page==='dashboard'){var content=qs('#content');if(content)cleanupHourly(content);renderHourly(false)}
-  }
+  function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();patchCopyActions();patchCreate();patchDelete();installReload()}
   function wrapOpenForm(){
     if(!window.MEEOPS7||!MEEOPS7.openOrderForm||MEEOPS7.openOrderForm._mee365)return;
     var orig=MEEOPS7.openOrderForm;
@@ -873,7 +900,7 @@
     var tries=0,bindTimer=setInterval(function(){wrapOpenForm();patchCopyActions();patchCreate();tries++;if((window.MEEOPS7&&MEEOPS7._meeCopy365&&MEEOPS7.saveOrder&&MEEOPS7.saveOrder._mee365CreateConfirm)||tries>80)clearInterval(bindTimer)},50);
     var root=qs('#content');if(root)new MutationObserver(function(){setTimeout(patch,20)}).observe(root,{childList:true,subtree:true});
     var ov=qs('#overlay');if(ov)new MutationObserver(function(){setTimeout(function(){patchOrderForm();patchCopyActions();patchDelete()},0)}).observe(ov,{childList:true,subtree:true});
-    document.addEventListener('visibilitychange',function(){if(!document.hidden){hourlyLastAt=0;patch()}});
+    document.addEventListener('visibilitychange',function(){if(!document.hidden)patch()});
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

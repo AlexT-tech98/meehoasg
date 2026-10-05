@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'assets', 'meehoa-v365.js'), 'utf8');
+const src = fs.readFileSync(path.join(__dirname, '..', 'assets', 'meehoa-v366.js'), 'utf8');
 
 test('drawer copy resolves orders from canonical remembered order map', () => {
   assert.match(src, /S\.orders&&typeof S\.orders\.get==='function'/);

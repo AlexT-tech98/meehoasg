@@ -12,7 +12,7 @@
     "files": ["meehoa-v35.js", "meehoa-v35.css"]
   },
   "dashboard": {
-    "purpose": "Dashboard operational summary and sales/day report",
+    "purpose": "Dashboard operational summary, hourly tracking and sales/day report",
     "files": ["meehoa-v361.js", "meehoa-v361.css"]
   },
   "materialsDiagnostics": {
@@ -24,11 +24,11 @@
     "files": ["meehoa-v364.js", "meehoa-v364.css"]
   },
   "latestOpsRuntime": {
-    "purpose": "Latest order ergonomics, copy, create confirmation, hourly tracking, delete flow and responsive shell contracts",
-    "files": ["meehoa-v365.js", "meehoa-v365.css"]
+    "purpose": "Latest order ergonomics, copy, create confirmation, delete flow and responsive shell contracts",
+    "files": ["meehoa-v366.js", "meehoa-v365.css"]
   },
   "shippingAndSettlement": {
-    "purpose": "Florist-owned shipping fee entry, settlement submission and locked-order bulk operation guards",
+    "purpose": "Canonical shipping fee entry, settlement submission and locked-order bulk operation guards",
     "files": ["meehoa-order-actions.js"]
   }
 }

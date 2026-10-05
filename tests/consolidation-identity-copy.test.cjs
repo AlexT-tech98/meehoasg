@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 
 const api=fs.readFileSync('supabase/functions/meehoasg-api-v365/index.js','utf8');
-const ui=fs.readFileSync('assets/meehoa-v365.js','utf8');
+const ui=fs.readFileSync('assets/meehoa-v366.js','utf8');
 
 test('SALE bootstrap is repaired through full getOrders before initial render',()=>{
   assert.match(api,/repairBootstrapOrders/);

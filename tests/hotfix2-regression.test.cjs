@@ -3,12 +3,13 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const test = require('node:test');
 
-// This contract runs after the consolidated core has been generated from canonical v365 sources.
-const js = fs.readFileSync('assets/meehoa-v365.js', 'utf8');
+const ops = fs.readFileSync('assets/meehoa-v366.js', 'utf8');
+const dashboard = fs.readFileSync('assets/meehoa-v361.js', 'utf8');
 const entry = fs.readFileSync('index.html', 'utf8');
 
-test('canonical v365 parses and production shell loads only consolidated core', () => {
-  assert.doesNotThrow(() => new vm.Script(js));
+test('canonical ops runtime parses and production shell loads only consolidated core', () => {
+  assert.doesNotThrow(() => new vm.Script(ops));
+  assert.doesNotThrow(() => new vm.Script(dashboard));
   assert.match(entry, /meehoa-core\.js\?v=[A-Za-z0-9._-]+/);
   assert.match(entry, /meehoa-core\.css\?v=[A-Za-z0-9._-]+/);
   assert.match(entry, /meehoa-shell-core-\d{8}[-\w]*/);
@@ -17,29 +18,29 @@ test('canonical v365 parses and production shell loads only consolidated core', 
   assert.doesNotMatch(entry, /meehoa-ops-hotfix2/);
 });
 
-test('dashboard has one guarded one-hour tracker in canonical source', () => {
-  assert.match(js, /hourlyBusy/);
-  assert.match(js, /id='meeHourlySingleV365'/);
-  assert.match(js, /cleanupHourly\(content\)/);
-  assert.match(js, /hourLabel\(h\)/);
-  assert.match(js, /map\[h\]=\(map\[h\]\|\|0\)\+1/);
-  assert.doesNotMatch(js, /08–10|10–12|12–14|14–16|16–18|18–20/);
+test('dashboard owns the one-hour tracker and ops runtime does not re-fetch it', () => {
+  assert.match(dashboard, /function hourlyModel/);
+  assert.match(dashboard, /id='meeHourlySingleV361'/);
+  assert.match(dashboard, /window\.gas\('getOrders'/);
+  assert.match(dashboard, /hourlyState\.dashboardRef!==r/);
+  assert.doesNotMatch(ops, /renderHourly|cleanupHourly|hourlyBusy|hourlyLastAt|meeHourlySingleV365/);
+  assert.doesNotMatch(dashboard, /08–10|10–12|12–14|14–16|16–18|18–20/);
 });
 
 test('copy contract is canonical, sectioned and newline-safe', () => {
-  assert.match(js, /MẪU HOA/);
-  assert.match(js, /GIAO NHẬN/);
-  assert.match(js, /THANH TOÁN/);
-  assert.match(js, /if\(textareaCopy\(value\)\)return Promise\.resolve\(success\(\)\)/);
-  assert.match(js, /\[onclick\*="copyOrderField"\]/);
-  assert.match(js, /removeAttribute\('onclick'\)/);
+  assert.match(ops, /MẪU HOA/);
+  assert.match(ops, /GIAO NHẬN/);
+  assert.match(ops, /THANH TOÁN/);
+  assert.match(ops, /if\(textareaCopy\(value\)\)return Promise\.resolve\(success\(\)\)/);
+  assert.match(ops, /\[onclick\*="copyOrderField"\]/);
+  assert.match(ops, /removeAttribute\('onclick'\)/);
 });
 
-test('create-confirmation and admin delete flows live in canonical source', () => {
-  assert.match(js, /meehoasg-create-status/);
-  assert.match(js, /mee_pending_create/);
-  assert.match(js, /meehoasg-delete-order/);
-  assert.match(js, /S\.user\.role!==['"]ADMIN['"]/);
-  assert.match(js, /className='btn danger full mee-delete-order'/);
-  assert.match(js, /window\.confirm/);
+test('create-confirmation and admin delete flows live in canonical ops runtime', () => {
+  assert.match(ops, /meehoasg-create-status/);
+  assert.match(ops, /mee_pending_create/);
+  assert.match(ops, /meehoasg-delete-order/);
+  assert.match(ops, /S\.user\.role!==['"]ADMIN['"]/);
+  assert.match(ops, /className='btn danger full mee-delete-order'/);
+  assert.match(ops, /window\.confirm/);
 });
