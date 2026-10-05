@@ -6,6 +6,7 @@
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function attr(s){return esc(s).replace(/`/g,'&#96;')}
+  function norm(v){return String(v==null?'':v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').toLowerCase().replace(/\s+/g,' ').trim()}
   function isShop(v){return /shop/i.test(String(v||''))}
   function moneyDigits(v){return Number(String(v||'').replace(/\D/g,''))||0}
   function money(v){return new Intl.NumberFormat('vi-VN').format(Number(v)||0)+'đ'}
@@ -15,6 +16,16 @@
     var seen=new Set();
     function walk(v){if(!v||typeof v!=='object'||seen.has(v))return null;seen.add(v);if(v.id===id)return v;if(v instanceof Map){var d=v.get(id);if(d)return d;for(var mv of v.values()){var mr=walk(mv);if(mr)return mr}return null}if(Array.isArray(v)){for(var i=0;i<v.length;i++){var a=walk(v[i]);if(a)return a}}else{for(var k in v){if(k==='user'||k==='options')continue;var r=walk(v[k]);if(r)return r}}return null}
     return walk(S.data)||walk(S.cache)||walk(S.orders)||null;
+  }
+  function userIdentities(){
+    if(!window.S||!S.user)return[];
+    return [S.user.username,S.user.displayName,S.user.display_name,S.user.name].map(norm).filter(Boolean);
+  }
+  function ownsOrder(o){var sale=norm(o&&o.sale);return !!sale&&userIdentities().includes(sale)}
+  function canEditShip(o){
+    if(!window.S||!S.user)return false;
+    if(['ADMIN','THO_OPS'].includes(S.user.role))return true;
+    return S.user.role==='SALE'&&ownsOrder(o);
   }
   function idFromAction(el){
     if(!el)return'';var node=el.closest&&el.closest('[onclick*="openDrawer"],[onclick*="openOrderForm"],[onclick*="copyOrderById"],[onclick*="openShipFeeForm"]');
@@ -35,10 +46,12 @@
     if(window.loadPage&&window.S&&S.page)await loadPage(S.page,true);
     return orderById(id);
   }
-  function canEditShip(){return !!(window.S&&S.user&&['ADMIN','THO_OPS'].includes(S.user.role))}
   function patchShipButtons(root){
     root=root||document;
-    qsa('[onclick*="openShipFeeForm"]',root).forEach(function(btn){if(!canEditShip())btn.remove()});
+    qsa('[onclick*="openShipFeeForm"]',root).forEach(function(btn){
+      var code=btn.getAttribute('onclick')||'',m=code.match(/openShipFeeForm\(['"]([^'"]+)/),o=m?orderById(m[1]):null;
+      if(!canEditShip(o))btn.remove();
+    });
   }
   function patchProductionSelection(root){
     if(!window.S||S.page!=='production')return;
@@ -63,11 +76,12 @@
   function install(){
     if(!window.MEEOPS7)return false;
     MEEOPS7.openShipFeeForm=function(id){
-      if(!canEditShip())return window.toast&&toast('Chỉ thợ hoặc Admin được nhập phí ship.',1);
-      var o=orderById(id);if(!o||!isShop(o.shipping))return window.toast&&toast('Đơn này không thể nhập phí ship.',1);
+      var o=orderById(id);
+      if(!o||!canEditShip(o))return window.toast&&toast('Sale chỉ được nhập phí ship đơn của mình; Thợ/OPS và Admin được thao tác đơn vận hành.',1);
+      if(!isShop(o.shipping))return window.toast&&toast('Đơn này không thể nhập phí ship.',1);
       if(o.locked)return window.toast&&toast('Đơn đang khóa, không thể đổi phí ship.',1);
       var ov=qs('#overlay');if(!ov)return;var val=o.shipConfirmed?new Intl.NumberFormat('vi-VN').format(o.shipFee):'';
-      ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><form action="javascript:void(0)" class="modal" style="max-width:460px" onsubmit="MEEOPS7.submitShipFee(event,\''+attr(o.id)+'\')"><div class="modal-head"><div><h3 style="margin:0">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</h3><div class="sub">'+esc(o.customer)+' · '+esc(o.shipping)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><label>PHÍ SHIP THỰC TẾ</label><input name="shipFee" inputmode="numeric" value="'+attr(val)+'" oninput="MEEOPS7.formatMoneyInput(this)" required autofocus><div class="notice">Phí ship do thợ/Admin xác nhận và sẽ được khóa khi Sale gửi tất toán.</div><button class="btn primary full" style="margin-top:16px">Lưu phí ship</button></form></div>';
+      ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><form action="javascript:void(0)" class="modal" style="max-width:460px" onsubmit="MEEOPS7.submitShipFee(event,\''+attr(o.id)+'\')"><div class="modal-head"><div><h3 style="margin:0">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</h3><div class="sub">'+esc(o.customer)+' · '+esc(o.shipping)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><label>PHÍ SHIP THỰC TẾ</label><input name="shipFee" inputmode="numeric" value="'+attr(val)+'" oninput="MEEOPS7.formatMoneyInput(this)" required autofocus><div class="notice">Sale phụ trách đơn này, Thợ/OPS hoặc Admin đều có thể xác nhận phí ship. Phí sẽ khóa khi gửi tất toán.</div><button class="btn primary full" style="margin-top:16px">Lưu phí ship</button></form></div>';
     };
     MEEOPS7.submitShipFee=async function(e,id){
       e.preventDefault();var o=orderById(id),f=e.target;if(!o||!f)return;
@@ -75,12 +89,12 @@
     };
     MEEOPS7.settlementForm=function(id){
       var o=orderById(id);if(!o)return;var ov=qs('#overlay');if(!ov)return;var shop=isShop(o.shipping),ready=!shop||!!o.shipConfirmed;
-      var shipBlock=shop?('<label>PHÍ SHIP THỰC TẾ</label><div class="mee-readonly-ship '+(ready?'':'missing')+'">'+(ready?money(o.shipFee):'CHƯA CÓ · thợ cần nhập phí ship trước')+'</div>'):'';
-      ov.innerHTML='<div class="modal-bg"><form action="javascript:void(0)" class="modal" id="settlementForm" onsubmit="MEEOPS7.submitSettlement(event,\''+attr(id)+'\')"><div class="modal-head"><div><h3 style="margin:0">Gửi yêu cầu tất toán</h3><div class="sub">'+esc(o.customer)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div>'+(shop?'<div class="notice">Sale không nhập/sửa phí ship tại bước này. Phí ship lấy từ phần xác nhận của thợ.</div>':'')+shipBlock+'<label>ẢNH BILL / CHUYỂN KHOẢN</label><input id="billFiles" type="file" accept="image/*" multiple required><label>GHI CHÚ</label><textarea name="note"></textarea><button id="settlementSubmit" class="btn primary full" style="margin-top:16px" '+(ready?'':'disabled')+'>Gửi yêu cầu tất toán</button></form></div>';
+      var shipBlock=shop?('<label>PHÍ SHIP THỰC TẾ</label><div class="mee-readonly-ship '+(ready?'':'missing')+'">'+(ready?money(o.shipFee):'CHƯA CÓ · nhập phí ship trước khi tất toán')+'</div>'):'';
+      ov.innerHTML='<div class="modal-bg"><form action="javascript:void(0)" class="modal" id="settlementForm" onsubmit="MEEOPS7.submitSettlement(event,\''+attr(id)+'\')"><div class="modal-head"><div><h3 style="margin:0">Gửi yêu cầu tất toán</h3><div class="sub">'+esc(o.customer)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div>'+(shop?'<div class="notice">Phí ship phải được xác nhận trước khi gửi tất toán. Sale phụ trách đơn có thể nhập ở phần phí ship của đơn.</div>':'')+shipBlock+'<label>ẢNH BILL / CHUYỂN KHOẢN</label><input id="billFiles" type="file" accept="image/*" multiple required><label>GHI CHÚ</label><textarea name="note"></textarea><button id="settlementSubmit" class="btn primary full" style="margin-top:16px" '+(ready?'':'disabled')+'>Gửi yêu cầu tất toán</button></form></div>';
     };
     MEEOPS7.submitSettlement=async function(e,id){
       e.preventDefault();var form=e.target,btn=qs('#settlementSubmit',form),o=orderById(id);if(!o||form.dataset.saving==='1')return;
-      if(isShop(o.shipping)&&!o.shipConfirmed)return window.toast&&toast('Thợ cần nhập phí ship trước khi gửi tất toán.',1);
+      if(isShop(o.shipping)&&!o.shipConfirmed)return window.toast&&toast('Cần nhập phí ship trước khi gửi tất toán.',1);
       var files=[...((qs('#billFiles',form)||{}).files||[])];if(!files.length)return window.toast&&toast('Cần ít nhất một ảnh bill.',1);
       form.dataset.saving='1';if(btn){btn.disabled=true;btn.textContent='Đang gửi…'}
       try{

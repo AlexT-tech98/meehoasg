@@ -1,4 +1,4 @@
-const BUILD='2026.10.06-order-actions-v1';
+const BUILD='2026.10.06-order-actions-v2';
 const SUPABASE_URL=Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const encoder=new TextEncoder();
@@ -9,6 +9,7 @@ function num(v:unknown){if(typeof v==='number')return Number.isFinite(v)?v:0;let
 function fail(message:string,code?:string){return{ok:false,message,...(code?{code}:{})}}
 async function sha256(text:string){const b=new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(text)));return[...b].map(n=>n.toString(16).padStart(2,'0')).join('')}
 function newId(prefix:string){return prefix+'-'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase()}
+function ownsOrder(o:any,user:any){const sale=norm(o?.sale);return !!sale&&(sale===norm(user?.username)||sale===norm(user?.display_name))}
 
 async function rest(table:string,query:Record<string,string>={},method='GET',body?:unknown){
   const u=new URL(`${SUPABASE_URL}/rest/v1/${table}`);Object.entries(query).forEach(([k,v])=>u.searchParams.set(k,v));
@@ -40,8 +41,9 @@ async function uploadImages(files:any[]){
 }
 
 async function saveShipFee(body:any,user:any){
-  if(!['ADMIN','THO_OPS'].includes(user.role))return fail('Chỉ thợ hoặc Admin được nhập phí ship.','ROLE_REQUIRED');
+  if(!['ADMIN','THO_OPS','SALE'].includes(user.role))return fail('Tài khoản không có quyền nhập phí ship.','ROLE_REQUIRED');
   const id=clean(body.orderId),o=await one('orders',{id:`eq.${id}`,select:'*'});if(!o)return fail('Không tìm thấy đơn.');
+  if(user.role==='SALE'&&!ownsOrder(o,user))return fail('Sale chỉ được nhập phí ship đơn do mình phụ trách.','NOT_OWNER');
   if(o.settled)return fail('Đơn đã tất toán nên không thể đổi phí ship.');
   if(await activeSettlement(id))return fail('Đơn đang có yêu cầu tất toán nên phí ship đã khóa.');
   if(!norm(o.shipping).includes('shop'))return fail('Chỉ nhập phí ship cho đơn Shop book ship.');
@@ -57,11 +59,10 @@ async function submitSettlement(body:any,user:any){
   const id=clean(body.orderId),o=await one('orders',{id:`eq.${id}`,select:'*'});if(!o)return fail('Không tìm thấy đơn.');
   if(o.settled)return fail('Đơn đã tất toán.');
   if(await activeSettlement(id))return fail('Đơn đã có yêu cầu tất toán đang xử lý.');
-  const owner=norm(o.sale)===norm(user.username)||norm(o.sale)===norm(user.display_name);
-  if(user.role==='SALE'&&!owner)return fail('Bạn chỉ được tất toán đơn do mình phụ trách.','NOT_OWNER');
+  if(user.role==='SALE'&&!ownsOrder(o,user))return fail('Bạn chỉ được tất toán đơn do mình phụ trách.','NOT_OWNER');
   if(o.status!=='Đã giao')return fail('Chỉ gửi tất toán sau khi đơn đã giao.');
   const shop=norm(o.shipping).includes('shop');
-  if(shop&&!o.ship_confirmed)return fail('Thợ cần nhập phí ship thực tế trước khi Sale gửi tất toán.','SHIP_FEE_REQUIRED');
+  if(shop&&!o.ship_confirmed)return fail('Cần nhập phí ship thực tế trước khi gửi tất toán.','SHIP_FEE_REQUIRED');
   const files=Array.isArray(body.billFiles)?body.billFiles:[],existing=Array.isArray(body.billUrls)?body.billUrls.map(clean).filter(Boolean):[];
   const uploaded=await uploadImages(files),billUrls=[...new Set([...existing,...uploaded])];if(!billUrls.length)return fail('Cần ít nhất một ảnh bill.','BILL_REQUIRED');
   const accessory=accessoryTotal(o),ship=shop?num(o.ship_fee):0,required=num(o.flower_total)+accessory+num(o.vat)+ship,requestId=newId('SET');
