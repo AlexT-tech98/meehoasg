@@ -14,7 +14,7 @@ test('browser runtime is two consolidated frontend requests built from canonical
   assert.equal(metrics.schemaVersion,2);
   assert.equal(metrics.architecture,'single-owner-modules');
   assert.equal(metrics.runtimeRequestsAfter,2);
-  assert.equal(metrics.sourceRequestsBefore,14);
+  assert.equal(metrics.sourceRequestsBefore,metrics.cssFiles.length+metrics.jsFiles.length);
   assert.match(entry,CORE_CSS);
   assert.match(entry,CORE_JS);
   for(const source of [...metrics.cssFiles,...metrics.jsFiles]) assert.equal(entry.includes(source),false,`entry must not load ${source} directly`);

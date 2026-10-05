@@ -877,3 +877,84 @@
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
+
+/* ===== meehoa-order-actions.js ===== */
+/* Canonical owner: shipping fee and settlement submission business flow. */
+(function(){
+  'use strict';
+  var ENDPOINT='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-order-actions';
+  function qs(s,r){return (r||document).querySelector(s)}
+  function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function attr(s){return esc(s).replace(/`/g,'&#96;')}
+  function isShop(v){return /shop/i.test(String(v||''))}
+  function moneyDigits(v){return Number(String(v||'').replace(/\D/g,''))||0}
+  function money(v){return new Intl.NumberFormat('vi-VN').format(Number(v)||0)+'đ'}
+  function orderById(id){
+    if(!window.S)return null;
+    if(S.orders&&typeof S.orders.get==='function'){var direct=S.orders.get(id);if(direct)return direct}
+    var seen=new Set();
+    function walk(v){if(!v||typeof v!=='object'||seen.has(v))return null;seen.add(v);if(v.id===id)return v;if(v instanceof Map){var d=v.get(id);if(d)return d;for(var mv of v.values()){var mr=walk(mv);if(mr)return mr}return null}if(Array.isArray(v)){for(var i=0;i<v.length;i++){var a=walk(v[i]);if(a)return a}}else{for(var k in v){if(k==='user'||k==='options')continue;var r=walk(v[k]);if(r)return r}}return null}
+    return walk(S.data)||walk(S.cache)||walk(S.orders)||null;
+  }
+  async function call(action,payload){
+    if(!window.S||!S.token)throw new Error('Phiên đăng nhập không hợp lệ.');
+    var r=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action:action,token:S.token},payload||{}))});
+    var j=await r.json();if(!j.ok)throw new Error(j.message||'Không thực hiện được thao tác.');return j;
+  }
+  async function refresh(id,o){
+    if(window.gas&&window.applyCanonicalOrder){var r=await gas('getOrder',{orderId:id,sourceSheet:o&&o.sourceSheet||'',sourceRow:o&&o.sourceRow||0});if(r&&r.ok&&r.order){applyCanonicalOrder(r.order,o);return r.order}}
+    if(window.loadPage&&window.S&&S.page)await loadPage(S.page,true);
+    return orderById(id);
+  }
+  function canEditShip(){return !!(window.S&&S.user&&['ADMIN','THO_OPS'].includes(S.user.role))}
+  function patchShipButtons(root){
+    root=root||document;
+    qsa('[onclick*="openShipFeeForm"]',root).forEach(function(btn){
+      if(!canEditShip())btn.remove();
+    });
+  }
+  function patchProductionSelection(root){
+    if(!window.S||S.page!=='production')return;
+    qsa('input[type="checkbox"][onchange*="togglePick"]',root||document).forEach(function(cb){
+      var code=cb.getAttribute('onchange')||'',m=code.match(/togglePick\(['"]([^'"]+)/),o=m?orderById(m[1]):null;
+      if(o&&!o.canOperate){cb.checked=false;cb.disabled=true;cb.title='Đơn đã khóa hoặc tài khoản không có quyền thao tác';if(S.selected)S.selected.delete(o.id)}
+    });
+  }
+  function install(){
+    if(!window.MEEOPS7)return false;
+    MEEOPS7.openShipFeeForm=function(id){
+      if(!canEditShip())return window.toast&&toast('Chỉ thợ hoặc Admin được nhập phí ship.',1);
+      var o=orderById(id);if(!o||!isShop(o.shipping))return window.toast&&toast('Đơn này không thể nhập phí ship.',1);
+      if(o.locked)return window.toast&&toast('Đơn đang khóa, không thể đổi phí ship.',1);
+      var ov=qs('#overlay');if(!ov)return;var val=o.shipConfirmed?new Intl.NumberFormat('vi-VN').format(o.shipFee):'';
+      ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><form action="javascript:void(0)" class="modal" style="max-width:460px" onsubmit="MEEOPS7.submitShipFee(event,\''+attr(o.id)+'\')"><div class="modal-head"><div><h3 style="margin:0">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</h3><div class="sub">'+esc(o.customer)+' · '+esc(o.shipping)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><label>PHÍ SHIP THỰC TẾ</label><input name="shipFee" inputmode="numeric" value="'+attr(val)+'" oninput="MEEOPS7.formatMoneyInput(this)" required autofocus><div class="notice">Phí ship do thợ/Admin xác nhận và sẽ được khóa khi Sale gửi tất toán.</div><button class="btn primary full" style="margin-top:16px">Lưu phí ship</button></form></div>';
+    };
+    MEEOPS7.submitShipFee=async function(e,id){
+      e.preventDefault();var o=orderById(id),f=e.target;if(!o||!f)return;
+      try{var r=await call('saveShipFee',{orderId:id,shipFee:moneyDigits(f.shipFee.value)});if(window.orderMutationDirty)orderMutationDirty();await refresh(id,o);if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();if(window.toast)toast(r.message||'Đã cập nhật phí ship.')}catch(err){if(window.toast)toast(err.message||'Không cập nhật được phí ship.',1)}
+    };
+    MEEOPS7.settlementForm=function(id){
+      var o=orderById(id);if(!o)return;var ov=qs('#overlay');if(!ov)return;var shop=isShop(o.shipping),ready=!shop||!!o.shipConfirmed;
+      var shipBlock=shop?('<label>PHÍ SHIP THỰC TẾ</label><div class="mee-readonly-ship '+(ready?'':'missing')+'">'+(ready?money(o.shipFee):'CHƯA CÓ · thợ cần nhập phí ship trước')+'</div>'):'';
+      ov.innerHTML='<div class="modal-bg"><form action="javascript:void(0)" class="modal" id="settlementForm" onsubmit="MEEOPS7.submitSettlement(event,\''+attr(id)+'\')"><div class="modal-head"><div><h3 style="margin:0">Gửi yêu cầu tất toán</h3><div class="sub">'+esc(o.customer)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div>'+(shop?'<div class="notice">Sale không nhập/sửa phí ship tại bước này. Phí ship lấy từ phần xác nhận của thợ.</div>':'')+shipBlock+'<label>ẢNH BILL / CHUYỂN KHOẢN</label><input id="billFiles" type="file" accept="image/*" multiple required><label>GHI CHÚ</label><textarea name="note"></textarea><button id="settlementSubmit" class="btn primary full" style="margin-top:16px" '+(ready?'':'disabled')+'>Gửi yêu cầu tất toán</button></form></div>';
+    };
+    MEEOPS7.submitSettlement=async function(e,id){
+      e.preventDefault();var form=e.target,btn=qs('#settlementSubmit',form),o=orderById(id);if(!o||form.dataset.saving==='1')return;
+      if(isShop(o.shipping)&&!o.shipConfirmed)return window.toast&&toast('Thợ cần nhập phí ship trước khi gửi tất toán.',1);
+      var files=[...((qs('#billFiles',form)||{}).files||[])];if(!files.length)return window.toast&&toast('Cần ít nhất một ảnh bill.',1);
+      form.dataset.saving='1';if(btn){btn.disabled=true;btn.textContent='Đang gửi…'}
+      try{
+        var billFiles=await Promise.all(files.map(function(file){return new Promise(function(resolve,reject){var r=new FileReader();r.onload=function(){resolve({name:file.name,type:file.type,data:r.result})};r.onerror=function(){reject(new Error('Không đọc được ảnh bill.'))};r.readAsDataURL(file)})}));
+        var r=await call('submitSettlement',{orderId:id,billFiles:billFiles,note:(qs('[name="note"]',form)||{}).value||''});
+        if(window.orderMutationDirty)orderMutationDirty();await refresh(id,o);if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();if(window.toast)toast(r.message||'Đã gửi tất toán.');
+      }catch(err){form.dataset.saving='0';if(btn){btn.disabled=false;btn.textContent='Gửi yêu cầu tất toán'}if(window.toast)toast(err.message||'Không gửi được tất toán.',1)}
+    };
+    var oldToggle=MEEOPS7.togglePick;
+    MEEOPS7.togglePick=function(id,v){var o=orderById(id);if(v&&o&&!o.canOperate){if(window.toast)toast('Đơn đã khóa hoặc bạn không có quyền thao tác.',1);return}return oldToggle&&oldToggle.apply(this,arguments)};
+    return true;
+  }
+  function patch(){install();patchShipButtons(qs('#overlay')||document);patchProductionSelection(qs('#content')||document)}
+  function init(){patch();var content=qs('#content'),overlay=qs('#overlay');if(content)new MutationObserver(function(){setTimeout(patch,20)}).observe(content,{childList:true,subtree:true});if(overlay)new MutationObserver(function(){setTimeout(patch,0)}).observe(overlay,{childList:true,subtree:true});}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();
