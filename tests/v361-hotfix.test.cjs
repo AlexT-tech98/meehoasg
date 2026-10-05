@@ -5,9 +5,10 @@ const fs = require('node:fs');
 const entry = fs.readFileSync('index.html', 'utf8');
 const api = fs.readFileSync('supabase/functions/meehoasg-api-v361/index.js', 'utf8');
 const ui = fs.readFileSync('assets/meehoa-v361.js', 'utf8');
+const css = fs.readFileSync('assets/meehoa-v361.css', 'utf8');
 const core = fs.readFileSync('assets/meehoa-core.js', 'utf8');
 
-test('v361 UI behavior is preserved inside the consolidated frontend core', () => {
+test('dashboard owner is preserved inside the consolidated frontend core', () => {
   assert.match(entry, /meehoasg-api-core/);
   assert.match(entry, /meehoa-core\.js\?v=[A-Za-z0-9._-]+/);
   assert.match(core, /===== meehoa-v361\.js =====/);
@@ -28,17 +29,14 @@ test('materials use direct session authentication instead of production-route de
   assert.doesNotMatch(flowerFn, /delegate\('getProductionOrders'/);
 });
 
-test('dashboard UI is compact and report table precedes bottom chart', () => {
+test('dashboard UI has one compact summary and one report table, without legacy chart injection', () => {
   assert.match(ui, /mee-dashboard-summary/);
   assert.match(ui, /Chưa tất toán/);
   assert.match(ui, /Đã tất toán/);
   assert.match(ui, /Báo cáo doanh thu theo nhân viên \/ ngày/);
-  assert.match(ui, /mee-chart-grid mee-v361-charts/);
-  assert.ok(ui.indexOf('mee-v361-table-wrap') < ui.indexOf('mee-chart-grid mee-v361-charts'));
-});
-
-test('desktop hotfix cancels the stale 228px topbar offset and constrains KPI cards', () => {
-  assert.match(ui, /\.topbar\{left:0!important/);
-  assert.match(ui, /repeat\(4,minmax\(0,1fr\)\)/);
-  assert.match(ui, /sales-kpi-card\{min-width:0!important/);
+  assert.doesNotMatch(ui, /mee-v361-charts/);
+  assert.doesNotMatch(ui, /injectStyles/);
+  assert.doesNotMatch(ui, /patchFit/);
+  assert.match(css, /\.mee-dashboard-summary/);
+  assert.match(css, /\.mee-v361-table-wrap/);
 });
