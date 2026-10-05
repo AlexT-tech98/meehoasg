@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const api = fs.readFileSync('supabase/functions/meehoasg-api-v36/index.js', 'utf8');
 const index = fs.readFileSync('index.html', 'utf8');
 const ui = fs.readFileSync('assets/meehoa-v35.js', 'utf8');
+const css = fs.readFileSync('assets/meehoa-v35.css', 'utf8');
 const mark = fs.readFileSync('assets/meehoa-mark.svg', 'utf8');
 
 test('refactor routes browser traffic through consolidated API and frontend cores', () => {
@@ -36,13 +37,14 @@ test('materials authorization fails closed before direct database analysis', () 
   assert.match(api, /if \(!permission\.data\?\.ok\) result = permission\.data/);
 });
 
-test('UI contains material drawers, settlement copy, grid and single-scroll fixes', () => {
+test('production/materials owner keeps runtime behavior and static styling separated', () => {
   assert.match(ui, /Đã thu đủ tiền hoa/);
-  assert.match(ui, /Doanh thu theo nhân viên \/ ngày/);
   assert.match(ui, /Nguyên liệu AI theo đơn/);
   assert.match(ui, /openMaterialDrawer/);
-  assert.match(ui, /\.topbar\{position:fixed!important/);
-  assert.match(ui, /body\.mee-page-production \.ops-lines\{display:grid!important/);
+  assert.doesNotMatch(ui, /Doanh thu theo nhân viên \/ ngày/);
+  assert.doesNotMatch(ui, /injectV36Styles/);
+  assert.match(css, /body\.mee-page-production \.ops-lines\{display:grid!important/);
+  assert.match(css, /\.mee-materials-grid/);
 });
 
 test('Meehoa favicon mark is transparent and enlarged', () => {
