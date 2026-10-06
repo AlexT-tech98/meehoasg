@@ -11,13 +11,16 @@ test('refactor shell points to consolidated API and frontend cores',()=>{
   assert.doesNotMatch(s,/meehoa-scroll-contract\.css\?v=/);
 });
 
-test('order patch adds card quantity and multiline fields',()=>{
-  const s=fs.readFileSync('assets/meehoa-v366.js','utf8');
-  assert.match(s,/name=\"cardQty\"/);
-  assert.match(s,/10\.000đ × số lượng/);
-  assert.match(s,/replaceTextInput/);
-  assert.match(s,/flowerTotal','depositAmount','charmFee','paperFee','vat/);
-  assert.match(s,/dataset\.meeHideCreateV365/);
+test('canonical base form owns card quantity and latest runtime only enhances fields',()=>{
+  const base=fs.readFileSync('html','utf8');
+  const latest=fs.readFileSync('assets/meehoa-v366.js','utf8');
+  assert.match(base,/name="cardQty"/);
+  assert.match(base,/10\.000đ \/ thiệp/);
+  assert.match(base,/function accessoryEditor/);
+  assert.match(latest,/replaceTextInput/);
+  assert.match(latest,/flowerTotal','depositAmount','charmFee','paperFee','vat','shipFee/);
+  assert.doesNotMatch(latest,/function patchCardQty/);
+  assert.match(latest,/dataset\.meeHideCreateV365/);
 });
 
 test('canonical responsive CSS owns desktop left rail, login and order ergonomics',()=>{
