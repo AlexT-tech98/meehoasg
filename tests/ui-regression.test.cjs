@@ -53,11 +53,12 @@ test('global search is shown only on Orders until production search has a real i
 });
 
 test('production entrypoint loads consolidated core only', () => {
-  assert.match(entry, /prod-base=20261003-v365/);
+  assert.match(entry, /var RELEASE='\d{8}[-\w]*'/);
+  assert.match(entry, /var SHELL_URL='\\/html\\?prod-base='\+RELEASE/);
   assert.match(entry, /meehoa-core\.css\?v=[A-Za-z0-9._-]+/);
   assert.match(entry, /meehoa-core\.js\?v=[A-Za-z0-9._-]+/);
   assert.match(entry, /meehoa-mark\.svg\?v=7/);
   assert.match(entry, /meehoasg-api-core/);
-  assert.match(entry, /meehoa-shell-core-\d{8}[-\w]*/);
+  assert.match(entry, /var SHELL_KEY='meehoa-shell-core-'\+RELEASE/);
   assert.doesNotMatch(entry, /meehoa-(?:v\d+|.*hotfix|.*fix)\.(?:css|js)\?v=/);
 });
