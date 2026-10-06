@@ -281,3 +281,162 @@
   #orderForm .accessory-box{margin-left:12px!important;margin-right:12px!important}
   #orderForm #orderSubmit{width:calc(100% - 24px)!important;margin-left:12px!important;margin-right:12px!important}
 }
+
+
+/* 20/10 compact accessory workflow + structured order detail */
+#orderForm .mee-accessory-box{
+  padding:0!important;
+  overflow:visible!important;
+}
+#orderForm .mee-accessory-box:after{display:none!important}
+#orderForm .mee-accessory-head{
+  width:100%;
+  min-height:64px;
+  padding:14px 16px;
+  border:0;
+  background:transparent;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  text-align:left;
+  cursor:pointer;
+  position:relative;
+  z-index:2;
+}
+#orderForm .mee-accessory-head > span:first-child{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+#orderForm .mee-accessory-head b{
+  font-size:12px;
+  letter-spacing:.07em;
+  color:#624f37;
+}
+#orderForm .mee-accessory-head small{
+  font-size:11px;
+  color:#a24b61;
+  font-weight:750;
+}
+#orderForm .mee-accessory-chevron{
+  width:30px;height:30px;border-radius:10px;
+  display:grid;place-items:center;
+  background:rgba(255,255,255,.72);
+  color:#6a5a50;font-size:18px;
+  transition:transform .18s ease;
+}
+#orderForm .mee-accessory-box.is-open .mee-accessory-chevron{transform:rotate(180deg)}
+#orderForm .mee-accessory-body{
+  padding:0 14px 14px;
+  position:relative;
+  z-index:3;
+}
+#orderForm .mee-accessory-toolbar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 0 12px;
+  border-top:1px solid rgba(116,83,57,.08);
+}
+#orderForm .mee-accessory-add-wrap{position:relative;flex:0 0 auto}
+#orderForm .mee-accessory-add{height:38px!important;border-radius:12px!important}
+#orderForm .mee-accessory-menu{
+  position:absolute;right:0;top:44px;z-index:20;
+  width:230px;padding:7px;
+  background:#fff;border:1px solid rgba(70,51,43,.10);
+  border-radius:14px;box-shadow:0 16px 38px rgba(52,38,31,.16);
+}
+#orderForm .mee-accessory-menu-item{
+  width:100%;border:0;background:transparent;padding:10px 11px;
+  border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  color:var(--text-primary);cursor:pointer;text-align:left;
+}
+#orderForm .mee-accessory-menu-item:hover{background:#f7f5f1}
+#orderForm .mee-accessory-menu-item.is-selected{background:#edf8f3;color:#24745b}
+#orderForm .mee-accessory-menu-item small{color:var(--text-muted);font-size:10px}
+#orderForm .mee-accessory-items{display:grid;gap:10px}
+#orderForm .mee-accessory-item{
+  padding:12px;border-radius:15px;
+  background:rgba(255,255,255,.80);
+  border:1px solid rgba(97,71,60,.08);
+  box-shadow:0 4px 14px rgba(64,45,38,.035);
+}
+#orderForm .mee-accessory-item-head{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px
+}
+#orderForm .mee-accessory-item-head .check{
+  margin:0!important;padding:0!important;background:transparent!important;
+  min-height:28px!important;display:flex!important;grid-template-columns:none!important
+}
+#orderForm .mee-accessory-remove{
+  border:0;background:#fff0f3;color:#c85a71;width:28px;height:28px;
+  border-radius:9px;font-size:18px;cursor:pointer
+}
+#orderForm .mee-card-qty-native{
+  display:grid;grid-template-columns:1fr 100px;gap:12px;align-items:end;margin:8px 0 10px
+}
+#orderForm .mee-card-qty-native input{height:40px!important;text-align:center!important}
+#orderForm .mee-accessory-fee-grid{
+  display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px
+}
+#orderForm .mee-accessory-total{
+  margin-top:12px;padding:12px 14px;border:1px dashed rgba(36,116,91,.34);
+  border-radius:13px;background:rgba(238,249,244,.78);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  font-size:12px
+}
+#orderForm .mee-accessory-total b{font-size:15px;color:#177356}
+#orderForm .hidden{display:none!important}
+
+/* Detail drawer: note/card content is readable and finance only shows amounts */
+.mee-detail-stack{display:flex;flex-direction:column;gap:12px}
+.mee-detail-section{
+  background:var(--bg-subtle);border:1px solid var(--border);
+  border-radius:var(--radius-lg);padding:14px;min-width:0
+}
+.mee-detail-section-head{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin-bottom:9px;font-size:11px;font-weight:800;
+  color:var(--text-secondary);letter-spacing:.045em
+}
+.mee-detail-section-head .btn{height:30px!important;padding:0 10px!important;font-size:11px!important}
+.mee-detail-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;font-size:13px
+}
+.mee-detail-grid > div{min-width:0}
+.mee-detail-grid > div > span{
+  display:block;margin-bottom:3px;font-size:11px;color:var(--text-muted)
+}
+.mee-detail-grid .span2{grid-column:1/-1}
+.mee-detail-text{
+  white-space:normal;overflow-wrap:anywhere;
+  font-size:13px;line-height:1.6;color:var(--text-primary)
+}
+.mee-detail-note{background:linear-gradient(145deg,#fffdf8,#fff8e8)}
+.mee-detail-card{background:linear-gradient(145deg,#fff,#fff0f4)}
+.mee-detail-card .mee-detail-text{color:#c74663}
+.mee-detail-shipping{background:linear-gradient(145deg,#fff,#eff8ff)}
+.mee-finance-row,.mee-finance-accessory-title,.mee-finance-accessories>div:not(.mee-finance-accessory-title){
+  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  padding:5px 0;font-size:13px
+}
+.mee-finance-accessories{
+  margin:5px 0;padding:8px 10px;border-radius:12px;
+  background:#fff3f6;border:1px solid rgba(220,88,113,.12)
+}
+.mee-finance-accessory-title{padding-top:0!important;font-weight:750;color:#c54b67}
+.mee-finance-total{
+  display:flex;justify-content:space-between;gap:12px;
+  padding:10px 0 2px;margin-top:7px;border-top:1px solid var(--border);
+  font-size:15px;font-weight:800
+}
+
+@media(max-width:900px){
+  #orderForm .mee-accessory-toolbar{align-items:flex-start;flex-direction:column}
+  #orderForm .mee-accessory-add-wrap,#orderForm .mee-accessory-add{width:100%!important}
+  #orderForm .mee-accessory-menu{left:0;right:auto;width:min(100%,280px)}
+  #orderForm .mee-accessory-fee-grid,#orderForm .mee-card-qty-native{grid-template-columns:1fr}
+  .mee-detail-grid{grid-template-columns:1fr}
+  .mee-detail-grid .span2{grid-column:1}
+  .mee-detail-section{padding:12px}
+  .mee-detail-text{line-height:1.55}
+}
