@@ -42,3 +42,25 @@ test('hourly rendered rows preserve labels, counts and proportional bars',()=>{
   assert.equal(Math.round(fifteen.percent),100);
   assert.equal(Math.round(ten.percent),50);
 });
+
+
+test('hourly render is idempotent and does not create a MutationObserver feedback loop',()=>{
+  const code=fs.readFileSync('assets/meehoa-v361.js','utf8');
+  let writes=0;
+  const section={dataset:{},_html:'',set innerHTML(v){writes++;this._html=v},get innerHTML(){return this._html}};
+  const root={querySelector(sel){return sel==='#meeHourlySingleV361'?section:null}};
+  const window={__MEE_TEST_MODE__:true};
+  const document={readyState:'loading',addEventListener(){},querySelector(){return null}};
+  const context={window,document,Intl,setTimeout,clearTimeout,console};
+  vm.createContext(context);
+  vm.runInContext(code,context);
+  const api=window.__MEE_DASHBOARD_V361_TEST__;
+  api.hourlyState.loading=false;
+  api.hourlyState.error='';
+  api.hourlyState.rows=api.hourlyModel([{time:'10:00'},{time:'15:00'},{time:'15:30'}]);
+  api.renderHourly(root);
+  api.renderHourly(root);
+  assert.equal(writes,1);
+  assert.match(section.innerHTML,/10:00–10:59/);
+  assert.match(section.innerHTML,/15:00–15:59/);
+});
