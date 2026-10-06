@@ -3,7 +3,7 @@ const assert=require('assert');
 const p='supabase/functions/meehoasg-api-core/index.js';
 assert.ok(fs.existsSync(p),'consolidated core must exist');
 const s=fs.readFileSync(p,'utf8');
-assert.ok(s.includes("const BUILD='2026.10.04-core2'"),'core2 build marker must be current');
+assert.ok(s.includes("const BUILD='2026.10.06-core3-dedupe'"),'core3 dedupe build marker must be current');
 assert.ok(s.includes("const LEGACY_API=`${SUPABASE_URL}/functions/v1/meehoasg-api`"),'remaining compatibility fallback may only call legacy API directly');
 for(const old of ['meehoasg-api-v36','meehoasg-api-v361','meehoasg-api-v362','meehoasg-api-v363','meehoasg-api-v364','meehoasg-api-v365']) assert.ok(!s.includes(`/functions/v1/${old}`),`core must not chain through ${old}`);
 for(const route of ["name==='loginAndBootstrap'","name==='getCurrentUserAndBootstrap'","name==='getProductionOrders'","name==='getOrders'","name==='getDashboardSummary'","name==='getKpi'","name==='getFlowerInventory'"]) assert.ok(s.includes(route),`${route} must be routed directly in core`);
@@ -16,5 +16,5 @@ assert.ok(s.includes("if(!r.settled)continue"),'KPI revenue must only use settle
 assert.ok(s.includes('cardQty(row)*10000'),'card quantity must affect accessory total');
 assert.ok(s.includes('imageRetentionApplied:true'),'edit-order image deletion/retention must survive consolidation');
 assert.ok(s.includes("proxy:'core2'"),'perf output must identify consolidated core2');
-assert.ok(s.includes("legacyFallback:!['loginAndBootstrap','getCurrentUserAndBootstrap','getProductionOrders','getOrders','getDashboardSummary','getKpi','getFlowerInventory'].includes(name)"),'critical startup/read routes must not report legacy fallback');
-console.log('consolidated core2 contract OK');
+assert.ok(s.includes("legacyFallback:!['loginAndBootstrap','getCurrentUserAndBootstrap','getProductionOrders','getOrders','getDashboardSummary','getKpi','getFlowerInventory','createOrder'].includes(name)"),'critical startup/read/create routes must not report legacy fallback');
+console.log('consolidated core3 contract OK');
