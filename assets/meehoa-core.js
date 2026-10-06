@@ -357,11 +357,23 @@
 
   function renderHourly(el){
     if(!el)return;
-    var section=hourSection(el),rows=hourlyState.rows||[];
-    if(hourlyState.loading&&!rows.length){section.innerHTML='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Đang tải…</small></div>';return}
-    if(hourlyState.error){section.innerHTML='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Không tải được dữ liệu</small></div><div class="mee-v361-empty">'+esc(hourlyState.error)+' <button type="button" class="btn secondary" onclick="MEE_DASHBOARD_V361_RETRY()">Thử lại</button></div>';return}
-    if(!rows.length){section.innerHTML='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Chỉ hiện giờ có đơn</small></div><div class="mee-v361-empty">Hôm nay chưa có đơn có giờ nhận.</div>';return}
-    section.innerHTML='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Chỉ hiện giờ có đơn</small></div><div class="mee-hour-bars">'+hourlyHtml(rows)+'</div>';
+    var section=hourSection(el),rows=hourlyState.rows||[],html='',sig='';
+    if(hourlyState.loading&&!rows.length){
+      sig='loading';
+      html='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Đang tải…</small></div>';
+    }else if(hourlyState.error){
+      sig='error|'+hourlyState.error;
+      html='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Không tải được dữ liệu</small></div><div class="mee-v361-empty">'+esc(hourlyState.error)+' <button type="button" class="btn secondary" onclick="MEE_DASHBOARD_V361_RETRY()">Thử lại</button></div>';
+    }else if(!rows.length){
+      sig='empty';
+      html='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Chỉ hiện giờ có đơn</small></div><div class="mee-v361-empty">Hôm nay chưa có đơn có giờ nhận.</div>';
+    }else{
+      sig='rows|'+rows.map(function(x){return x.hour+':'+x.count}).join(',');
+      html='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Chỉ hiện giờ có đơn</small></div><div class="mee-hour-bars">'+hourlyHtml(rows)+'</div>';
+    }
+    if(section.dataset.v361HourlySig===sig)return;
+    section.dataset.v361HourlySig=sig;
+    section.innerHTML=html;
   }
 
   async function loadHourly(el,force){
@@ -410,7 +422,7 @@
     if(hourlyState.dashboardRef!==r){hourlyState.dashboardRef=r;loadHourly(el,true)}else renderHourly(el);
   }
 
-  if(window.__MEE_TEST_MODE__)window.__MEE_DASHBOARD_V361_TEST__={hourlyModel:hourlyModel,hourlyHtml:hourlyHtml};
+  if(window.__MEE_TEST_MODE__)window.__MEE_DASHBOARD_V361_TEST__={hourlyModel:hourlyModel,hourlyHtml:hourlyHtml,renderHourly:renderHourly,hourlyState:hourlyState};
 
   var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patchDashboard,45)}
   function init(){patchDashboard();var content=qs('#content');if(content)new MutationObserver(function(ms){if(ms.some(function(m){return m.type==='childList'&&(m.addedNodes.length||m.removedNodes.length)}))schedule()}).observe(content,{childList:true,subtree:true})}

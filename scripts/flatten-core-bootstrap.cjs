@@ -2,9 +2,9 @@ const fs=require('node:fs');
 const path=require('node:path');
 const file=path.join(__dirname,'..','supabase','functions','meehoasg-api-core','index.js');
 let s=fs.readFileSync(file,'utf8');
-if(s.includes("const BUILD='2026.10.04-core2'")){
+if(s.includes("async function loginAndBootstrapCore")&&s.includes("async function fastProduction")){
   const next=s.replace("proxy:'core1'","proxy:'core2'");
-  if(next!==s){fs.writeFileSync(file,next);console.log('Core2 marker normalized.')}else console.log('Core bootstrap already flattened.');
+  if(next!==s){fs.writeFileSync(file,next);console.log('Flattened core marker normalized.')}else console.log('Core bootstrap already flattened.');
   process.exit(0);
 }
 
