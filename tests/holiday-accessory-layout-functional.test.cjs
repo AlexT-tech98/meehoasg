@@ -37,7 +37,7 @@ test('accessory editor is collapsed by default and exposes exactly the approved 
   const editor=vm.runInContext('('+editorFn+')',ctx);
   const html=editor({});
   assert.match(html,/PHỤ KIỆN/);
-  assert.match(html,/id="accessoryBody"[^>]*hidden/);
+  assert.match(html,/class="mee-accessory-body hidden" id="accessoryBody"/);
   for(const label of ['Thiệp','Banner','Phí ship','Thay giấy','Đính charm','VAT'])assert.match(html,new RegExp(label));
   assert.equal((html.match(/data-accessory-menu=/g)||[]).length,6);
 });
