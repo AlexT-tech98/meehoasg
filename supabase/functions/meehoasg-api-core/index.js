@@ -49,6 +49,9 @@ function decorate(row,user,settlement,dir){const contact=contactFields(row),acc=
 
 
 function phoneKey(v){return clean(v).replace(/\D/g,'')}
+function operationalDuplicateCandidate(row,target){
+  return !row.deleted&&row.identity===target.identity&&row.sale===target.sale&&row.amount===target.amount&&row.shipping===target.shipping&&row.payment===target.payment;
+}
 async function decoratedExisting(row,user,dir){
   const sm=await settlementMap([row.id]);
   return decorate({...row,image_urls:await displayUrls(row.image_urls||[])},user,sm[row.id],dir);
@@ -63,11 +66,11 @@ async function safeCreateOrder(request,input){
   if(date&&time&&(phone||customer)){
     const targetRaw=user.role==='SALE'?user.username:clean(order.sale||user.username),targetCanon=canonicalSale(targetRaw,dir),targetSale=saleKey(targetCanon.username||targetRaw);
     const rows=await all('orders',{order_date:`eq.${date}`,order_time:`eq.${time}`,order:'created_at.desc'});
+    const target={identity:phone?'p:'+phone+'|c:'+customer:'c:'+customer,sale:targetSale,amount:amount,shipping:shipping,payment:payment};
     const duplicate=rows.find(function(row){
-      if(row.delete_after_sheet_sync)return false;
-      const rowCanon=canonicalSale(row.sale,dir),rowSale=saleKey(rowCanon.username||row.sale);
-      const sameIdentity=phone?phoneKey(row.phone)===phone&&(!customer||norm(row.customer)===customer):norm(row.customer)===customer;
-      return sameIdentity&&rowSale===targetSale&&num(row.flower_total)===amount&&norm(row.shipping)===shipping&&norm(row.payment)===payment;
+      const rowCanon=canonicalSale(row.sale,dir),rowSale=saleKey(rowCanon.username||row.sale),rowCustomer=norm(row.customer),rowPhone=phoneKey(row.phone);
+      const identity=phone?'p:'+rowPhone+'|c:'+rowCustomer:'c:'+rowCustomer;
+      return operationalDuplicateCandidate({deleted:!!row.delete_after_sheet_sync,identity:identity,sale:rowSale,amount:num(row.flower_total),shipping:norm(row.shipping),payment:norm(row.payment)},target);
     });
     if(duplicate&&!payload.forceDuplicate){
       return {status:200,data:{ok:true,deduplicated:true,duplicatePrevented:true,orderId:duplicate.id,order:await decoratedExisting(duplicate,user,dir),message:'Đơn này đã có trên hệ thống — không tạo thêm bản trùng.'}};
