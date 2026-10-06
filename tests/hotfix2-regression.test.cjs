@@ -12,7 +12,8 @@ test('canonical ops runtime parses and production shell loads only consolidated 
   assert.doesNotThrow(() => new vm.Script(dashboard));
   assert.match(entry, /meehoa-core\.js\?v=[A-Za-z0-9._-]+/);
   assert.match(entry, /meehoa-core\.css\?v=[A-Za-z0-9._-]+/);
-  assert.match(entry, /meehoa-shell-core-\d{8}[-\w]*/);
+  assert.match(entry, /var RELEASE='\d{8}[-\w]*'/);
+  assert.match(entry, /var SHELL_KEY='meehoa-shell-core-'\+RELEASE/);
   assert.doesNotMatch(entry, /meehoa-runtime-fix-20261005/);
   assert.doesNotMatch(entry, /meehoa-hotfix-20261005/);
   assert.doesNotMatch(entry, /meehoa-ops-hotfix2/);
