@@ -1,4 +1,4 @@
-const BUILD='2026.10.06-core3-dedupe';
+const BUILD='2026.10.06-core4-accessory';
 const UI_BUILD='2026.09.28-supabase-v3';
 const SUPABASE_URL=Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -52,6 +52,23 @@ function phoneKey(v){return clean(v).replace(/\D/g,'')}
 function operationalDuplicateCandidate(row,target){
   return !row.deleted&&row.identity===target.identity&&row.sale===target.sale&&row.amount===target.amount&&row.shipping===target.shipping&&row.payment===target.payment;
 }
+function formShipFeeError(payload){
+  const o=payload?.order||{},active=clean(o.shipFeeActive)==='1';
+  if(active&&!norm(o.shipping).includes('shop'))return'Phí ship chỉ dùng cho đơn Shop book ship.';
+  if(active&&num(o.shipFee)<0)return'Phí ship không hợp lệ.';
+  return'';
+}
+async function persistFormExtras(name,payload,result){
+  result=await persistCardQty(name,payload,result);
+  if(!result?.ok||!['createOrder','updateOrder'].includes(name))return result;
+  const id=result.orderId||result.order?.id,o=payload?.order||{};
+  if(id&&Object.prototype.hasOwnProperty.call(o,'shipFeeActive')){
+    const active=clean(o.shipFeeActive)==='1',patch=active?{ship_fee:num(o.shipFee),ship_confirmed:true}:{ship_fee:0,ship_confirmed:false};
+    await db('orders',{id:`eq.${id}`},'PATCH',{...patch,updated_at:new Date().toISOString()});
+    if(result.order)result={...result,order:{...result.order,shipFee:patch.ship_fee,shipConfirmed:patch.ship_confirmed,shipFeePending:norm(o.shipping).includes('shop')&&!patch.ship_confirmed}};
+  }
+  return result;
+}
 async function decoratedExisting(row,user,dir){
   const sm=await settlementMap([row.id]);
   return decorate({...row,image_urls:await displayUrls(row.image_urls||[])},user,sm[row.id],dir);
@@ -59,6 +76,7 @@ async function decoratedExisting(row,user,dir){
 async function safeCreateOrder(request,input){
   const payload=input.payload&&typeof input.payload==='object'?input.payload:{},user=await requireUser(payload),order=payload.order||{},requestId=clean(payload.requestId);
   if(!requestId)return {status:200,data:fail('Thiếu mã chống tạo trùng.','REQUEST_ID_REQUIRED')};
+  const shipBad=formShipFeeError(payload);if(shipBad)return {status:200,data:fail(shipBad,'SHIP_FEE_INVALID')};
   const dir=await saleDirectory();
   const prior=await one('orders',{request_id:`eq.${requestId}`});
   if(prior)return {status:200,data:{ok:true,idempotent:true,duplicatePrevented:true,orderId:prior.id,order:await decoratedExisting(prior,user,dir),message:'Đơn đã tồn tại — hệ thống không tạo thêm đơn trùng.'}};
@@ -77,7 +95,7 @@ async function safeCreateOrder(request,input){
     }
   }
   const up=await delegate(request,input);
-  return {status:up.status,data:await persistCardQty('createOrder',payload,up.data)};
+  return {status:up.status,data:await persistFormExtras('createOrder',payload,up.data)};
 }
 
 async function fastProduction(payload){const user=await requireUser(payload),dir=await saleDirectory(),date=clean(payload.date)||dateToday(),rows=await all('orders',{and:`(order_date.gte.${date},order_date.lte.${date})`,order:'order_time.asc'}),sm=await settlementMap(rows.map(r=>r.id));const orders=await Promise.all(rows.map(async r=>decorate({...r,image_urls:await displayUrls(r.image_urls||[])},user,sm[r.id],dir)));return {ok:true,date,orders,visibilityRule:'SALE_READ_ALL_EDIT_OWN'}}
@@ -107,4 +125,4 @@ async function currentBootstrapCore(payload){const user=await requireUser(payloa
 
 async function bootstrapPatch(name,payload,result){if(!result?.ok||!result.initial?.page)return result;const token=name==='loginAndBootstrap'?clean(result.token):clean(payload.token);if(!token)return result;const day=dateToday(),p=result.initial.page;let data=result.initial.data;if(p==='orders')data=await fastOrders({token,start:day,end:day,page:1,pageSize:80});else if(p==='dashboard')data=await fastDashboard({token,start:day,end:day});else if(p==='production'){const up=await delegate({headers:new Headers()}, {name:'getProductionOrders',payload:{token,date:day}});data=up.data}return{...result,initial:{...result.initial,data,at:Date.now()}}}
 
-Deno.serve(async request=>{const origin=request.headers.get('origin')||'',allow=ALLOWED.includes(origin)?origin:ALLOWED[0],cors={'Access-Control-Allow-Origin':allow,'Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'content-type, authorization, apikey','Content-Type':'application/json; charset=utf-8','Vary':'Origin'};if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors});if(request.method!=='POST')return new Response(JSON.stringify(fail('Method not allowed')),{status:405,headers:cors});const started=Date.now();try{const input=await request.json(),name=clean(input?.name),payload=input?.payload&&typeof input.payload==='object'?input.payload:{};let status=200,result;if(name==='loginAndBootstrap')result=await loginAndBootstrapCore(payload);else if(name==='getCurrentUserAndBootstrap')result=await currentBootstrapCore(payload);else if(name==='getProductionOrders')result=await fastProduction(payload);else if(name==='getOrders')result=await fastOrders(payload);else if(name==='getDashboardSummary')result=await fastDashboard(payload);else if(name==='getKpi')result=await fastKpi(payload);else if(name==='getFlowerInventory')result=await flowerInventory(payload);else if(name==='createOrder'){const up=await safeCreateOrder(request,input);status=up.status;result=up.data}else if(name==='updateOrder'){const up=await delegateUpdateWithImages(request,input);status=up.status;result=await persistCardQty(name,payload,up.data)}else{const up=await delegate(request,input);status=up.status;result=await persistCardQty(name,payload,up.data);if(name==='loginAndBootstrap'||name==='getCurrentUserAndBootstrap')result=await bootstrapPatch(name,payload,result)}return new Response(JSON.stringify({...result,build:UI_BUILD,coreBuild:BUILD,_perf:{...(result?._perf||{}),serverMs:Date.now()-started,proxy:'core2',legacyFallback:!['loginAndBootstrap','getCurrentUserAndBootstrap','getProductionOrders','getOrders','getDashboardSummary','getKpi','getFlowerInventory','createOrder'].includes(name)}}),{status,headers:cors})}catch(error){const msg=String(error?.message||'Máy chủ gặp lỗi. Vui lòng thử lại.'),auth=/Phiên đăng nhập|Tài khoản đã bị khóa|Không có quyền/.test(msg);return new Response(JSON.stringify({...fail(auth?msg:'Máy chủ gặp lỗi. Vui lòng thử lại.',auth?'AUTH_REQUIRED':'SERVER_ERROR'),build:UI_BUILD,coreBuild:BUILD}),{status:200,headers:cors})}});
+Deno.serve(async request=>{const origin=request.headers.get('origin')||'',allow=ALLOWED.includes(origin)?origin:ALLOWED[0],cors={'Access-Control-Allow-Origin':allow,'Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'content-type, authorization, apikey','Content-Type':'application/json; charset=utf-8','Vary':'Origin'};if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors});if(request.method!=='POST')return new Response(JSON.stringify(fail('Method not allowed')),{status:405,headers:cors});const started=Date.now();try{const input=await request.json(),name=clean(input?.name),payload=input?.payload&&typeof input.payload==='object'?input.payload:{};let status=200,result;if(name==='loginAndBootstrap')result=await loginAndBootstrapCore(payload);else if(name==='getCurrentUserAndBootstrap')result=await currentBootstrapCore(payload);else if(name==='getProductionOrders')result=await fastProduction(payload);else if(name==='getOrders')result=await fastOrders(payload);else if(name==='getDashboardSummary')result=await fastDashboard(payload);else if(name==='getKpi')result=await fastKpi(payload);else if(name==='getFlowerInventory')result=await flowerInventory(payload);else if(name==='createOrder'){const up=await safeCreateOrder(request,input);status=up.status;result=up.data}else if(name==='updateOrder'){const shipBad=formShipFeeError(payload);if(shipBad)result=fail(shipBad,'SHIP_FEE_INVALID');else{const up=await delegateUpdateWithImages(request,input);status=up.status;result=await persistFormExtras(name,payload,up.data)}}else{const up=await delegate(request,input);status=up.status;result=await persistCardQty(name,payload,up.data);if(name==='loginAndBootstrap'||name==='getCurrentUserAndBootstrap')result=await bootstrapPatch(name,payload,result)}return new Response(JSON.stringify({...result,build:UI_BUILD,coreBuild:BUILD,_perf:{...(result?._perf||{}),serverMs:Date.now()-started,proxy:'core2',legacyFallback:!['loginAndBootstrap','getCurrentUserAndBootstrap','getProductionOrders','getOrders','getDashboardSummary','getKpi','getFlowerInventory','createOrder'].includes(name)}}),{status,headers:cors})}catch(error){const msg=String(error?.message||'Máy chủ gặp lỗi. Vui lòng thử lại.'),auth=/Phiên đăng nhập|Tài khoản đã bị khóa|Không có quyền/.test(msg);return new Response(JSON.stringify({...fail(auth?msg:'Máy chủ gặp lỗi. Vui lòng thử lại.',auth?'AUTH_REQUIRED':'SERVER_ERROR'),build:UI_BUILD,coreBuild:BUILD}),{status:200,headers:cors})}});
