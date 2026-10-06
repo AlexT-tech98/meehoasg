@@ -51,10 +51,11 @@ test('locked production orders cannot enter bulk selection',()=>{
   assert.match(ui,/if\(v&&o&&!o\.canOperate\)/);
 });
 
-test('multi-card amount is repaired in debt and drawer display',()=>{
-  assert.match(ui,/function patchCardFinance/);
-  assert.match(ui,/Number\(o\.cardFee\)\|\|qty\*10000/);
-  assert.match(ui,/\+10\\\.000đ thiệp/);
-  assert.match(ui,/\+ Thiệp × /);
-  assert.match(ui,/b\.textContent=money\(amount\)/);
+test('multi-card finance is canonical in base drawer without a DOM repair patch',()=>{
+  const base=fs.readFileSync('html','utf8');
+  assert.doesNotMatch(ui,/function patchCardFinance/);
+  assert.match(base,/cardFee=Number\(o\.cardFee\)\|\|cardQty\*10000/);
+  assert.match(base,/Thiệp × '\+cardQty/);
+  assert.match(base,/GHI CHÚ KHÁCH/);
+  assert.match(base,/NỘI DUNG THIỆP/);
 });
