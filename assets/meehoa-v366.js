@@ -48,27 +48,14 @@
     qsa('textarea',form).forEach(function(x){x.removeAttribute('maxlength');x.style.maxHeight='none'});
   }
   function patchMoney(form){
-    ['flowerTotal','depositAmount','charmFee','paperFee','vat'].forEach(function(name){
+    ['flowerTotal','depositAmount','charmFee','paperFee','vat','shipFee'].forEach(function(name){
       var x=qs('[name="'+name+'"]',form);if(!x)return;
       x.type='text';x.inputMode='numeric';x.classList.add('mee-money-v365');x.removeAttribute('step');x.removeAttribute('min');
       if(x.value)x.value=money(x.value);
       if(!x.dataset.meeMoney365){x.dataset.meeMoney365='1';x.addEventListener('input',function(){if(window.MEEOPS7&&MEEOPS7.formatMoneyInput)MEEOPS7.formatMoneyInput(x);else x.value=money(x.value)})}
     })
   }
-  function patchCardQty(form){
-    var cb=qs('input[name="card"]',form);if(!cb)return;
-    var label=cb.closest('label.check');if(!label)return;
-    if(label.textContent.indexOf('10.000đ / thiệp')<0){Array.from(label.childNodes).forEach(function(n){if(n.nodeType===3&&/Thiệp/.test(n.nodeValue||''))n.nodeValue=' Thiệp · 10.000đ / thiệp'})}
-    var box=qs('.mee-card-qty-v365',form),id=parseId(form),o=findOrderDeep(id)||{};
-    if(!box){box=document.createElement('div');box.className='mee-card-qty-v365';box.innerHTML='<div><label>SỐ LƯỢNG THIỆP</label><div class="mee-card-price">10.000đ × số lượng</div></div><input type="number" name="cardQty" min="1" max="99" step="1" inputmode="numeric" value="1">';label.insertAdjacentElement('afterend',box)}
-    var qty=qs('input[name="cardQty"]',box);if(!qty)return;
-    if(!box.dataset.seeded){var initial=Number(o.cardQty||0);qty.value=String(cb.checked?Math.max(1,initial||1):0);box.dataset.seeded='1'}
-    function sync(){box.style.display=cb.checked?'grid':'none';qty.disabled=!cb.checked;if(cb.checked&&Number(qty.value)<1)qty.value='1';if(!cb.checked)qty.value='0'}
-    if(!cb.dataset.meeQty365){cb.dataset.meeQty365='1';cb.addEventListener('change',sync)}
-    if(!qty.dataset.meeQtyInput365){qty.dataset.meeQtyInput365='1';qty.addEventListener('input',function(){var n=Math.max(1,Math.min(99,parseInt(qty.value||'1',10)||1));qty.value=String(n)})}
-    sync();
-  }
-  function patchOrderForm(){var form=qs('#orderForm');if(!form)return;patchMultiline(form);patchMoney(form);patchCardQty(form)}
+  function patchOrderForm(){var form=qs('#orderForm');if(!form)return;patchMultiline(form);patchMoney(form)}
 
   function patchCreateButtons(){
     qsa('.topbar .actions button').forEach(function(b){var c=b.getAttribute('onclick')||'';if(c.indexOf('openOrderForm')>=0)b.dataset.meeHideCreateV365='1'});
