@@ -60,19 +60,6 @@
       if(o&&!o.canOperate){cb.checked=false;cb.disabled=true;cb.title='Đơn đã khóa hoặc tài khoản không có quyền thao tác';if(S.selected)S.selected.delete(o.id)}
     });
   }
-  function patchCardFinance(root){
-    root=root||document;
-    qsa('.debt-breakdown',root).forEach(function(box){
-      var id=idFromAction(box),o=orderById(id);if(!o||!o.card)return;var qty=Math.max(1,Number(o.cardQty)||1),fee=Number(o.cardFee)||qty*10000;
-      var walker=document.createTreeWalker(box,NodeFilter.SHOW_TEXT),node;
-      while((node=walker.nextNode()))if(/\+10\.000đ thiệp/.test(node.nodeValue||''))node.nodeValue=(node.nodeValue||'').replace(/\+10\.000đ thiệp/, '+'+money(fee)+' thiệp'+(qty>1?' (×'+qty+')':''));
-    });
-    var ov=root.id==='overlay'?root:qs('#overlay');if(!ov)return;var oid=overlayOrderId(ov),order=orderById(oid);if(!order||!order.card)return;
-    var q=Math.max(1,Number(order.cardQty)||1),amount=Number(order.cardFee)||q*10000;
-    qsa('span',ov).forEach(function(label){
-      var text=(label.textContent||'').trim();if(text.indexOf('+ Thiệp')!==0)return;var row=label.parentElement,b=row&&qs('b',row);if(b)b.textContent=money(amount);if(q>1&&!/×\s*\d+/.test(text))label.textContent=text.replace(/^\+ Thiệp/,'+ Thiệp × '+q);
-    });
-  }
   function install(){
     if(!window.MEEOPS7)return false;
     MEEOPS7.openShipFeeForm=function(id){
@@ -107,7 +94,7 @@
     MEEOPS7.togglePick=function(id,v){var o=orderById(id);if(v&&o&&!o.canOperate){if(window.toast)toast('Đơn đã khóa hoặc bạn không có quyền thao tác.',1);return}return oldToggle&&oldToggle.apply(this,arguments)};
     return true;
   }
-  function patch(){install();patchShipButtons(qs('#overlay')||document);patchProductionSelection(qs('#content')||document);patchCardFinance(qs('#content')||document);patchCardFinance(qs('#overlay')||document)}
+  function patch(){install();patchShipButtons(qs('#overlay')||document);patchProductionSelection(qs('#content')||document)}
   function init(){patch();var content=qs('#content'),overlay=qs('#overlay');if(content)new MutationObserver(function(){setTimeout(patch,20)}).observe(content,{childList:true,subtree:true});if(overlay)new MutationObserver(function(){setTimeout(patch,0)}).observe(overlay,{childList:true,subtree:true});}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
