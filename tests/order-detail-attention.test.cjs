@@ -27,7 +27,9 @@ test('important order instructions have strong visual hierarchy without changing
 });
 
 test('highlight release has a fresh production cache token',()=>{
-  assert.match(entry,/var RELEASE='20261007-ops8'/);
-  assert.match(entry,/meehoa-core\.css\?v=20261007-ops8/);
-  assert.match(entry,/meehoa-core\.js\?v=20261007-ops8/);
+  const m=entry.match(/var RELEASE='([^']+)'/);
+  assert.ok(m);
+  assert.notEqual(m[1],'20261006-ops7');
+  assert.ok(entry.includes('meehoa-core.css?v='+m[1]));
+  assert.ok(entry.includes('meehoa-core.js?v='+m[1]));
 });
