@@ -36,7 +36,7 @@ test('duplicate matcher does not merge another customer or another assigned sale
 
 test('create route performs request-id idempotency before operational duplicate lookup',()=>{
   const start=src.indexOf('async function safeCreateOrder');
-  const end=src.indexOf('\n}\n\nasync function fastProduction',start);
+  const end=src.indexOf('\n}\n\nasync function fastOrder',start);
   assert.ok(start>=0&&end>start);
   const create=src.slice(start,end+2);
   const requestPos=create.indexOf('request_id:');
