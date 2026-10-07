@@ -411,9 +411,52 @@
   white-space:normal;overflow-wrap:anywhere;
   font-size:13px;line-height:1.6;color:var(--text-primary)
 }
-.mee-detail-note{background:linear-gradient(145deg,#fffdf8,#fff8e8)}
-.mee-detail-card{background:linear-gradient(145deg,#fff,#fff0f4)}
-.mee-detail-card .mee-detail-text{color:#c74663}
+.mee-detail-note,.mee-detail-card{
+  position:relative!important;overflow:hidden!important;
+  border-width:1.5px!important;
+  box-shadow:0 10px 26px rgba(74,50,42,.08)!important
+}
+.mee-detail-note{
+  background:linear-gradient(145deg,#fffdf3,#fff4cf)!important;
+  border-color:rgba(218,156,44,.46)!important;
+  box-shadow:inset 4px 0 0 #d89b2b,0 10px 26px rgba(74,50,42,.08)!important
+}
+.mee-detail-card{
+  background:linear-gradient(145deg,#fff8fa,#ffeaf0)!important;
+  border-color:rgba(211,80,111,.38)!important;
+  box-shadow:inset 4px 0 0 #d45472,0 10px 26px rgba(74,50,42,.08)!important
+}
+.mee-detail-note .mee-detail-section-head,
+.mee-detail-card .mee-detail-section-head{
+  margin-bottom:10px!important;font-size:12px!important;font-weight:900!important;
+  letter-spacing:.055em!important;color:#5d4d43!important
+}
+.mee-detail-note .mee-detail-section-head>span,
+.mee-detail-card .mee-detail-section-head>span{display:flex!important;align-items:center!important;gap:7px!important}
+.mee-detail-note .mee-detail-section-head>span:before,
+.mee-detail-card .mee-detail-section-head>span:before{
+  display:inline-grid!important;place-items:center!important;flex:none!important;
+  width:22px!important;height:22px!important;border-radius:7px!important;
+  font-size:12px!important;font-weight:900!important;letter-spacing:0!important
+}
+.mee-detail-note .mee-detail-section-head>span:before{
+  content:"!"!important;background:#d89b2b!important;color:#fff!important
+}
+.mee-detail-card .mee-detail-section-head>span:before{
+  content:"✉"!important;background:#d45472!important;color:#fff!important
+}
+.mee-detail-note .mee-detail-text,
+.mee-detail-card .mee-detail-text{
+  font-size:15px!important;line-height:1.6!important;font-weight:760!important;
+  letter-spacing:.005em!important
+}
+.mee-detail-note .mee-detail-text{color:#3f352f!important}
+.mee-detail-card .mee-detail-text{color:#a93350!important}
+.mee-detail-note .mee-detail-section-head .btn,
+.mee-detail-card .mee-detail-section-head .btn{
+  background:rgba(255,255,255,.84)!important;border-color:rgba(83,65,56,.13)!important;
+  box-shadow:0 3px 10px rgba(74,50,42,.05)!important
+}
 .mee-detail-shipping{background:linear-gradient(145deg,#fff,#eff8ff)}
 .mee-finance-row,.mee-finance-accessory-title,.mee-finance-accessories>div:not(.mee-finance-accessory-title){
   display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
