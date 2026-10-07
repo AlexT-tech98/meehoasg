@@ -43,6 +43,13 @@ create table if not exists public.orders (
   sale text not null default '',
   status text not null default 'Chờ bó' check (status in ('Chờ bó', 'Đã bó', 'Đã giao')),
   settled boolean not null default false,
+  full_paid boolean not null default false,
+  full_paid_total numeric(14,2) not null default 0,
+  full_paid_bill_urls jsonb not null default '[]'::jsonb,
+  full_paid_by text,
+  full_paid_at timestamptz,
+  full_paid_invalidated_at timestamptz,
+  full_paid_invalidated_reason text not null default '',
   ship_fee numeric(14,2) not null default 0,
   ship_confirmed boolean not null default false,
   card boolean not null default false,
@@ -60,6 +67,7 @@ create table if not exists public.orders (
 );
 create index if not exists orders_date_time_idx on public.orders(order_date, order_time);
 create index if not exists orders_sale_date_idx on public.orders(sale, order_date);
+create index if not exists idx_orders_full_paid_order_date on public.orders(full_paid, order_date);
 -- Sheet rows move when older orders are inserted; the stable order ID is the
 -- identity for synchronization. Source position is a non-unique lookup hint.
 create index if not exists orders_source_idx on public.orders(source_sheet, source_row)
