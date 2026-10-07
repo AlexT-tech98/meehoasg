@@ -483,3 +483,39 @@
   .mee-detail-section{padding:12px}
   .mee-detail-text{line-height:1.55}
 }
+
+
+/* Full Paid order flow */
+#orderForm .mee-full-paid-evidence{
+  margin-top:2px;padding:13px;border-radius:14px;
+  background:linear-gradient(145deg,#eefaf4,#f7fff9);
+  border:1px solid rgba(36,116,91,.20)
+}
+#orderForm .mee-full-paid-evidence .notice{
+  margin-bottom:10px;background:#e9f7f0;border-color:rgba(36,116,91,.18);color:#285f4e
+}
+#orderForm .mee-full-paid-evidence input[type="file"]{
+  background:rgba(255,255,255,.9)!important
+}
+.mee-full-paid-proof{
+  margin:8px 0;padding:10px 12px;border-radius:12px;
+  background:linear-gradient(145deg,#edf9f3,#f7fffa);
+  border:1px solid rgba(32,126,92,.22);
+  display:flex;align-items:center;justify-content:space-between;gap:12px
+}
+.mee-full-paid-proof>div:first-child{display:flex;flex-direction:column;gap:2px}
+.mee-full-paid-proof b{font-size:12px;color:#1f7659}
+.mee-full-paid-proof small{font-size:10px;color:#5f766d}
+.mee-full-paid-proof-links{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.mee-full-paid-proof-links a{
+  font-size:11px;font-weight:750;text-decoration:none;color:#1f7659;
+  background:#fff;border:1px solid rgba(31,118,89,.16);border-radius:9px;padding:6px 8px
+}
+.mee-full-paid-report .table-wrap{max-height:65vh}
+.mee-full-paid-report table{min-width:1080px}
+.mee-full-paid-report td{vertical-align:top}
+
+@media(max-width:900px){
+  .mee-full-paid-proof{align-items:flex-start;flex-direction:column}
+  .mee-full-paid-proof-links{justify-content:flex-start}
+}

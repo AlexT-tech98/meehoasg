@@ -4,7 +4,7 @@
     "files": ["meehoa-v3.js", "meehoa-v3.css"]
   },
   "orderFormLayout": {
-    "purpose": "Order form, accessory editor and structured drawer detail layout",
+    "purpose": "Order form, accessory editor, Full Paid evidence/report UI and structured drawer detail layout",
     "files": ["meehoa-v34.js", "meehoa-v34.css"]
   },
   "productionAndMaterials": {
