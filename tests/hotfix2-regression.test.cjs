@@ -37,9 +37,8 @@ test('copy contract is canonical, sectioned and newline-safe', () => {
   assert.match(ops, /removeAttribute\('onclick'\)/);
 });
 
-test('create-confirmation and admin delete flows live in canonical ops runtime', () => {
-  assert.match(ops, /meehoasg-create-status/);
-  assert.match(ops, /mee_pending_create/);
+test('admin delete remains canonical and early creation confirmation is removed', () => {
+  assert.doesNotMatch(ops, /meehoasg-create-status|mee_pending_create|MEEOPS7\.saveOrder=/);
   assert.match(ops, /meehoasg-delete-order/);
   assert.match(ops, /S\.user\.role!==['"]ADMIN['"]/);
   assert.match(ops, /className='btn danger full mee-delete-order'/);
