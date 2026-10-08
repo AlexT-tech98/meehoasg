@@ -1,7 +1,6 @@
-/* Canonical latest ops runtime: order ergonomics, copy, create confirmation and delete flow. Dashboard hourly tracking is owned by v361. */
+/* Canonical latest ops runtime: order ergonomics, copy and delete flow. Dashboard hourly tracking is owned by v361. */
 (function(){
   'use strict';
-  var STATUS_URL='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-create-status';
   var DELETE_URL='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-delete-order';
 
   function qs(s,r){return (r||document).querySelector(s)}
@@ -148,45 +147,6 @@
     var f=code.match(/copyOrderField\(['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"](?:\s*,\s*['"]([^'"]*)['"])?\)/);if(f){e.preventDefault();e.stopImmediatePropagation();return copyField(f[1],f[2],f[3]||f[2])}
   }
 
-  async function confirmCreate(requestId){
-    if(!requestId||!window.S||!S.token)return null;
-    try{var r=await fetch(STATUS_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:S.token,requestId:requestId})}),j=await r.json();return j&&j.ok&&j.found?j.order:null}catch(_){return null}
-  }
-  function clearPending(){try{localStorage.removeItem('mee_pending_create')}catch(_){ }}
-  function storePending(requestId,form){try{var fd=new FormData(form);localStorage.setItem('mee_pending_create',JSON.stringify({requestId:requestId,at:Date.now(),customer:fd.get('customer')||'',date:fd.get('date')||'',time:fd.get('time')||''}))}catch(_){ }}
-  function recoverPending(){
-    var raw='';try{raw=localStorage.getItem('mee_pending_create')||''}catch(_){ }
-    if(!raw)return;
-    var p;try{p=JSON.parse(raw)}catch(_){clearPending();return}
-    if(!p.requestId||Date.now()-Number(p.at||0)>86400000){clearPending();return}
-    confirmCreate(p.requestId).then(function(o){if(!o)return;clearPending();if(window.toast)window.toast('Đã xác nhận đơn '+(o.customer||'')+' đã được tạo.');if(window.loadPage&&window.S&&S.page)window.loadPage(S.page,true)})
-  }
-  function patchCreate(){
-    if(!window.MEEOPS7||!MEEOPS7.saveOrder||MEEOPS7.saveOrder._mee365CreateConfirm)return;
-    var orig=MEEOPS7.saveOrder;
-    var wrapped=function(e,id){
-      if(id)return orig.apply(this,arguments);
-      var form=e&&e.target,requestId=window._orderRequestId||'';
-      if(form&&requestId)storePending(requestId,form);
-      var args=arguments,self=this,p=orig.apply(self,args);
-      setTimeout(function(){
-        if(!form||!form.isConnected||form.dataset.saving!=='1')return;
-        confirmCreate(requestId).then(function(o){
-          if(!o)return;
-          clearPending();form.dataset.saving='0';
-          var btn=qs('#orderSubmit',form);if(btn){btn.disabled=false;btn.textContent='＋ Tạo đơn ngay'}
-          window._orderRequestId='';
-          if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();
-          if(window.toast)window.toast('Đã tạo đơn '+(o.customer||'')+' — hệ thống đã xác nhận.');
-          if(window.loadPage&&window.S&&S.page)window.loadPage(S.page,true);
-        })
-      },7000);
-      Promise.resolve(p).then(function(){setTimeout(function(){confirmCreate(requestId).then(function(o){if(o)clearPending()})},250)});
-      return p;
-    };
-    wrapped._mee365CreateConfirm=true;MEEOPS7.saveOrder=wrapped;
-  }
-
   function drawerOrderId(){
     var ov=qs('#overlay');if(!ov)return'';
     var bound=qs('[data-mee-copy-order-id]',ov);if(bound)return bound.dataset.meeCopyOrderId||'';
@@ -222,16 +182,16 @@
     host.insertBefore(b,host.firstChild);
   }
 
-  function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();patchCopyActions();patchCreate();patchDelete();installReload()}
+  function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();patchCopyActions();patchDelete();installReload()}
   function wrapOpenForm(){
     if(!window.MEEOPS7||!MEEOPS7.openOrderForm||MEEOPS7.openOrderForm._mee365)return;
     var orig=MEEOPS7.openOrderForm;
     var wrapped=function(id){var r=orig.apply(this,arguments);setTimeout(patchOrderForm,0);setTimeout(patchOrderForm,160);return r};wrapped._mee365=true;MEEOPS7.openOrderForm=wrapped;
   }
   function init(){
-    wrapOpenForm();patch();recoverPending();
+    wrapOpenForm();patch();
     if(!document.documentElement.dataset.meeCopyDelegate365){document.documentElement.dataset.meeCopyDelegate365='1';document.addEventListener('click',delegatedCopyTap,true)}
-    var tries=0,bindTimer=setInterval(function(){wrapOpenForm();patchCopyActions();patchCreate();tries++;if((window.MEEOPS7&&MEEOPS7._meeCopy365&&MEEOPS7.saveOrder&&MEEOPS7.saveOrder._mee365CreateConfirm)||tries>80)clearInterval(bindTimer)},50);
+    var tries=0,bindTimer=setInterval(function(){wrapOpenForm();patchCopyActions();tries++;if((window.MEEOPS7&&MEEOPS7._meeCopy365)||tries>80)clearInterval(bindTimer)},50);
     var root=qs('#content');if(root)new MutationObserver(function(){setTimeout(patch,20)}).observe(root,{childList:true,subtree:true});
     var ov=qs('#overlay');if(ov)new MutationObserver(function(){setTimeout(function(){patchOrderForm();patchCopyActions();patchDelete()},0)}).observe(ov,{childList:true,subtree:true});
     document.addEventListener('visibilitychange',function(){if(!document.hidden)patch()});

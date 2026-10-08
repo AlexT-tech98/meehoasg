@@ -58,11 +58,11 @@ test('payment has one latest owner',()=>{
   assert.match(v364,/mee-settlement-select-all-v364/);
 });
 
-test('copy and create confirmation remain only in latest ops runtime',()=>{
+test('copy stays in latest ops runtime while saving belongs to base form',()=>{
   assert.match(v366,/function buildCopyText/);
   assert.match(v366,/function textareaCopy/);
-  assert.match(v366,/mee_pending_create/);
-  assert.match(v366,/meehoasg-create-status/);
+  assert.doesNotMatch(v366,/mee_pending_create|meehoasg-create-status|MEEOPS7\.saveOrder=/);
+  assert.match(fs.readFileSync('html','utf8'),/async function saveOrder/);
 });
 
 test('search fails closed outside Orders rather than exposing a dead production control',()=>{

@@ -23,9 +23,9 @@
   "sourceRequestsBefore": 15,
   "runtimeRequestsAfter": 2,
   "sourceCssBytes": 76326,
-  "sourceJsBytes": 70709,
+  "sourceJsBytes": 67988,
   "coreCssBytes": 76701,
-  "coreJsBytes": 72779,
+  "coreJsBytes": 70058,
   "sourceMutationObservers": 12,
   "nativeMutationObserversAfter": 1
 }

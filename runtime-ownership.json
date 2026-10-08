@@ -24,7 +24,7 @@
     "files": ["meehoa-v364.js", "meehoa-v364.css"]
   },
   "latestOpsRuntime": {
-    "purpose": "Latest order ergonomics, copy, create confirmation, delete flow and responsive shell contracts",
+    "purpose": "Latest order ergonomics, copy, delete flow and responsive shell contracts",
     "files": ["meehoa-v366.js", "meehoa-v365.css"]
   },
   "shippingAndSettlement": {
