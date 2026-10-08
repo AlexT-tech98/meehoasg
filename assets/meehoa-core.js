@@ -893,7 +893,20 @@
     var orig=MEEOPS7.openOrderForm;
     var wrapped=function(id){var r=orig.apply(this,arguments);setTimeout(patchOrderForm,0);setTimeout(patchOrderForm,160);return r};wrapped._mee365=true;MEEOPS7.openOrderForm=wrapped;
   }
+  /* On mobile Safari, native constraint validation can cancel submit silently. */
+  function explainInvalidOrderField(e){
+    var field=e.target,form=field&&field.form;
+    if(!form||form.id!=='orderForm'||form.dataset.meeInvalidToast==='1')return;
+    form.dataset.meeInvalidToast='1';
+    setTimeout(function(){if(form.isConnected)form.dataset.meeInvalidToast='0'},450);
+    var label=field.parentElement&&field.parentElement.querySelector('label');
+    var fieldName=String(label&&label.textContent||field.name||'thông tin bắt buộc').trim();
+    if(window.toast)window.toast('Vui lòng kiểm tra '+fieldName+' trước khi lưu đơn.',true);
+    if(field.scrollIntoView)try{field.scrollIntoView({behavior:'smooth',block:'center'})}catch(_){field.scrollIntoView()}
+  }
+
   function init(){
+    document.addEventListener('invalid',explainInvalidOrderField,true);
     wrapOpenForm();patch();recoverPending();
     if(!document.documentElement.dataset.meeCopyDelegate365){document.documentElement.dataset.meeCopyDelegate365='1';document.addEventListener('click',delegatedCopyTap,true)}
     var tries=0,bindTimer=setInterval(function(){wrapOpenForm();patchCopyActions();patchCreate();tries++;if((window.MEEOPS7&&MEEOPS7._meeCopy365&&MEEOPS7.saveOrder&&MEEOPS7.saveOrder._mee365CreateConfirm)||tries>80)clearInterval(bindTimer)},50);

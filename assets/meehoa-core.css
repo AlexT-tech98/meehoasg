@@ -854,6 +854,10 @@ body.mee-overlay-open-v364{overflow:hidden!important;overscroll-behavior:none!im
 .order-card-mobile.row-alert:before,.order.accessory:before,.ops-tile.accessory:before{pointer-events:none!important}
 @media(max-width:600px){#overlay .drawer{height:100dvh!important;max-height:100dvh!important}#overlay .drawer .drawer-head{top:calc(-16px - env(safe-area-inset-top))}#overlay .modal{box-sizing:border-box;max-height:calc(100dvh - env(safe-area-inset-top));overflow-y:auto}.order-card-mobile-footer{flex-wrap:wrap}}
 
+/* Feedback must appear above the order modal (z-index: 1000). */
+#toast.toast{z-index:2147483006!important;bottom:max(24px,env(safe-area-inset-bottom))!important}
+#loading.loading{z-index:2147483005!important}
+
 /* ===== meehoa-v365.css ===== */
 /* MEEHOA v3.6.5 — canonical shell, order runtime and global layout contracts. */
 
