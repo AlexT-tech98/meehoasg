@@ -1,6 +1,6 @@
 /**
- * MEEHOASG — PRODUCTION WRITEBACK v9.2 FAST
- * Version: 2026-10-01
+ * MEEHOASG — PRODUCTION WRITEBACK v9.3 RESUMABLE (v9.2 trigger compatibility)
+ * Version: 2026-10-08
  *
  * Requires v9.1 helpers to remain in v9.gs.
  *
@@ -196,221 +196,78 @@ function testProductionV92Now() {
   syncProductionV92();
 }
 
+// Resumable cross-month moves. A journal permits recovery of OUR two-row move,
+// never arbitrary duplicate removal. ScriptLock in the caller serializes jobs;
+// identity + original row snapshot guard against manual source edits.
 function _p92ApplyChangedOrders(orders, props, secret) {
-  var ss = SpreadsheetApp.openById(P91_ORDER_SPREADSHEET_ID);
-  var orderSheets = _p91OrderSheets(ss, props);
-  var metaSheet = _p91MetaSheet(props);
-
-  if (!metaSheet) {
-    return { ok: false, message: 'Không mở được MIG_ORDER_META_V6/ORDER_META.' };
-  }
-
-  // Deduplicate changed IDs in the feed.
-  var byId = {};
-  orders.forEach(function(o) {
-    var id = String((o || {}).id || '').trim();
-    if (id) byId[id] = o;
-  });
-
-  var ids = Object.keys(byId);
-  var plans = [];
-  var targetCache = {};
-
-  // PREVALIDATE ALL CHANGED IDs BEFORE WRITING ANYTHING.
-  for (var i = 0; i < ids.length; i++) {
-    var id = ids[i];
-    var o = byId[id];
-
-    var orderOccurrences = _p92FindOrderOccurrences(orderSheets, id);
-
-    if (orderOccurrences.length > 1) {
-      return {
-        ok: false,
-        message: 'Order ID trùng trong legacy: ' + id +
-          ' -> ' + orderOccurrences.map(function(x) {
-            return x.sheet.getName() + '!O' + x.row;
-          }).join(', ')
-      };
-    }
-
-    var metaOccurrences = _p92FindMetaOccurrences(metaSheet, id);
-
-    if (metaOccurrences.length > 1) {
-      return {
-        ok: false,
-        message: 'Meta ID trùng trong legacy: ' + id +
-          ' -> rows ' + metaOccurrences.join(', ')
-      };
-    }
-
-    var targetName = _p92ResolveMonthSheetName(ss, orderSheets, o.order_date);
-
-    if (!targetName) {
-      return {
-        ok: false,
-        message: 'Không xác định được tab tháng cho ' +
-          id + ' date=' + String(o.order_date || '')
-      };
-    }
-
-    plans.push({
-      id: id,
-      order: o,
-      location: orderOccurrences.length ? orderOccurrences[0] : null,
-      metaRow: metaOccurrences.length ? metaOccurrences[0] : 0,
-      targetName: targetName
+  var ss=SpreadsheetApp.openById(P91_ORDER_SPREADSHEET_ID);
+  var sheets=_p91OrderSheets(ss,props), meta=_p91MetaSheet(props);
+  if(!meta)return {ok:false,message:'Không mở được ORDER_META.'};
+  var byId={},plans=[],counts={inserted:0,updated:0,moved:0,meta:0},completed=[];
+  orders.forEach(function(o){if(o&&String(o.id||'').trim())byId[String(o.id).trim()]=o;});
+  // Validate every ID before changing any row.
+  try{
+    Object.keys(byId).forEach(function(id){
+      var order=byId[id],key='MEE_MOVE_V93_'+id,journal=JSON.parse(props.getProperty(key)||'null');
+      var occurrences=_p92FindOrderOccurrences(sheets,id),metas=_p92FindMetaOccurrences(meta,id);
+      var targetName=_p92ResolveMonthSheetName(ss,sheets,order.order_date);
+      if(!targetName||metas.length>1)throw Error('Tab/meta không rõ cho '+id);
+      if(journal){
+        if(journal.targetName!==targetName)throw Error('Đơn '+id+' đổi tháng trong lúc đang phục hồi. Cần đối chiếu nhật ký chuyển tab.');
+        if(occurrences.some(function(x){return x.sheet.getSheetId()!==journal.sourceSheetId&&x.sheet.getName()!==journal.targetName;})||occurrences.length>2)throw Error('ID trùng ngoài nhật ký: '+id);
+        var source=occurrences.filter(function(x){return x.sheet.getSheetId()===journal.sourceSheetId;});
+        var targets=occurrences.filter(function(x){return x.sheet.getName()===journal.targetName;});
+        if(source.length>1||targets.length>1)throw Error('ID trùng trong cùng tab: '+id);
+        if(source.length&&JSON.stringify(source[0].sheet.getRange(source[0].row,1,1,15).getValues()[0])!==journal.sourceSnapshot)throw Error('Dòng nguồn đã được sửa; giữ cả hai dòng để đối chiếu: '+id);
+      }else if(occurrences.length>1)throw Error('Order ID trùng trong legacy: '+id);
+      plans.push({id:id,order:order,key:key,journal:journal,targetName:targetName});
     });
-  }
-
-  var inserted = 0;
-  var updated = 0;
-  var moved = 0;
-  var metaCount = 0;
-  var positions = [];
-  var deletions = {};
-  var hadError = false;
-
-  for (var p = 0; p < plans.length; p++) {
-    var plan = plans[p];
-    var id2 = plan.id;
-    var o2 = plan.order;
-
-    var target = targetCache[plan.targetName];
-
-    if (!target) {
-      target = ss.getSheetByName(plan.targetName);
-
-      if (!target) {
-        // Reuse the safe v9.1 creator only after every changed ID has passed validation.
-        target = _p91FindOrCreateMonthSheet(ss, orderSheets, o2.order_date);
+    plans.forEach(function(plan){
+      var target=ss.getSheetByName(plan.targetName)||_p91FindOrCreateMonthSheet(ss,sheets,plan.order.order_date);
+      if(!target)throw Error('Không mở được tab đích: '+plan.id);
+      var configured=String(props.getProperty('ORDER_SHEET_NAMES')||'').trim();
+      if(configured){var names=configured.split(/[\n,]+/).map(function(n){return n.trim();});if(names.indexOf(target.getName())<0)props.setProperty('ORDER_SHEET_NAMES',names.concat([target.getName()]).join('\n'));}
+      // Row numbers can shift after earlier deletes: resolve identity again.
+      sheets=_p91OrderSheets(ss,props);
+      if(!sheets.some(function(sh){return sh.getSheetId()===target.getSheetId();}))sheets.push(target);
+      var occurrences=_p92FindOrderOccurrences(sheets,plan.id),journal=plan.journal;
+      var targetLocations=occurrences.filter(function(x){return x.sheet.getSheetId()===target.getSheetId();});
+      var sources=occurrences.filter(function(x){return x.sheet.getSheetId()!==target.getSheetId();});
+      if(targetLocations.length>1||sources.length>1)throw Error('ID trùng: '+plan.id);
+      var source=sources[0],location=targetLocations[0];
+      if(source&&!journal){
+        journal={sourceSheetId:source.sheet.getSheetId(),sourceSnapshot:JSON.stringify(source.sheet.getRange(source.row,1,1,15).getValues()[0]),targetName:plan.targetName};
+        // Persist BEFORE append. Retry can find an append whose response was lost.
+        props.setProperty(plan.key,JSON.stringify(journal));
       }
-
-      if (!target) {
-        hadError = true;
-        _p91Log('ERROR', 'v9.2 không tạo được target sheet cho ' + id2);
-        continue;
+      var rowValues=_p91OrderRow(plan.order,plan.id);
+      if(location){
+        if(String(target.getRange(location.row,15).getDisplayValue()||'').trim()!==plan.id)throw Error('Dòng đích đổi ID: '+plan.id);
+        target.getRange(location.row,1,1,15).setValues([rowValues]);counts.updated++;
+      }else{target.appendRow(rowValues);counts.inserted++;}
+      var metaRows=_p92FindMetaOccurrences(meta,plan.id);
+      if(metaRows.length>1)throw Error('Meta trùng: '+plan.id);
+      // Failed metadata must leave the source intact and journal available.
+      _p92WriteMeta(meta,metaRows[0]||0,plan.order,plan.id);counts.meta++;
+      if(source){
+        var now=_p92FindOrderOccurrences(_p91OrderSheets(ss,props),plan.id).filter(function(x){return x.sheet.getSheetId()===journal.sourceSheetId;});
+        if(now.length!==1||JSON.stringify(now[0].sheet.getRange(now[0].row,1,1,15).getValues()[0])!==journal.sourceSnapshot)throw Error('Dòng nguồn thay đổi; chưa xoá: '+plan.id);
+        var destination=_p92FindOrderOccurrences([target],plan.id);
+        if(destination.length!==1)throw Error('Chưa xác nhận dòng đích: '+plan.id);
+        now[0].sheet.deleteRow(now[0].row);counts.moved++;
       }
-
-      targetCache[plan.targetName] = target;
-    }
-
-    var rowValues = _p91OrderRow(o2, id2);
-    var targetRow = 0;
-
-    if (plan.location &&
-        plan.location.sheet.getSheetId() === target.getSheetId()) {
-
-      // Last-second identity guard.
-      var currentId = String(
-        plan.location.sheet.getRange(plan.location.row, 15).getDisplayValue() || ''
-      ).trim();
-
-      if (currentId !== id2) {
-        hadError = true;
-        _p91Log(
-          'ERROR',
-          'v9.2 SKIP ' + id2 +
-          ': cột O thay đổi trong lúc sync tại ' +
-          plan.location.sheet.getName() + '!O' + plan.location.row
-        );
-        continue;
-      }
-
-      targetRow = plan.location.row;
-      target.getRange(targetRow, 1, 1, 15).setValues([rowValues]);
-      updated++;
-
-    } else if (plan.location) {
-
-      target.appendRow(rowValues);
-      targetRow = target.getLastRow();
-      moved++;
-
-      var sid = String(plan.location.sheet.getSheetId());
-
-      if (!deletions[sid]) {
-        deletions[sid] = {
-          sheet: plan.location.sheet,
-          rows: []
-        };
-      }
-
-      deletions[sid].rows.push(plan.location.row);
-
-    } else {
-
-      target.appendRow(rowValues);
-      targetRow = target.getLastRow();
-      inserted++;
-    }
-
-    try {
-      _p92WriteMeta(metaSheet, plan.metaRow, o2, id2);
-      metaCount++;
-    } catch (e) {
-      hadError = true;
-      _p91Log('ERROR', 'v9.2 meta lỗi ' + id2 + ': ' + e.message);
-      continue;
-    }
-
-    positions.push({
-      id: id2,
-      source_sheet: target.getName(),
-      source_row: targetRow
+      if(journal)props.deleteProperty(plan.key);
+      completed.push(plan.id);
     });
-  }
-
-  // Delete moved source rows from bottom to top.
-  Object.keys(deletions).forEach(function(key) {
-    var item = deletions[key];
-
-    item.rows
-      .sort(function(a, b) { return b - a; })
-      .forEach(function(row) {
-        try {
-          item.sheet.deleteRow(row);
-        } catch (e) {
-          hadError = true;
-          _p91Log(
-            'WARN',
-            'v9.2 không xoá được row cũ ' +
-            row + ' ở ' + item.sheet.getName() + ': ' + e.message
-          );
-        }
-      });
-  });
-
-  if (positions.length) {
-    var rec = UrlFetchApp.fetch(P91_INGEST_URL, {
-      method: 'post',
-      contentType: 'application/json',
-      headers: { 'x-ingest-secret': secret },
-      payload: JSON.stringify({
-        action: 'recordSheetPositions',
-        updates: positions
-      }),
-      muteHttpExceptions: true
-    });
-
-    if (rec.getResponseCode() !== 200) {
-      hadError = true;
-      _p91Log(
-        'WARN',
-        'v9.2 recordSheetPositions HTTP ' + rec.getResponseCode()
-      );
+    // Resolve final positions AFTER all source deletions, including shifted rows.
+    var positions=[];sheets=_p91OrderSheets(ss,props);
+    completed.forEach(function(id){var found=_p92FindOrderOccurrences(sheets,id);if(found.length!==1)throw Error('Vị trí cuối không rõ: '+id);positions.push({id:id,source_sheet:found[0].sheet.getName(),source_row:found[0].row});});
+    if(positions.length){
+      var response=UrlFetchApp.fetch(P91_INGEST_URL,{method:'post',contentType:'application/json',headers:{'x-ingest-secret':secret},payload:JSON.stringify({action:'recordSheetPositions',updates:positions}),muteHttpExceptions:true});
+      if(response.getResponseCode()!==200||JSON.parse(response.getContentText()||'{}').ok!==true)throw Error('Không ghi nhận được vị trí cuối.');
     }
-  }
-
-  return {
-    ok: !hadError,
-    message: hadError
-      ? 'Có lỗi ghi/xoá/meta/record position; xem SYNC_LOG.'
-      : '',
-    inserted: inserted,
-    updated: updated,
-    moved: moved,
-    meta: metaCount
-  };
+    return Object.assign({ok:true,message:''},counts);
+  }catch(e){_p91Log('ERROR','v9.3 '+e.message);return Object.assign({ok:false,message:e.message},counts);}
 }
 
 function _p92FindOrderOccurrences(sheets, id) {
@@ -500,7 +357,9 @@ function _p92WriteMeta(metaSheet, existingRow, o, id) {
     }
   }
 
-  metaSheet.getRange(row, 1, 1, 17).setValues([[
+  if(metaSheet.getMaxColumns && metaSheet.getMaxColumns()<25)metaSheet.insertColumnsAfter(metaSheet.getMaxColumns(),25-metaSheet.getMaxColumns());
+  if(metaSheet.getRange(1,18).getDisplayValue()!=='Số thiệp')metaSheet.getRange(1,18,1,8).setValues([['Số thiệp','Full Paid','Tiền Full Paid','Bill Full Paid','Người xác nhận','Thời gian xác nhận','Thời gian gỡ','Lý do gỡ']]);
+  metaSheet.getRange(row, 1, 1, 25).setValues([[
     id,
     o.status || 'Chờ bó',
     Number(o.ship_fee || 0),
@@ -516,7 +375,15 @@ function _p92WriteMeta(metaSheet, existingRow, o, id) {
     Number(o.vat || 0),
     o.phone || '',
     JSON.stringify(Array.isArray(o.image_urls) ? o.image_urls : []),
-    'SYNC_WEB_PROD_V92',
-    new Date()
+    'SYNC_WEB_PROD_V93',
+    new Date(),
+    Number(o.card_qty || (o.card ? 1 : 0)),
+    Boolean(o.full_paid),
+    Number(o.full_paid_total || 0),
+    JSON.stringify(Array.isArray(o.full_paid_bill_urls) ? o.full_paid_bill_urls : []),
+    o.full_paid_by || '',
+    o.full_paid_at || '',
+    o.full_paid_invalidated_at || '',
+    o.full_paid_invalidated_reason || ''
   ]]);
 }

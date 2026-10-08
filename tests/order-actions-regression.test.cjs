@@ -6,6 +6,7 @@ const ui=fs.readFileSync('assets/meehoa-order-actions.js','utf8');
 const edge=fs.readFileSync('supabase/functions/meehoasg-order-actions/index.ts','utf8');
 const settlementMigration=fs.readFileSync('supabase/migrations/202610060110_enforce_canonical_shipping_and_settlement_amounts.sql','utf8');
 const shippingMigration=fs.readFileSync('supabase/migrations/202610060240_allow_sale_own_order_ship_fee.sql','utf8');
+const atomic=fs.readFileSync('supabase/migrations/20261008150000_atomic_operations.sql','utf8');
 const build=fs.readFileSync('scripts/build-runtime.cjs','utf8');
 const ownership=JSON.parse(fs.readFileSync('runtime-ownership.json','utf8'));
 
@@ -18,9 +19,9 @@ test('sale can edit shipping on own order while other-sale orders stay blocked',
   assert.match(ui,/function ownsOrder\(o\)/);
   assert.match(ui,/S\.user\.role==='SALE'&&ownsOrder\(o\)/);
   assert.match(ui,/Sale chỉ được nhập phí ship đơn của mình/);
-  assert.match(edge,/\['ADMIN','THO_OPS','SALE'\]\.includes\(user\.role\)/);
-  assert.match(edge,/user\.role==='SALE'&&!ownsOrder\(o,user\)/);
-  assert.match(edge,/Sale chỉ được nhập phí ship đơn do mình phụ trách/);
+  assert.match(atomic,/u\.role not in \('ADMIN','THO_OPS','SALE'\)/);
+  assert.match(atomic,/u\.role='SALE' and not public\.mee_ops_owner\(o\.sale,u\)/);
+  assert.match(atomic,/Sale chỉ được cập nhật đơn do mình phụ trách/);
   assert.doesNotMatch(ui,/Sale không nhập\/sửa phí ship/);
 });
 
@@ -28,12 +29,12 @@ test('settlement still locks canonical shipping before request submission',()=>{
   assert.match(ui,/Phí ship phải được xác nhận trước khi gửi tất toán/);
   assert.match(ui,/Cần nhập phí ship trước khi gửi tất toán/);
   assert.doesNotMatch(ui,/submitSettlement[\s\S]{0,1200}shipFee:moneyDigits/);
-  assert.match(edge,/shop&&!o\.ship_confirmed/);
-  assert.match(edge,/ship=shop\?num\(o\.ship_fee\):0/);
+  assert.match(atomic,/not o\.ship_confirmed/);
+  assert.match(atomic,/then o\.ship_fee else 0 end/);
 });
 
 test('settlement amount uses card quantity and database canonicalization',()=>{
-  assert.match(edge,/Math\.max\(1,Math\.min\(99,Math\.floor\(num\(o\.card_qty\)\|\|1\)\)\)/);
+  assert.match(atomic,/greatest\(1,coalesce\(o\.card_qty,1\)\)\*10000/);
   assert.match(settlementMigration,/greatest\(1,coalesce\(o\.card_qty,1\)\)\*10000/);
   assert.match(settlementMigration,/new\.required_amount := coalesce\(o\.flower_total,0\) \+ accessory/);
 });

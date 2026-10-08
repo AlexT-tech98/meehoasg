@@ -66,7 +66,7 @@ test('v9.2 validates only changed Order IDs and fails closed on duplicates', () 
   assert.match(fast, /_p92FindOrderOccurrences/);
   assert.match(fast, /_p92FindMetaOccurrences/);
   assert.match(fast, /Order ID trùng trong legacy/);
-  assert.match(fast, /Meta ID trùng trong legacy/);
+  assert.match(fast, /Meta trùng|Tab\/meta không rõ/);
   assert.match(fast, /matchEntireCell\(true\)/);
 });
 

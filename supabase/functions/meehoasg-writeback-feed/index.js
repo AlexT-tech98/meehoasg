@@ -21,7 +21,7 @@ async function fetchOrders(payload) {
   const limit = Math.min(200, Math.max(1, Number(payload.limit) || 200));
   const offset = Math.max(0, Number(payload.offset) || 0);
   const url = new URL(`${SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set('select', 'id,customer,phone,order_date,order_time,flower,note,shipping,address,flower_total,payment,sale,status,settled,ship_fee,ship_confirmed,card,card_text,banner,banner_text,charm_fee,charm_text,paper_fee,paper_text,vat,image_urls,source_sheet,source_row,updated_at,created_at');
+  url.searchParams.set('select', 'id,customer,phone,order_date,order_time,flower,note,shipping,address,flower_total,payment,sale,status,settled,ship_fee,ship_confirmed,card,card_qty,full_paid,full_paid_total,full_paid_bill_urls,full_paid_by,full_paid_at,full_paid_invalidated_at,full_paid_invalidated_reason,card_text,banner,banner_text,charm_fee,charm_text,paper_fee,paper_text,vat,image_urls,source_sheet,source_row,updated_at,created_at');
   url.searchParams.set('order', 'updated_at.asc,id.asc');
   url.searchParams.set('limit', String(limit));
   url.searchParams.set('offset', String(offset));

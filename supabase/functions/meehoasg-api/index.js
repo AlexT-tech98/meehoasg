@@ -1,3 +1,5 @@
+import {createOperationStorage} from '../_shared/storage.js';
+import {createOperationService} from '../_shared/operations.js';
 // Supabase Edge Function replacing google.script.run. Platform JWT verification
 // stays enabled; application roles use separate opaque sessions.
 const BUILD = '2026.09.28-supabase-v3';
@@ -101,7 +103,7 @@ async function login(payload) {
   await db('app_sessions', {}, 'POST', { token_hash: await sha256(raw), username, expires_at: new Date(Date.now() + SESSION_MS).toISOString() });
   return { ok: true, token: raw, user: publicUser(user) };
 }
-function accessoryTotal(order) { return (order.card ? 10000 : 0) + (order.banner ? 35000 : 0) + num(order.charm_fee) + num(order.paper_fee); }
+function accessoryTotal(order) { return (order.card ? Math.max(1,Math.min(99,Math.floor(num(order.card_qty)||1)))*10000 : 0) + (order.banner ? 35000 : 0) + num(order.charm_fee) + num(order.paper_fee); }
 function contactFields(row) {
   const contact = clean(row.address);
   const phoneInContact = contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);
@@ -114,42 +116,43 @@ function paidAmount(payment, base, settled) {
   if (settled > 0) return settled;
   const text = norm(payment);
   if (!text || /chua/.test(text)) return 0;
-  if (/full|đa tt|da tt|đa thanh toan|da thanh toan|thanh toan đu|thanh toan du/.test(text)) return base;
+  if (/full|da tt|da thanh toan (?:du|toan bo)|thanh toan du/.test(text)) return base;
   const match = text.replace(/\s/g, '').match(/([0-9.,]+)(k|tr|trieu)?/);
-  if (!match) return 0;
+  if (!match) return /da thanh toan/.test(text) ? base : 0;
   let amount = num(match[1]);
   if (match[2] === 'tr' || match[2] === 'trieu') amount *= 1000000;
-  else if (match[2] === 'k' || (amount > 0 && amount <= 1000)) amount *= 1000;
+  else if (match[2] === 'k' || (amount > 0 && amount <= 1000 && !/\d\s*(?:đ|d|vn[dđ])(?:$|[\s),.])/i.test(text))) amount *= 1000;
   return Math.max(0, amount);
 }
 function decorate(row, user, settlement) {
   const contact = contactFields(row);
-  const accessory = accessoryTotal(row), ship = norm(row.shipping).includes('shop') ? num(row.ship_fee) : 0;
+  const accessory = accessoryTotal(row), ship = norm(row.shipping).includes('shop') && row.ship_confirmed ? num(row.ship_fee) : 0;
   const base = num(row.flower_total) + accessory + num(row.vat);
   const total = base + ship;
-  const paid = paidAmount(row.payment, base, row.settled ? total : 0);
-  const status = settlement?.status || 'NONE';
+  const verified=!!row.settled||!!row.full_paid;
+  const paid = row.full_paid ? (num(row.full_paid_total)||total) : paidAmount(row.payment, base, row.settled ? total : 0);
+  const status = row.full_paid ? 'AUTO_FULL_PAID' : (settlement?.status || 'NONE');
   const locked = !!row.settled || ['PENDING', 'APPROVED'].includes(status);
   // Owner check: so username (sau mapping) và display_name (đơn cũ chưa mapping)
   const saleNorm = norm(row.sale || '');
   const owner = saleNorm === norm(user.username) || saleNorm === norm(user.display_name);
   const canEdit = !locked && (user.role !== 'SALE' || owner);
   return {
-    id: row.id, sourceSheet: row.source_sheet || '', sourceRow: row.source_row || 0,
+    id: row.id, updatedAt: row.updated_at, sourceSheet: row.source_sheet || '', sourceRow: row.source_row || 0,
     customer: row.customer, phone: contact.phone, date: row.order_date, time: cleanTime(row.order_time),
     flower: row.flower, imageUrls: row.image_urls || [], driveUrls: row.image_urls || [],
     note: row.note, shipping: row.shipping, address: contact.address,
     flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
-    settled: row.settled, status: row.status, shipFee: num(row.ship_fee),
+    fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),paymentVerified:verified,settled: row.settled, status: row.status, shipFee: num(row.ship_fee),
     shipConfirmed: row.ship_confirmed, shipFeePending: norm(row.shipping).includes('shop') && !row.ship_confirmed,
-    card: row.card, cardText: row.card_text, banner: row.banner, bannerText: row.banner_text,
+    card: row.card, cardQty:row.card?Math.max(1,Math.min(99,Math.floor(num(row.card_qty)||1))):0, cardText: row.card_text, banner: row.banner, bannerText: row.banner_text,
     charmFee: num(row.charm_fee), charmText: row.charm_text, paperFee: num(row.paper_fee),
     paperText: row.paper_text, vat: num(row.vat), accessoryTotal: accessory,
-    totalDue: total, debt: row.settled ? 0 : Math.max(0, total - paid),
+    totalDue: total, debt: verified ? 0 : Math.max(0, total - paid),
     hasAccessories: accessory > 0, settlementStatus: status,
     settlementRequestId: settlement?.id || '', settlementReason: settlement?.rejection_reason || '',
     locked, canEdit, canShip: !locked, canOperate: !locked && ['ADMIN', 'THO_OPS'].includes(user.role),
-    canSubmitSettlement: !locked && row.status === 'Đã giao' && (user.role === 'ADMIN' || owner),
+    canSubmitSettlement: !locked && !row.full_paid && row.status === 'Đã giao' && (user.role === 'ADMIN' || owner),
     detailLoaded: true
   };
 }
@@ -237,50 +240,9 @@ async function options() {
   const rows = await all('app_users', { select: 'display_name,active' });
   return { ok: true, options: { sales: [...new Set(rows.filter(u => u.active).map(u => u.display_name))], shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: ['Chờ bó', 'Đã bó', 'Đã giao'] } };
 }
-function checkOrderInput(d) {
-  if (!clean(d.customer)) return 'Thiếu tên khách.';
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(clean(d.date))) return 'Ngày nhận không hợp lệ.';
-  if (!/^\d{1,2}:\d{2}$/.test(clean(d.time))) return 'Thiếu giờ nhận.';
-  if (!clean(d.flower)) return 'Thiếu mẫu hoa.';
-  if (num(d.flowerTotal) < 0) return 'Giá trị hoa không hợp lệ.';
-  if (!clean(d.shipping)) return 'Thiếu hình thức vận chuyển.';
-  if (bool(d.card) && !clean(d.cardText)) return 'Thiệp đã chọn nhưng chưa có nội dung.';
-  if (bool(d.banner) && !clean(d.bannerText)) return 'Banner đã chọn nhưng chưa có nội dung.';
-  return '';
-}
-function orderData(d, current, user) {
-  return {
-    customer: clean(d.customer), phone: clean(d.phone), order_date: clean(d.date),
-    order_time: clean(d.time), flower: clean(d.flower), note: clean(d.note),
-    shipping: clean(d.shipping), address: clean(d.address),
-    flower_total: num(d.flowerTotal), payment: clean(d.payment),
-    sale: user.role === 'SALE' ? user.username : clean(d.sale || current?.sale || user.username),
-    card: bool(d.card), card_text: clean(d.cardText), banner: bool(d.banner),
-    banner_text: clean(d.bannerText), charm_fee: num(d.charmFee),
-    charm_text: clean(d.charmText), paper_fee: num(d.paperFee),
-    paper_text: clean(d.paperText), vat: num(d.vat),
-    image_urls: current?.image_urls || (Array.isArray(d.imageUrls) ? d.imageUrls : Array.isArray(d.driveUrls) ? d.driveUrls : []),
-    updated_at: new Date().toISOString()
-  };
-}
 function newId(prefix) { return prefix + '-' + crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase(); }
-async function uploadImages(files, bucket) {
-  const urls = [];
-  for (const file of files || []) {
-    const match = String(file.data || '').match(/^data:(image\/(?:jpeg|png|webp));base64,([\s\S]+)$/);
-    if (!match) throw new Error('File ảnh không hợp lệ.');
-    const binary = atob(match[2]), bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-    if (bytes.length > 5 * 1024 * 1024) throw new Error('Mỗi ảnh tối đa 5 MB.');
-    const extension = match[1] === 'image/jpeg' ? 'jpg' : match[1].split('/')[1];
-    const path = crypto.randomUUID() + '.' + extension;
-    const response = await fetch(SUPABASE_URL + '/storage/v1/object/' + bucket + '/' + path, {
-      method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY, 'Content-Type': match[1], 'x-upsert': 'false' }, body: bytes
-    });
-    if (!response.ok) throw new Error('Không lưu được ảnh: ' + (await response.text()).slice(0, 200));
-    urls.push('supabase://' + bucket + '/' + path);
-  }
-  return urls;
-}
+const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
+const uploadImages=operationStorage.uploadImages;
 async function billDisplayUrls(urls) {
   const out = [];
   for (const url of urls || []) {
@@ -306,86 +268,26 @@ async function getOrder(payload, user) {
   const settlement = (await settlementMap([row.id]))[row.id];
   return { ok: true, order: decorate(await visibleOrder(row), user, settlement) };
 }
-async function createOrder(payload, user) {
-  const input = payload.order || {}, bad = checkOrderInput(input);
-  if (bad) return fail(bad);
-  const requestId = clean(payload.requestId);
-  if (!requestId) return fail('Thiếu mã chống tạo trùng.');
-  const prior = await one('orders', { request_id: 'eq.' + requestId });
-  if (prior) return { ok: true, idempotent: true, orderId: prior.id, order: decorate(await visibleOrder(prior), user), message: 'Đã tạo đơn.' };
-  const id = newId('MEE');
-  const savedImages = await uploadImages(input.imageFiles, 'order-images');
-  const row = { id, request_id: requestId, ...orderData(input, null, user), status: 'Chờ bó' };
-  row.image_urls = [...new Set([...(row.image_urls || []), ...savedImages])];
-  const created = (await db('orders', {}, 'POST', row))[0];
-  await audit(user, id, 'CREATE_ORDER', null, { flowerTotal: row.flower_total });
-  return { ok: true, orderId: id, sourceSheet: '', sourceRow: 0, order: decorate(await visibleOrder(created), user), message: 'Đã tạo đơn.' };
+const operations=createOperationService({db,one,uploadImages,discardImages:operationStorage.discard,sha256,newId});
+async function atomicWrite(action,payload,user){
+  const result=await operations.run(action,payload,user);if(!result?.ok)return result;
+  const output={...result};delete output.row;
+  if(result.row)output.updatedAt=result.row.updated_at;
+  return output;
 }
-async function updateOrder(payload, user) {
-  const id = clean(payload.orderId), current = await one('orders', { id: 'eq.' + id });
-  if (!current) return fail('Không tìm thấy đơn.');
-  const settlement = (await settlementMap([id]))[id], shown = decorate(current, user, settlement);
-  if (!shown.canEdit) return fail('Đơn đã khóa hoặc bạn không có quyền sửa.');
-  const input = { ...shown, ...(payload.order || {}) }, bad = checkOrderInput(input);
-  if (bad) return fail(bad);
-  const patch = orderData(input, current, user);
-  patch.image_urls = [...new Set([...(patch.image_urls || []), ...await uploadImages(payload.order?.imageFiles, 'order-images')])];
-  await db('orders', { id: 'eq.' + id }, 'PATCH', patch);
-  await audit(user, id, 'UPDATE_ORDER', { date: current.order_date, time: current.order_time }, { date: input.date, time: input.time });
-  return { ok: true, orderId: id, sourceSheet: '', sourceRow: 0, message: 'Đã cập nhật đơn.' };
-}
-const statuses = ['Chờ bó', 'Đã bó', 'Đã giao'];
-async function updateStatus(payload, user) {
-  const id = clean(payload.orderId), status = clean(payload.status);
-  const row = await one('orders', { id: 'eq.' + id });
-  if (!row) return fail('Không tìm thấy đơn.');
-  const settlement = (await settlementMap([id]))[id];
-  if (decorate(row, user, settlement).locked) return fail('Đơn đã khóa.');
-  if (Math.abs(statuses.indexOf(status) - statuses.indexOf(row.status)) !== 1 || !statuses.includes(status)) return fail('Chỉ được chuyển trạng thái từng bước.');
-  await db('orders', { id: 'eq.' + id }, 'PATCH', { status, updated_at: new Date().toISOString() });
-  await audit(user, id, 'STATUS', { status: row.status }, { status });
-  return { ok: true, status };
-}
-async function updateStatusBulk(payload, user) {
-  const items = Array.isArray(payload.items) ? payload.items.slice(0, 100) : [], results = [];
-  for (const item of items) {
-    const result = await updateStatus({ orderId: item.orderId, status: payload.status }, user);
-    results.push({ orderId: item.orderId, ok: result.ok, message: result.message, status: result.status });
+async function createOrder(payload,user){return atomicWrite('createOrder',payload,user)}
+async function updateOrder(payload,user){return atomicWrite('updateOrder',payload,user)}
+async function updateStatus(payload,user){return atomicWrite('updateStatus',payload,user)}
+async function saveShipFee(payload,user){return atomicWrite('saveShipFee',payload,user)}
+async function submitSettlement(payload,user){return atomicWrite('submitSettlement',payload,user)}
+async function updateStatusBulk(payload,user){
+  if(!clean(payload.mutationRequestId||payload.requestId))return fail('Thiếu mã yêu cầu.','REQUEST_ID_REQUIRED');
+  const items=Array.isArray(payload.items)?payload.items.slice(0,100):[],results=[];
+  for(const item of items){
+    const result=await updateStatus({...item,requestId:clean(payload.mutationRequestId||payload.requestId)+':'+item.orderId,status:payload.status},user);
+    results.push({...result,orderId:item.orderId});
   }
-  return { ok: results.every(r => r.ok), results };
-}
-async function saveShipFee(payload, user) {
-  const id = clean(payload.orderId), row = await one('orders', { id: 'eq.' + id });
-  if (!row) return fail('Không tìm thấy đơn.');
-  const settlement = (await settlementMap([id]))[id];
-  if (decorate(row, user, settlement).locked) return fail('Đơn đã khóa.');
-  if (!norm(row.shipping).includes('shop')) return fail('Chỉ nhập phí ship cho đơn Shop book ship.');
-  const shipFee = num(payload.shipFee);
-  if (shipFee < 0) return fail('Phí ship không hợp lệ.');
-  await db('orders', { id: 'eq.' + id }, 'PATCH', { ship_fee: shipFee, ship_confirmed: true, updated_at: new Date().toISOString() });
-  await audit(user, id, 'SHIP_FEE', { shipFee: row.ship_fee }, { shipFee });
-  return { ok: true, orderId: id, shipFee, shipConfirmed: true, message: 'Đã cập nhật phí ship.' };
-}
-async function submitSettlement(payload, user) {
-  const id = clean(payload.orderId), row = await one('orders', { id: 'eq.' + id });
-  if (!row) return fail('Không tìm thấy đơn.');
-  const previous = (await settlementMap([id]))[id], order = decorate(row, user, previous);
-  if (!order.canSubmitSettlement) return fail('Đơn chưa thể gửi tất toán hoặc bạn không có quyền.');
-  if (order.shipFeePending && (payload.shipFee === undefined || clean(payload.shipFee) === '')) return fail('Cần nhập phí ship thực tế.');
-  const billUrls = [...(Array.isArray(payload.billUrls) ? payload.billUrls : []), ...await uploadImages(payload.billFiles, 'settlement-bills')];
-  if (!billUrls.length) return fail('Cần ít nhất một ảnh bill.');
-  const shipFee = norm(row.shipping).includes('shop') ? num(payload.shipFee) : 0;
-  const required = num(row.flower_total) + accessoryTotal(row) + num(row.vat) + shipFee;
-  const requestId = newId('SET');
-  await db('settlement_requests', {}, 'POST', {
-    id: requestId, order_id: id, sale_username: user.username, sale_name: user.display_name,
-    flower_total: row.flower_total, accessory_total: accessoryTotal(row), vat: row.vat,
-    ship_fee: shipFee, required_amount: required, bill_urls: billUrls,
-    note: clean(payload.note), status: 'PENDING'
-  });
-  await db('orders', { id: 'eq.' + id }, 'PATCH', { ship_fee: shipFee, ship_confirmed: true, updated_at: new Date().toISOString() });
-  await audit(user, id, 'SETTLEMENT', null, { requestId, required });
-  return { ok: true, requestId, orderId: id, requiredAmount: required, settlementStatus: 'PENDING', message: 'Đã gửi tất toán.' };
+  return {ok:results.every(r=>r.ok),results};
 }
 async function settlementQueue(payload, user) {
   const status = clean(payload.status || 'PENDING').toUpperCase();
@@ -424,39 +326,20 @@ async function settlementQueue(payload, user) {
   }
   return { ok: true, status, range: payload.start || payload.end ? { start: payload.start || '', end: payload.end || '' } : null, items };
 }
-async function reviewSettlement(payload, user) {
-  const id = clean(payload.requestId), decision = clean(payload.decision).toUpperCase();
-  if (!['APPROVED', 'REJECTED'].includes(decision)) return fail('Quyết định không hợp lệ.');
-  const request = await one('settlement_requests', { id: 'eq.' + id });
-  if (!request) return fail('Không tìm thấy yêu cầu.');
-  const pending = await all('settlement_requests', { order_id: 'eq.' + request.order_id, status: 'eq.PENDING' });
-  if (!pending.length) return fail('Yêu cầu đã được xử lý.');
-  const order = await one('orders', { id: 'eq.' + request.order_id });
-  if (!order) return fail('Không tìm thấy đơn.');
-  const reason = clean(payload.reason);
-  const reviewed = await db('settlement_requests', { order_id: 'eq.' + order.id, status: 'eq.PENDING' }, 'PATCH', {
-    status: decision, admin_username: user.username, admin_name: user.display_name,
-    reviewed_at: new Date().toISOString(), rejection_reason: reason
-  });
-  if (!reviewed.length) return fail('Yêu cầu vừa được người khác xử lý.');
-  if (decision === 'APPROVED') await db('orders', { id: 'eq.' + order.id }, 'PATCH', { settled: true, updated_at: new Date().toISOString() });
-  await audit(user, order.id, 'REVIEW_SETTLEMENT', { status: 'PENDING' }, { status: decision, reason });
-  return { ok: true, processedRequests: reviewed.length, message: decision === 'APPROVED' ? 'Đã duyệt tất toán.' : 'Đã trả đơn cho Sale chỉnh sửa.', orderId: order.id };
+async function reviewSettlement(payload,user){
+  return atomicWrite('reviewSettlement',{...payload,settlementId:payload.settlementId||payload.requestId,requestId:payload.mutationRequestId||payload.requestId},user);
 }
-async function reviewBulk(payload, user) {
-  const ids = [...new Set(Array.isArray(payload.requestIds) ? payload.requestIds.map(clean).filter(Boolean) : [])].slice(0, 100);
-  if (!ids.length) return fail('Chưa chọn yêu cầu nào.');
-  const failedItems = [], approvedOrderIds = [];
-  const seenOrders = new Set();
-  for (const id of ids) {
-    const request = await one('settlement_requests', { id: 'eq.' + id });
-    if (request && seenOrders.has(request.order_id)) continue;
-    if (request) seenOrders.add(request.order_id);
-    const result = await reviewSettlement({ requestId: id, decision: 'APPROVED' }, user);
-    if (result.ok) approvedOrderIds.push(result.orderId);
-    else failedItems.push({ requestId: id, reason: result.message });
+async function reviewBulk(payload,user){
+  const ids=[...new Set(Array.isArray(payload.requestIds)?payload.requestIds.map(clean).filter(Boolean):[])].slice(0,100);
+  if(!ids.length)return fail('Chưa chọn yêu cầu nào.');
+  if(!clean(payload.mutationRequestId))return fail('Thiếu mã yêu cầu.','REQUEST_ID_REQUIRED');
+  const failedItems=[],approvedOrderIds=[];
+  for(const id of ids){
+    const result=await reviewSettlement({settlementId:id,mutationRequestId:payload.mutationRequestId+':'+id,decision:'APPROVED'},user);
+    if(result.ok){if(!approvedOrderIds.includes(result.orderId))approvedOrderIds.push(result.orderId);}
+    else failedItems.push({requestId:id,reason:result.message});
   }
-  return { ok: failedItems.length === 0, selected: ids.length, approved: approvedOrderIds.length, failed: failedItems.length, failedItems, approvedOrderIds, message: 'Đã duyệt ' + approvedOrderIds.length + ' đơn.' };
+  return {ok:!failedItems.length,selected:ids.length,approved:approvedOrderIds.length,failed:failedItems.length,failedItems,approvedOrderIds,message:'Đã duyệt '+approvedOrderIds.length+' đơn.'};
 }
 async function getKpi(payload, user) {
   const month = clean(payload.month) || dateToday().slice(0, 7);

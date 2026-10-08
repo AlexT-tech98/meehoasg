@@ -69,7 +69,7 @@ test('drawer separates customer note and card content from finance rows',()=>{
 test('KPI remains flower-only while form ship fee is persisted separately',()=>{
   const core=fs.readFileSync('supabase/functions/meehoasg-api-core/index.js','utf8');
   assert.match(core,/item\.revenue\+=num\(r\.flower_total\)/);
-  assert.match(core,/ship_fee:num\(o\.shipFee\)/);
-  assert.match(core,/ship_confirmed:true/);
+  const shared=fs.readFileSync('supabase/functions/_shared/operations.js','utf8');assert.match(shared,/ship_fee:shipActive\?operationMoney\(d\.shipFee\):0/);
+  assert.match(shared,/ship_confirmed:shipActive/);
   assert.doesNotMatch(core,/item\.revenue\+=.*accessory/);
 });
