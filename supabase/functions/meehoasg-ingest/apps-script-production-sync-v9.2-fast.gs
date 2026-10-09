@@ -261,7 +261,7 @@ function _p92ApplyChangedOrders(orders, props, secret) {
     });
     // Resolve final positions AFTER all source deletions, including shifted rows.
     var positions=[];sheets=_p91OrderSheets(ss,props);
-    completed.forEach(function(id){var found=_p92FindOrderOccurrences(sheets,id);if(found.length!==1)throw Error('Vị trí cuối không rõ: '+id);positions.push({id:id,source_sheet:found[0].sheet.getName(),source_row:found[0].row});});
+    completed.forEach(function(id){var found=_p92FindOrderOccurrences(sheets,id);if(found.length!==1)throw Error('Vị trí cuối không rõ: '+id);var plan=plans.filter(function(p){return p.id===id;})[0];positions.push({id:id,source_sheet:found[0].sheet.getName(),source_row:found[0].row,expectedUpdatedAt:plan.order.updated_at});});
     if(positions.length){
       var response=UrlFetchApp.fetch(P91_INGEST_URL,{method:'post',contentType:'application/json',headers:{'x-ingest-secret':secret},payload:JSON.stringify({action:'recordSheetPositions',updates:positions}),muteHttpExceptions:true});
       if(response.getResponseCode()!==200||JSON.parse(response.getContentText()||'{}').ok!==true)throw Error('Không ghi nhận được vị trí cuối.');
