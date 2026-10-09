@@ -26,7 +26,7 @@ before(async()=>{
  await db.exec("insert into app_users(username,password_hash,display_name,role) values ('admin','test','Admin','ADMIN'),('sale1','test','Sale 1','SALE'),('sale2','test','Sale 2','SALE'),('tho','test','Thợ','THO_OPS');");
 });
 after(async()=>{await db.close()});
-beforeEach(async()=>{await db.exec('truncate operation_receipts,settlement_requests,orders,activity_log restart identity cascade;')});
+beforeEach(async()=>{await db.exec('truncate operation_receipts,settlement_requests,orders,activity_log,deleted_orders,app_sessions restart identity cascade;update app_users set active=true;')});
 test('normal order is committed with accessories, shipping author and audit together',async()=>{
  const r=await create({card:true,cardQty:2,cardText:'Chúc mừng',shipping:'Shop book ship',shipFeeActive:'1',shipFee:45000});
  assert.equal(r.ok,true);assert.equal(r.row.card_qty,2);assert.equal(Number(r.row.ship_fee),45000);assert.equal(r.row.ship_fee_updated_by,'sale1');
@@ -139,4 +139,70 @@ test('two real PostgreSQL sessions submit settlement with exactly one pending re
  const row=await delivered(),results=await Promise.all([submit(row),submit(row)]);
  assert.equal(results.filter(r=>r.ok).length,1);assert.equal(results.filter(r=>r.code==='ORDER_CONFLICT').length,1);
  assert.equal((await db.query('select count(*)::int as n from settlement_requests')).rows[0].n,1);
+});
+
+async function queueDelete(row,key='delete-'+(++seq),actor='admin'){return rpc('deleteOrder',{orderId:row.id,expectedUpdatedAt:row.updated_at},{key,actor})}
+async function statusFor(actor,key,{expired=false}={}){const token=hash('session-'+actor);await db.query("insert into app_sessions(token_hash,username,expires_at) values($1,$2,now()+$3::interval) on conflict(token_hash) do update set expires_at=excluded.expires_at",[token,actor,expired?'-1 hour':'1 hour']);return (await db.query('select mee_create_status($1,$2) as r',[token,key])).rows[0].r}
+test('admin delete queues exactly one marker, receipt and audit; retry survives archive',async()=>{
+ const a=await create({}, {key:'created'}),r=await queueDelete(a.row,'delete-one');assert.equal(r.ok,true);assert.equal(r.row.delete_after_sheet_sync,true);assert.equal(r.row.needs_sheet_sync,true);assert.match(r.row.customer,/^\[ĐÃ XÓA\] /);assert.match(r.row.note,/\n|ĐÃ XÓA TRÊN OPS/);
+ const retry=await queueDelete(a.row,'delete-one');assert.equal(retry.idempotent,true);assert.equal((await db.query("select count(*)::int n from activity_log where action='deleteOrder'")).rows[0].n,1);
+ await db.query('update orders set needs_sheet_sync=false,sheet_synced_at=now() where id=$1',[a.orderId]);assert.equal(await current(a.orderId),undefined);
+ assert.equal((await db.query('select snapshot from deleted_orders where id=$1',[a.orderId])).rows[0].snapshot.delete_requested_by,'admin');
+ assert.equal((await queueDelete(a.row,'delete-one')).idempotent,true);const status=await statusFor('sale1','created');assert.equal(status.found,true);assert.equal(status.archived,true);assert.equal(status.order.id,a.orderId);
+});
+test('sale, inactive admin and stale snapshot cannot queue deletion',async()=>{
+ const a=await create();assert.equal((await queueDelete(a.row,undefined,'sale1')).code,'NOT_OWNER');
+ await db.query("update app_users set active=false where username='admin'");assert.equal((await queueDelete(a.row)).code,'AUTH_REQUIRED');await db.query("update app_users set active=true where username='admin'");
+ await edit(a.row,{note:'updated'});assert.equal((await queueDelete(a.row)).code,'ORDER_CONFLICT');assert.equal((await current(a.orderId)).delete_after_sheet_sync,false);
+});
+test('settled or pending settlement blocks deletion with no partial marker',async()=>{
+ const row=await delivered(),req=await submit(row);let n=await current(row.id);assert.equal((await queueDelete(n)).code,'ORDER_LOCKED');assert.equal((await current(row.id)).delete_after_sheet_sync,false);
+ await rpc('reviewSettlement',{settlementId:req.requestId,decision:'APPROVED'},{actor:'admin'});n=await current(row.id);assert.equal((await queueDelete(n)).code,'ORDER_LOCKED');
+});
+test('queued deletion blocks canonical edits and settlement, including direct legacy writes',async()=>{
+ const row=await delivered(),q=await queueDelete(row);assert.equal(q.ok,true);assert.equal((await submit(q.row)).code,'ORDER_DELETING');assert.equal((await edit(q.row,{note:'unexpected'})).code,'ORDER_DELETING');
+ await assert.rejects(()=>db.query("insert into settlement_requests(id,order_id,status) values('legacy',$1,'PENDING')",[row.id]),/ORDER_DELETING/);
+ await assert.rejects(()=>db.query("update orders set settled=true where id=$1",[row.id]),/ORDER_DELETING/);
+ assert.equal((await queueDelete(q.row,'another-key')).idempotent,true);assert.equal((await db.query("select count(*)::int n from activity_log where action='deleteOrder'")).rows[0].n,1);
+});
+test('audit failure rolls back delete marker and leaves no delete receipt',async()=>{
+ const a=await create();await db.exec("create function test_delete_fail() returns trigger language plpgsql as $$begin if new.action='deleteOrder' then raise exception 'TEST_DELETE_AUDIT';end if;return new;end$$;create trigger test_delete_fail before insert on activity_log for each row execute function test_delete_fail();");
+ try{await assert.rejects(()=>queueDelete(a.row,'failed-delete'),/TEST_DELETE_AUDIT/);assert.equal((await current(a.orderId)).delete_after_sheet_sync,false);assert.equal((await db.query("select count(*)::int n from operation_receipts where action='deleteOrder'")).rows[0].n,0);}finally{await db.exec('drop trigger test_delete_fail on activity_log;drop function test_delete_fail();')}
+});
+test('create-status rejects inactive and expired sessions before returning customer data',async()=>{
+ await create({}, {key:'mine'});assert.equal((await statusFor('sale1','mine')).found,true);
+ await db.query("update app_users set active=false where username='sale1'");const locked=await statusFor('sale1','mine');assert.equal(locked.code,'AUTH_REQUIRED');assert.equal('order' in locked,false);
+ await db.query("update app_users set active=true where username='sale1'");assert.equal((await statusFor('sale1','mine',{expired:true})).code,'AUTH_REQUIRED');
+});
+test('create-status scopes receipts to creator; admin may investigate; unknown key is not found',async()=>{
+ const a=await create({}, {key:'mine'});const foreign=await statusFor('sale2','mine');assert.equal(foreign.code,'NOT_OWNER');assert.equal('order' in foreign,false);
+ assert.equal((await statusFor('admin','mine')).order.id,a.orderId);assert.equal((await statusFor('sale1','unknown')).found,false);
+ await db.exec("delete from operation_receipts;update orders set sale='sale2';");assert.equal((await statusFor('sale1','mine')).found,true);assert.equal((await statusFor('sale2','mine')).code,'NOT_OWNER');
+});
+test('new status RPC is service-only',async()=>{for(const role of ['anon','authenticated']){await db.exec('set role '+role);try{await assert.rejects(()=>db.query("select mee_create_status($1,'x')",[hash('x')]),/permission denied/);}finally{await db.exec('reset role')}}});
+test('concurrent delete versus settlement has exactly one winner and never queues a payable order',{skip:!process.env.AUDIT_DATABASE_URL},async()=>{
+ const row=await delivered(),results=await Promise.all([queueDelete(row),submit(row)]);assert.equal(results.filter(r=>r.ok).length,1);
+ const n=await current(row.id),count=(await db.query('select count(*)::int n from settlement_requests where order_id=$1',[row.id])).rows[0].n;
+ assert.equal(n.delete_after_sheet_sync?count===0:count===1,true);
+});
+test('concurrent delete retries have one marker and audit across real sessions',{skip:!process.env.AUDIT_DATABASE_URL},async()=>{
+ const a=await create(),results=await Promise.all([queueDelete(a.row,'double-delete'),queueDelete(a.row,'double-delete')]);assert.ok(results.every(r=>r.ok));assert.ok(results.some(r=>r.idempotent));assert.equal((await db.query("select count(*)::int n from activity_log where action='deleteOrder'")).rows[0].n,1);
+});
+test('a demoted admin cannot recover an old delete receipt',async()=>{
+ const a=await create();await queueDelete(a.row,'old-delete');await db.query("update app_users set role='SALE' where username='admin'");
+ try{assert.equal((await queueDelete(a.row,'old-delete')).code,'NOT_OWNER');}finally{await db.query("update app_users set role='ADMIN' where username='admin'")}
+});
+test('direct legacy settlement racing delete also has exactly one winner',{skip:!process.env.AUDIT_DATABASE_URL},async()=>{
+ const row=await delivered(),results=await Promise.allSettled([queueDelete(row),db.query("insert into settlement_requests(id,order_id,status) values('legacy-race',$1,'PENDING')",[row.id])]);
+ assert.equal(results[0].status,'fulfilled');const deleted=results[0].value.ok===true,inserted=results[1].status==='fulfilled';assert.notEqual(deleted,inserted);
+ if(!inserted)assert.match(results[1].reason.message,/ORDER_DELETING/);
+ const n=await current(row.id),count=(await db.query('select count(*)::int n from settlement_requests where order_id=$1',[row.id])).rows[0].n;assert.equal(n.delete_after_sheet_sync?count===0:count===1,true);
+});
+
+test('legacy delete marker cannot bypass settlement locking',async()=>{
+ const row=await delivered();await submit(row);await assert.rejects(()=>db.query('update orders set delete_after_sheet_sync=true where id=$1',[row.id]),/DELETE_SETTLEMENT_CONFLICT/);assert.equal((await current(row.id)).delete_after_sheet_sync,false);
+});
+test('legacy delete PATCH racing legacy settlement also preserves finance',{skip:!process.env.AUDIT_DATABASE_URL},async()=>{
+ const row=await delivered(),results=await Promise.allSettled([db.query('update orders set delete_after_sheet_sync=true,needs_sheet_sync=true where id=$1',[row.id]),db.query("insert into settlement_requests(id,order_id,status) values('legacy-both',$1,'PENDING')",[row.id])]);
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,1);const n=await current(row.id),count=(await db.query('select count(*)::int n from settlement_requests where order_id=$1',[row.id])).rows[0].n;assert.equal(n.delete_after_sheet_sync?count===0:count===1,true);
 });

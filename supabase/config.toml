@@ -19,3 +19,13 @@ verify_jwt = false
 
 [functions.meehoasg-settlement-ingest]
 verify_jwt = false
+
+# These endpoints independently validate the app session (or return 404).
+[functions.meehoasg-delete-order]
+verify_jwt = false
+
+[functions.meehoasg-create-status]
+verify_jwt = false
+
+[functions.meehoasg-sheet-recovery]
+verify_jwt = false
