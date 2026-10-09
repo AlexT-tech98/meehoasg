@@ -158,10 +158,12 @@
     if(!id||!window.S||!S.token)return;
     var o=findOrderDeep(id),name=o&&o.customer?o.customer:id;
     if(!window.confirm('Xóa đơn của '+name+'?\n\nĐơn sẽ được đánh dấu xóa trên Sheet trước, sau đó gỡ khỏi hệ thống.'))return;
+    if(!o||!(o.updatedAt||o.updated_at)){if(window.toast)window.toast('Tải lại chi tiết đơn trước khi xóa.',1);return;}
+    btn._deletePayload=btn._deletePayload||{token:S.token,orderId:id,requestId:crypto.randomUUID(),expectedUpdatedAt:o.updatedAt||o.updated_at};
     var old=btn.textContent;btn.disabled=true;btn.textContent='Đang xóa…';
     try{
-      var r=await fetch(DELETE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:S.token,orderId:id})}),j=await r.json();
-      if(!j.ok)throw new Error(j.message||'Không xóa được đơn.');
+      var r=await fetch(DELETE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(btn._deletePayload)}),j=await r.json();
+      if(!j.ok){if(j.code&&['ORDER_CONFLICT','VERSION_REQUIRED','ORDER_LOCKED','NOT_OWNER','NOT_FOUND','ORDER_DELETING'].indexOf(j.code)>=0)delete btn._deletePayload;throw new Error(j.message||'Không xóa được đơn.');}
       if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();
       if(window.toast)window.toast(j.message||'Đã gửi yêu cầu xóa.');
       if(window.loadPage&&S.page)window.loadPage(S.page,true);
