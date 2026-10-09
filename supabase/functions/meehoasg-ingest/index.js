@@ -4,6 +4,7 @@ const BUILD = '2026.09.30-rowcache-safe1';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const INGEST_SECRET = Deno.env.get('INGEST_SECRET');
+const SHEET_IMPORT_ENABLED = Deno.env.get('SHEET_IMPORT_ENABLED') === 'true';
 const encoder = new TextEncoder();
 
 function clean(value) { return String(value ?? '').trim(); }
@@ -163,7 +164,7 @@ async function getOrdersForSheet(payload) {
   const since = clean(payload.since);
   const limit = Math.min(200, Math.max(1, Number(payload.limit) || 100));
   const query = {
-    select: 'id,customer,phone,order_date,order_time,flower,note,shipping,address,flower_total,payment,sale,status,settled,ship_fee,ship_confirmed,card,card_text,banner,banner_text,charm_fee,charm_text,paper_fee,paper_text,vat,image_urls,source_sheet,source_row,updated_at,created_at',
+    select: 'id,customer,phone,order_date,order_time,flower,note,shipping,address,flower_total,payment,sale,status,settled,ship_fee,ship_confirmed,card,card_qty,full_paid,full_paid_total,full_paid_bill_urls,full_paid_by,full_paid_at,full_paid_invalidated_at,full_paid_invalidated_reason,card_text,banner,banner_text,charm_fee,charm_text,paper_fee,paper_text,vat,image_urls,source_sheet,source_row,updated_at,created_at',
     order: 'updated_at.desc',
     limit: String(limit)
   };
@@ -201,6 +202,7 @@ Deno.serve(async request => {
     const body = await request.json();
     if (body.action === 'getOrdersForSheet') return new Response(JSON.stringify(await getOrdersForSheet(body)), { headers });
     if (body.action === 'recordSheetPositions') return new Response(JSON.stringify(await recordSheetPositions(body)), { headers });
+    if (!SHEET_IMPORT_ENABLED) return new Response(JSON.stringify({ok:false,code:'IMPORT_DISABLED',message:'Website là nguồn chính. Chỉ cho phép feed và cập nhật vị trí Sheet.'}),{status:409,headers});
     if (!Array.isArray(body.orders) || body.orders.length > 100) throw new Error('Tối đa 100 đơn mỗi batch.');
     return new Response(JSON.stringify(await ingestOrders(body.orders)), { headers });
   } catch (error) {

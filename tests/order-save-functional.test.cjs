@@ -19,7 +19,7 @@ function harness(values={},options={}){
     orderMutationDirty(){},applyCanonicalOrder(){},refreshOrderEntity:async()=>{},closeOverlay(){},showCreatedOrderCopy(){if(options.displayError)throw Error('render failed');form.isConnected=false}
   };
   vm.createContext(context);vm.runInContext(save,context);
-  return {run:id=>context.saveOrder({target:form,preventDefault(){}},id||''),form,btn,window,messages,requests};
+  return {input,run:id=>context.saveOrder({target:form,preventDefault(){}},id||''),form,btn,window,messages,requests};
 }
 test('invalid required fields never send an order',async()=>{const h=harness({}, {valid:false});await h.run();assert.equal(h.requests.length,0);});
 test('full payment without sample or bill is visible in form and sends nothing',async()=>{
@@ -51,4 +51,11 @@ test('form controls native validation and feedback layers sit above overlay',()=
   const css=fs.readFileSync('assets/meehoa-core.css','utf8');
   assert.match(css,/#overlay\{position:relative;z-index:1000!important\}/);
   assert.match(src,/\.toast\s*\{[^}]*z-index: 1100/s);assert.match(src,/\.loading\s*\{[^}]*z-index: 1090/s);
+});
+
+test('retry recovers the original payload even if draft values change after a lost response',async()=>{
+ let calls=0;const h=harness({}, {response:()=>{if(++calls===1)throw Error('NetworkError');return {ok:true,orderId:'MEE-1',order:{id:'MEE-1'}}}});
+ await h.run();h.input.flower='Changed draft';h.input.note='Changed note';await h.run();
+ assert.equal(h.requests[1].p.order.flower,'Hoa tươi');assert.equal(h.requests[0].p.requestId,h.requests[1].p.requestId);
+ assert.ok(h.messages.some(m=>/Nội dung vừa sửa chưa được gửi/.test(m)));
 });

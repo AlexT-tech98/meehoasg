@@ -1,0 +1,1 @@
+{"name":"meehoasg-operations","private":true,"scripts":{"test":"node --test tests/*.test.cjs","build":"node scripts/harden-core-money.cjs && node scripts/flatten-core-bootstrap.cjs && node scripts/build-runtime.cjs"},"devDependencies":{"@electric-sql/pglite":"0.5.8","pg":"8.23.1"}}

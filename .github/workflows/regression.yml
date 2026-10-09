@@ -13,6 +13,19 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: audit
+          POSTGRES_PASSWORD: audit-local-only
+          POSTGRES_DB: audit
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U audit -d audit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,6 +35,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install locked test dependencies
+        run: npm ci --ignore-scripts
       - name: Harden core money parsing
         run: node scripts/harden-core-money.cjs
       - name: Flatten critical API bootstrap routes
@@ -30,6 +45,10 @@ jobs:
         run: node scripts/build-runtime.cjs
       - name: Run regression suite
         run: node --test tests/*.test.cjs
+      - name: Run transactional suite with independent PostgreSQL sessions
+        env:
+          AUDIT_DATABASE_URL: postgresql://audit:audit-local-only@localhost:5432/audit
+        run: node --test tests/atomic-operations.test.cjs
       - name: Persist generated production cores on same-repo PRs
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         run: |

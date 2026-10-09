@@ -4,3 +4,18 @@ verify_jwt = true
 # Apps Script authenticates with a separate high-entropy INGEST_SECRET header.
 [functions.meehoasg-ingest]
 verify_jwt = false
+
+# Browser core uses the public anon JWT and an independently validated app session.
+[functions.meehoasg-api-core]
+verify_jwt = true
+
+# Order-actions validates the high-entropy app session in the request body.
+[functions.meehoasg-order-actions]
+verify_jwt = false
+
+# Server-to-server functions independently require INGEST_SECRET.
+[functions.meehoasg-writeback-feed]
+verify_jwt = false
+
+[functions.meehoasg-settlement-ingest]
+verify_jwt = false

@@ -4,10 +4,10 @@ const vm = require('node:vm');
 const test = require('node:test');
 const { webcrypto } = require('node:crypto');
 
-const source = fs.readFileSync('supabase/functions/meehoasg-api/index.js', 'utf8');
+const source = fs.readFileSync('supabase/functions/meehoasg-api/index.js', 'utf8').replace(/^import .*\n/gm, '');
 const context = vm.createContext({
   Deno: { env: { get: () => 'test' }, serve: () => {} },
-  crypto: webcrypto, TextEncoder, URL, Request, Response, Intl, Date, console,
+  crypto: webcrypto, TextEncoder, URL, Request, Response, Intl, Date, console, createOperationStorage:()=>({uploadImages:async()=>[],discard:async()=>{}}), createOperationService:()=>({run:async()=>({ok:true})}),
 });
 vm.runInContext(source, context);
 
@@ -18,7 +18,7 @@ test('paid amounts and shipping debt follow the existing app', () => {
   assert.equal(vm.runInContext("paidAmount('Full', 500000, 550000)", context), 550000);
   const order = {
     id: 'ORDER-1', customer: 'Test', order_date: '2026-09-28', order_time: '12:00',
-    flower_total: 500000, shipping: 'Shop book ship', ship_fee: 50000,
+    flower_total: 500000, shipping: 'Shop book ship', ship_fee: 50000, ship_confirmed:true,
     payment: 'Full', status: 'Đã giao', sale: 'Sale A', image_urls: [], settled: false,
   };
   context.__order = order;
@@ -67,26 +67,12 @@ test('payment queue combines duplicate requests for one order', async () => {
   assert.deepEqual(Array.from(result.items[0].billUrls), ['bill-b', 'bill-a']);
 });
 
-test('one review resolves every pending request for its order', async () => {
-  const patches = [];
-  context.__patches = patches;
-  vm.runInContext(`
-    one = async table => table === 'orders'
-      ? { id: 'ORDER-1' }
-      : { id: 'REQ-2', order_id: 'ORDER-1', status: 'PENDING' };
-    all = async () => [{ id: 'REQ-2' }, { id: 'REQ-1' }];
-    db = async (table, query, method, body) => {
-      __patches.push({ table, query, method, body });
-      return table === 'settlement_requests' ? [{ id: 'REQ-2' }, { id: 'REQ-1' }] : [{ id: 'ORDER-1' }];
-    };
-    audit = async () => {};
-  `, context);
-  const result = await vm.runInContext("reviewSettlement({ requestId: 'REQ-2', decision: 'APPROVED' }, { username: 'admin', display_name: 'Admin', role: 'ADMIN' })", context);
-  assert.equal(result.ok, true);
-  assert.equal(result.processedRequests, 2);
-  assert.equal(patches[0].query.order_id, 'eq.ORDER-1');
-  assert.equal(patches[0].query.status, 'eq.PENDING');
-  assert.equal(patches[1].body.settled, true);
+test('legacy review forwards one atomic RPC instead of separate finance PATCH calls', async()=>{
+ context.__calls=[];
+ vm.runInContext("atomicWrite=async (action,payload,user)=>{__calls.push({action,payload,user});return {ok:true,processedRequests:2,orderId:'ORDER-1'}}",context);
+ const result=await vm.runInContext("reviewSettlement({settlementId:'REQ-2',mutationRequestId:'review-1',decision:'APPROVED'},{username:'admin',role:'ADMIN'})",context);
+ assert.equal(result.processedRequests,2);assert.equal(context.__calls.length,1);
+ assert.equal(context.__calls[0].payload.requestId,'review-1');assert.equal(context.__calls[0].payload.settlementId,'REQ-2');
 });
 
 test('API cleanTime handles the normalized HH:mm contract', () => {
@@ -131,7 +117,7 @@ test('meehoasg-ingest handles getOrdersForSheet and recordSheetPositions', async
   const ingestSource = fs.readFileSync('supabase/functions/meehoasg-ingest/index.js', 'utf8');
   const ingestContext = vm.createContext({
     Deno: { env: { get: () => 'test' }, serve: () => {} },
-    crypto: webcrypto, TextEncoder, URL, Request, Response, Intl, Date, console,
+    crypto: webcrypto, TextEncoder, URL, Request, Response, Intl, Date, console, createOperationStorage:()=>({uploadImages:async()=>[],discard:async()=>{}}), createOperationService:()=>({run:async()=>({ok:true})}),
   });
   vm.runInContext(ingestSource, ingestContext);
   ingestContext.rest = async (table, query) => {
@@ -141,4 +127,10 @@ test('meehoasg-ingest handles getOrdersForSheet and recordSheetPositions', async
   assert.equal(res.ok, true);
   assert.equal(res.orders.length, 1);
   assert.equal(res.orders[0].customer, 'Anh Nam');
+});
+
+test('an explicit collected amount is retained after Full Paid invalidation',()=>{
+ assert.equal(vm.runInContext("paidAmount('Đã thanh toán 500000 đ',600000,0)",context),500000);
+ assert.equal(vm.runInContext("paidAmount('Đã cọc 500 đ',1000,0)",context),500);
+ assert.equal(vm.runInContext("decorate({id:'ONE',flower_total:600000,payment:'Đã thanh toán 500000 đ',shipping:'Ghé lấy',image_urls:[]},{username:'sale1',display_name:'Sale 1',role:'SALE'}).debt",context),100000);
 });
