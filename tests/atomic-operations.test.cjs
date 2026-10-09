@@ -198,3 +198,11 @@ test('direct legacy settlement racing delete also has exactly one winner',{skip:
  if(!inserted)assert.match(results[1].reason.message,/ORDER_DELETING/);
  const n=await current(row.id),count=(await db.query('select count(*)::int n from settlement_requests where order_id=$1',[row.id])).rows[0].n;assert.equal(n.delete_after_sheet_sync?count===0:count===1,true);
 });
+
+test('legacy delete marker cannot bypass settlement locking',async()=>{
+ const row=await delivered();await submit(row);await assert.rejects(()=>db.query('update orders set delete_after_sheet_sync=true where id=$1',[row.id]),/DELETE_SETTLEMENT_CONFLICT/);assert.equal((await current(row.id)).delete_after_sheet_sync,false);
+});
+test('legacy delete PATCH racing legacy settlement also preserves finance',{skip:!process.env.AUDIT_DATABASE_URL},async()=>{
+ const row=await delivered(),results=await Promise.allSettled([db.query('update orders set delete_after_sheet_sync=true,needs_sheet_sync=true where id=$1',[row.id]),db.query("insert into settlement_requests(id,order_id,status) values('legacy-both',$1,'PENDING')",[row.id])]);
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,1);const n=await current(row.id),count=(await db.query('select count(*)::int n from settlement_requests where order_id=$1',[row.id])).rows[0].n;assert.equal(n.delete_after_sheet_sync?count===0:count===1,true);
+});
