@@ -1,6 +1,6 @@
 // Server-to-server Sheet shadow import. Apps Script authenticates with
 // INGEST_SECRET; deploy with verify_jwt=false because it has no Supabase JWT.
-const BUILD = '2026.09.30-rowcache-safe1';
+const BUILD = '2026.10.09-sheet-ack-gated3';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const INGEST_SECRET = Deno.env.get('INGEST_SECRET');
@@ -175,20 +175,26 @@ async function getOrdersForSheet(payload) {
 
 async function recordSheetPositions(payload) {
   const updates = Array.isArray(payload.updates) ? payload.updates : [];
-  let updated = 0;
+  if (updates.length > 200) throw new Error('Tối đa 200 vị trí mỗi batch.');
+  let updated = 0, conflicts = 0;
+  const now = new Date().toISOString();
   for (const item of updates) {
     const id = clean(item.id);
     if (!id) continue;
-    const patch = {};
+    // Preserve production ACK/deletion semantics. Versioned workers only
+    // acknowledge the version they wrote; old workers remain compatible.
+    const patch = { needs_sheet_sync: false, sheet_synced_at: now };
     if (item.source_sheet) patch.source_sheet = clean(item.source_sheet);
     if (Number.isFinite(item.source_row)) patch.source_row = Number(item.source_row);
     if (Object.keys(patch).length > 0) {
       // source_row is location cache only; identity remains orders.id / Sheet column O.
-      await rest('orders', { id: 'eq.' + id }, 'PATCH', patch);
-      updated++;
+      const query = { id: 'eq.' + id };
+      if (clean(item.expectedUpdatedAt)) query.updated_at = 'eq.' + clean(item.expectedUpdatedAt);
+      const rows = await rest('orders', query, 'PATCH', patch);
+      if (rows.length) updated++; else conflicts++;
     }
   }
-  return { ok: true, build: BUILD, updated };
+  return { ok: conflicts === 0, build: BUILD, updated, conflicts };
 }
 
 Deno.serve(async request => {
