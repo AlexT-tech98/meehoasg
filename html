@@ -2361,11 +2361,11 @@ function opsTile(o) {
         var topMatches = matches.slice(0, 6);
 
         if (!topMatches.length) {
-            drop.innerHTML = '<div class="search-no-result">Không tìm thấy đơn hàng nào khớp với "<b>' + esc(val) + '</b>"</div>';
+            drop.innerHTML = '<div class="search-no-result">Chưa có trong đơn đang xem. Nhấn <b>Tìm</b> hoặc Enter để tìm tất cả các ngày.</div>';
         } else {
             var header = '<div class="search-dropdown-header">GỢI Ý ĐƠN HÀNG (' + matches.length + ')</div>';
             var items = topMatches.map(function(o) {
-                var thumb = (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
+                var thumb = firstImage(o, 180) || (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
                 var thumbHtml = thumb ?
                     '<img class="search-item-thumb" src="' + attr(thumb) + '" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
                     '<div class="search-item-thumb-empty">🌸</div>';
@@ -2492,7 +2492,7 @@ function opsTile(o) {
     var timeBadge = isNear 
       ? '<span class="badge red">≤60p · ' + esc(timeVN(o.time)) + '</span>' 
       : '<span class="badge gold">Quá giờ · ' + esc(timeVN(o.time)) + '</span>';
-    var thumb = (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
+    var thumb = firstImage(o, 180) || (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
     var thumbHtml = thumb ?
         '<img class="order-card-mobile-thumb" src="' + attr(thumb) + '" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
         '<div class="order-card-mobile-thumb-empty">🌸</div>';
@@ -2650,7 +2650,7 @@ function opsTile(o) {
   }).join('');
 
   var mobileCards = filteredList.map(function(o) {
-    var thumb = (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
+    var thumb = firstImage(o, 180) || (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
     var thumbHtml = thumb ?
         '<img class="order-card-mobile-thumb" src="' + attr(thumb) + '" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
         '<div class="order-card-mobile-thumb-empty">🌸</div>';
