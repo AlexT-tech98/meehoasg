@@ -56,11 +56,6 @@
   }
   function patchOrderForm(){var form=qs('#orderForm');if(!form)return;patchMultiline(form);patchMoney(form)}
 
-  function patchCreateButtons(){
-    qsa('.topbar .actions button').forEach(function(b){var c=b.getAttribute('onclick')||'';if(c.indexOf('openOrderForm')>=0)b.dataset.meeHideCreateV365='1'});
-    document.body.classList.toggle('mee-page-dashboard-v365',!!(window.S&&S.page==='dashboard'));
-    if(window.S&&S.page==='dashboard')qsa('#content button').forEach(function(b){var c=b.getAttribute('onclick')||'';if(c.indexOf('openOrderForm')>=0)b.dataset.meeHideCreateV365='1'});
-  }
   function patchBodyPage(){document.body.classList.toggle('mee-page-dashboard-v365',!!(window.S&&S.page==='dashboard'))}
 
   function buildCopyText(o){
@@ -182,7 +177,7 @@
     host.insertBefore(b,host.firstChild);
   }
 
-  function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();patchCopyActions();patchDelete();installReload()}
+  function patch(){patchBodyPage();patchOrderForm();patchCopyActions();patchDelete();installReload()}
   function wrapOpenForm(){
     if(!window.MEEOPS7||!MEEOPS7.openOrderForm||MEEOPS7.openOrderForm._mee365)return;
     var orig=MEEOPS7.openOrderForm;

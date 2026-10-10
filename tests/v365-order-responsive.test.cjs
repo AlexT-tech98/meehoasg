@@ -20,7 +20,7 @@ test('canonical base form owns card quantity and latest runtime only enhances fi
   assert.match(latest,/replaceTextInput/);
   assert.match(latest,/flowerTotal','depositAmount','charmFee','paperFee','vat','shipFee/);
   assert.doesNotMatch(latest,/function patchCardQty/);
-  assert.match(latest,/dataset\.meeHideCreateV365/);
+  assert.doesNotMatch(latest,/meeHideCreateV365/);
 });
 
 test('canonical responsive CSS owns desktop left rail, login and order ergonomics',()=>{

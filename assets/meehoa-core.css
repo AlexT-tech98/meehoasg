@@ -685,6 +685,18 @@ body.mee-page-production .ops-tile .actions{margin-top:auto!important;padding-to
 
 /* ===== meehoa-v361.css ===== */
 /* Canonical owner: dashboard summary + sales/day report. */
+/* Put today's workload first and keep the supporting figures compact. */
+@media(min-width:1201px){
+  .stat-grid-5{grid-template-columns:repeat(18,minmax(0,1fr))!important}
+  .stat-grid-5>.stat{grid-column:span 3}
+  .stat-grid-5>.stat:first-child{grid-column:span 6}
+}
+.stat-grid-5>.stat{background:#fff!important;border:1px solid #dfe7e1!important;border-radius:14px!important;box-shadow:none!important;transform:none!important;min-width:0}
+.stat-grid-5>.stat:first-child{background:#eaf3ed!important;border-color:#c9dfd0!important}
+.stat-grid-5>.stat:after{display:none!important}
+.stat-grid-5>.stat strong{font-size:23px!important;overflow-wrap:anywhere}
+.stat-grid-5>.stat:first-child strong{font-size:29px!important}
+.dashboard-right>div{background:#fff!important;border:1px solid #dfe7e1!important;border-radius:14px!important;box-shadow:none!important}
 .mee-dashboard-summary{
   display:grid!important;
   grid-template-columns:1.05fr 1.15fr .8fr!important;
@@ -695,9 +707,9 @@ body.mee-page-production .ops-tile .actions{margin-top:auto!important;padding-to
   min-width:0;border:1px solid rgba(68,82,75,.08);border-radius:18px;padding:15px 16px;
   background:#fff;box-shadow:0 8px 24px rgba(58,45,39,.055);position:relative;overflow:hidden
 }
-.mee-dashboard-summary .mee-summary-card.orders{background:linear-gradient(145deg,#fff,#fff7df)}
-.mee-dashboard-summary .mee-summary-card.revenue{background:linear-gradient(145deg,#fff,#eef9f4)}
-.mee-dashboard-summary .mee-summary-card.debt{background:linear-gradient(145deg,#fff,#fff0f4)}
+.mee-dashboard-summary .mee-summary-card.orders{background:#f1f6ee}
+.mee-dashboard-summary .mee-summary-card.revenue{background:#fff}
+.mee-dashboard-summary .mee-summary-card.debt{background:#fff}
 .mee-summary-kicker{font-size:10.5px;line-height:1.2;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#7b8a82;margin-bottom:7px}
 .mee-summary-main{font-size:26px;font-weight:850;letter-spacing:-.04em;color:#20342b;line-height:1.08}
 .mee-summary-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
@@ -907,7 +919,10 @@ body.mee-overlay-open-v364{overflow:hidden!important;overscroll-behavior:none!im
 #orderForm .mee-card-qty-v365{display:grid!important;grid-template-columns:minmax(0,1fr) 118px!important;gap:10px!important;align-items:end!important;margin:7px 0 10px!important;padding:10px 12px!important;border:1px solid rgba(209,157,47,.16)!important;border-radius:13px!important;background:linear-gradient(105deg,#fffdf8,#fff5d8)!important}
 #orderForm .mee-card-qty-v365 label{margin:0!important;font-size:10px!important}#orderForm .mee-card-qty-v365 .mee-card-price{font-size:11px;color:#8e7658;margin-top:3px}#orderForm .mee-card-qty-v365 input{height:42px!important;text-align:center!important;font-weight:800!important}
 #orderForm .mee-money-v365{font-variant-numeric:tabular-nums!important}
-.topbar .actions button[data-mee-hide-create-v365],body.mee-page-dashboard-v365 #content button[data-mee-hide-create-v365]{display:none!important}
+/* Keep one persistent create action per viewport. Page headings remain focused on filters. */
+#content button[onclick*="openOrderForm"]{display:none!important}
+@media(min-width:901px){.fab{display:none!important}}
+@media(max-width:900px){.topbar .actions button[onclick*="openOrderForm"]{display:none!important}}
 
 /* ===== Dashboard ===== */
 body.mee-page-dashboard-v365 .mee-chart-grid{display:none!important}
@@ -968,7 +983,7 @@ body.mee-page-production .lane,body.mee-page-production .order,body.mee-page-pro
 /* ===== General responsive pass ===== */
 html,body,.app,.main,#content{max-width:100%!important}#content>*{min-width:0!important}img,video,canvas{max-width:100%}.form-grid,.dashboard-grid,.stats,.stat-grid-5,.order-grid,.production-grid,.sales-kpi-grid{min-width:0!important}
 @media(max-width:1200px){.stat-grid-5{grid-template-columns:repeat(3,minmax(0,1fr))!important}.dashboard-grid{grid-template-columns:1fr!important}.mee-chart-grid{grid-template-columns:1fr!important}}
-@media(max-width:620px){.stat-grid-5,.stats{grid-template-columns:1fr!important}.section-head{align-items:flex-start!important;gap:10px!important}.section-head>div{min-width:0!important}.section-head .btn,.section-head .date-filter-btn{max-width:100%!important}#orderForm.mee-order-form{border-radius:20px 20px 0 0!important}#orderForm .mee-form-section{padding:12px!important}#orderForm .mee-card-qty-v365{grid-template-columns:1fr!important}#orderForm .mee-card-qty-v365 input{text-align:left!important}#bootSplash .mee-splash-card{width:min(350px,calc(100vw - 32px))!important;padding:27px 22px 25px!important;border-radius:27px!important}#bootSplash .mee-splash-pet{width:96px!important;height:96px!important}#bootSplash .mee-splash-flower{display:none!important}}
+@media(max-width:620px){.stat-grid-5{grid-template-columns:repeat(2,minmax(0,1fr))!important}.stat-grid-5>.stat:first-child{grid-column:1/-1}.stat-grid-5>.stat{min-width:0!important;min-height:104px!important;padding:12px!important}.stat-grid-5>.stat strong{font-size:19px!important;overflow-wrap:anywhere}.stat-grid-5>.stat:first-child strong{font-size:26px!important}.stats{grid-template-columns:1fr!important}.section-head{align-items:flex-start!important;gap:10px!important}.section-head>div{min-width:0!important}.section-head .btn,.section-head .date-filter-btn{max-width:100%!important}#orderForm.mee-order-form{border-radius:20px 20px 0 0!important}#orderForm .mee-form-section{padding:12px!important}#orderForm .mee-card-qty-v365{grid-template-columns:1fr!important}#orderForm .mee-card-qty-v365 input{text-align:left!important}#bootSplash .mee-splash-card{width:min(350px,calc(100vw - 32px))!important;padding:27px 22px 25px!important;border-radius:27px!important}#bootSplash .mee-splash-pet{width:96px!important;height:96px!important}#bootSplash .mee-splash-flower{display:none!important}}
 @media(max-width:480px){#content>.stats{grid-template-columns:minmax(0,1fr)!important}.kpi-meta{align-items:flex-start;flex-wrap:wrap}.kpi-meta b{width:100%;text-align:left}.topbar{gap:6px!important}.topbar-search input{font-size:13px!important;padding-right:62px!important}}
 @media(max-width:900px){html{scroll-behavior:auto}body:not(.mee-overlay-open-v364):not(.mee-menu-open){touch-action:pan-y pinch-zoom}}
 @media(prefers-reduced-motion:reduce){#bootSplash .mee-splash-progress i{animation:none!important}}
