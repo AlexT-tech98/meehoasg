@@ -346,7 +346,18 @@
   }
 
   function hourlyHtml(rows){
-    return (rows||[]).map(function(x){return '<div class="mee-hour-row"><b>'+esc(x.label)+'</b><div class="mee-hour-track"><div class="mee-hour-fill" style="width:'+Number(x.percent||0).toFixed(2)+'%"></div></div><b>'+Number(x.count||0)+'</b></div>'}).join('');
+    var pairs={},max=0;
+    (rows||[]).forEach(function(x){
+      var group=Math.floor(Number(x.hour)/2)*2;
+      pairs[group]=(pairs[group]||0)+Number(x.count||0);
+    });
+    var keys=Object.keys(pairs).map(Number).filter(function(k){return pairs[k]>0}).sort(function(a,b){return a-b});
+    keys.forEach(function(k){max=Math.max(max,pairs[k])});
+    return '<div class="mee-approved-hour-chart">'+keys.map(function(k){
+      var count=pairs[k],height=max?Math.max(4,Math.round(count/max*100)):0;
+      return '<div class="mee-approved-hour-item"><b>'+count+'</b><div class="mee-approved-hour-column '+(count===max?'peak':'')+'" style="height:'+height+'%"></div>'+
+      '<small>'+String(k).padStart(2,'0')+'–'+String(k+2).padStart(2,'0')+'</small></div>';
+    }).join('')+'</div>';
   }
 
   function hourSection(el){
@@ -358,22 +369,15 @@
   function renderHourly(el){
     if(!el)return;
     var section=hourSection(el),rows=hourlyState.rows||[],html='',sig='';
-    if(hourlyState.loading&&!rows.length){
-      sig='loading';
-      html='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Đang tải…</small></div>';
-    }else if(hourlyState.error){
-      sig='error|'+hourlyState.error;
-      html='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Không tải được dữ liệu</small></div><div class="mee-v361-empty">'+esc(hourlyState.error)+' <button type="button" class="btn secondary" onclick="MEE_DASHBOARD_V361_RETRY()">Thử lại</button></div>';
-    }else if(!rows.length){
-      sig='empty';
-      html='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Chỉ hiện giờ có đơn</small></div><div class="mee-v361-empty">Hôm nay chưa có đơn có giờ nhận.</div>';
-    }else{
-      sig='rows|'+rows.map(function(x){return x.hour+':'+x.count}).join(',');
-      html='<div class="mee-hour-title"><span>ĐƠN HÀNG THEO GIỜ HÔM NAY</span><small>Chỉ hiện giờ có đơn</small></div><div class="mee-hour-bars">'+hourlyHtml(rows)+'</div>';
-    }
+    section.classList.add('mee-approved-analytics-hours');
+    if(hourlyState.loading&&!rows.length){sig='loading';html='<div class="mee-approved-subtitle">Đang tải dữ liệu đơn hàng…</div>'}
+    else if(hourlyState.error){sig='error|'+hourlyState.error;html='<div class="mee-v361-empty">'+esc(hourlyState.error)+' <button type="button" class="btn secondary" onclick="MEE_DASHBOARD_V361_RETRY()">Thử lại</button></div>'}
+    else if(!rows.length){sig='empty';html='<div class="mee-v361-empty">Hôm nay chưa có đơn có giờ nhận.</div>'}
+    else {sig='rows|'+rows.map(function(x){return x.hour+':'+x.count}).join(',');html=hourlyHtml(rows)}
     if(section.dataset.v361HourlySig===sig)return;
     section.dataset.v361HourlySig=sig;
-    section.innerHTML=html;
+    section.innerHTML='<div class="mee-approved-panel"><div class="mee-approved-title">Đơn hàng theo khung giờ</div>'+
+      '<div class="mee-approved-subtitle">Theo giờ nhận hoa hôm nay · Chỉ hiện khung có đơn</div>'+html+'</div>';
   }
 
   async function loadHourly(el,force){
@@ -394,31 +398,73 @@
 
   function buildSummary(r,el){
     var s=r.summary||{},grid=qs('.stat-grid-5',el);if(!grid)return;
-    var total=Number(s.orders||0),waiting=Number(s['Chờ bó']||0),delivered=Number(s['Đã giao']||0),notDelivered=Math.max(0,total-delivered);
-    var pending=Number(s.unsettledRevenue||0),settled=Number(s.settledRevenue||0),debt=Number(s.debt||0);
-    var sig=[total,waiting,notDelivered,pending,settled,debt].join('|');if(grid.dataset.v361Sig===sig)return;
-    grid.classList.add('mee-dashboard-summary');
-    grid.innerHTML=''+
-      '<article class="mee-summary-card orders"><div class="mee-summary-kicker">Đơn hàng</div><div class="mee-summary-main">'+total+' đơn</div><div class="mee-summary-mini-grid"><div class="mee-summary-mini"><span>Chờ bó</span><b>'+waiting+'</b></div><div class="mee-summary-mini"><span>Chưa giao</span><b>'+notDelivered+'</b></div></div></article>'+
-      '<article class="mee-summary-card revenue"><div class="mee-summary-kicker">Doanh thu</div><div class="mee-revenue-lines"><div class="mee-revenue-line pending"><span>Chưa tất toán</span><b>'+money(pending)+'</b></div><div class="mee-revenue-line settled"><span>Đã tất toán</span><b>'+money(settled)+'</b></div></div></article>'+
-      '<article class="mee-summary-card debt"><div class="mee-summary-kicker">Công nợ chưa thu</div><div class="mee-summary-main">'+money(debt)+'</div><div class="mee-debt-note">Theo số tiền còn phải thu trên các đơn chưa khóa đối soát.</div></article>';
-    grid.dataset.v361Sig=sig;
+    var orders=Number(s.orders||0),delivered=Number(s['Đã giao']||0);
+    var revenue=Number(s.revenue||0);
+    if(!revenue)revenue=Number(s.settledRevenue||0)+Number(s.unsettledRevenue||0);
+    var debt=Number(s.debt||0);
+    var items=[
+      ['Doanh thu đơn hàng',money(revenue),'Tổng giá trị đơn trong kỳ','revenue'],
+      ['Tổng đơn hàng',String(orders),'Theo khoảng ngày đã chọn','orders'],
+      ['Trung bình / đơn',orders?money(Math.round(revenue/orders)):'0 đ','Giá trị đơn bình quân','average'],
+      ['Công nợ còn thu',money(debt),'Cần thu và đối soát','debt'],
+      ['Hoàn tất giao hàng',delivered+'/'+orders,(orders?Math.round(delivered/orders*100):0)+'% đã giao','complete']
+    ];
+    var sig=JSON.stringify(items);
+    if(grid.dataset.meeApprovedSig===sig)return;
+    grid.classList.add('mee-dashboard-summary','mee-approved-summary');
+    grid.innerHTML=items.map(function(x){
+      return '<article class="mee-approved-kpi '+x[3]+'"><div class="mee-approved-kpi-label">'+esc(x[0])+'</div>'+
+      '<div class="mee-approved-kpi-value">'+esc(x[1])+'</div>'+
+      '<div class="mee-approved-kpi-note">'+esc(x[2])+'</div></article>';
+    }).join('');
+    grid.dataset.meeApprovedSig=sig;
   }
 
   function buildReport(r,el){
-    var items=Array.isArray(r.salesDaily)?r.salesDaily:[];
-    var sig=JSON.stringify(items.map(function(x){return[x.date,x.sale,x.orders,x.unsettledRevenue,x.settledRevenue]}));
-    var section=qs('.mee-sales-daily-section',el);if(!section){section=document.createElement('section');section.className='mee-sales-daily-section';el.appendChild(section)}
-    if(section.dataset.v361Sig===sig)return;
-    var rows=items.map(function(x){return '<tr><td>'+esc(dateVN(x.date))+'</td><td><b>'+esc(x.sale||'Chưa gán')+'</b></td><td>'+Number(x.orders||0)+' đơn</td><td class="mee-money-pending">'+money(x.unsettledRevenue||0)+'</td><td class="mee-money-settled">'+money(x.settledRevenue||x.revenue||0)+'</td></tr>'}).join('');
-    section.innerHTML='<div class="mee-v361-report-card"><div class="mee-v361-report-head"><div><h3>Báo cáo doanh thu theo nhân viên / ngày</h3><div class="sub">Đối chiếu doanh thu chưa và đã tất toán theo từng Sale.</div></div><span class="mee-v361-rule">Tách trạng thái đối soát</span></div><div class="mee-v361-table-wrap"><table class="mee-v361-table"><thead><tr><th>Ngày</th><th>Nhân viên</th><th>Số đơn</th><th>Chưa tất toán</th><th>Đã tất toán</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" class="mee-v361-empty">Chưa có dữ liệu trong khoảng đang chọn.</td></tr>')+'</tbody></table></div></div>';
-    section.dataset.v361Sig=sig;
+    var source=Array.isArray(r.salesDaily)?r.salesDaily:[];
+    var grouped={};
+    source.forEach(function(x){
+      var sale=String(x.sale||'Chưa phân công').trim()||'Chưa phân công';
+      if(!grouped[sale])grouped[sale]={sale:sale,orders:0,settled:0,unsettled:0};
+      grouped[sale].orders+=Number(x.orders||0);
+      grouped[sale].settled+=Number(x.settledRevenue||0);
+      grouped[sale].unsettled+=Number(x.unsettledRevenue||0);
+    });
+    var rows=Object.keys(grouped).map(function(k){return grouped[k]});
+    rows.sort(function(a,b){return b.settled+b.unsettled-a.settled-a.unsettled});
+    var section=qs('.mee-sales-daily-section',el);
+    if(!section){section=document.createElement('section');section.className='mee-sales-daily-section';el.appendChild(section)}
+    section.classList.add('mee-approved-analytics-sales');
+    var sig=JSON.stringify(rows);
+    if(section.dataset.meeApprovedSig===sig)return;
+    var top=Math.max.apply(null,[1].concat(rows.map(function(x){return x.settled+x.unsettled})));
+    section.innerHTML='<div class="mee-approved-panel">'+
+      '<div class="mee-approved-title">Doanh thu theo nhân viên</div>'+
+      '<div class="mee-approved-subtitle">Giá trị đơn theo Sale · Đã và chưa tất toán</div>'+
+      (rows.length?rows.map(function(x){
+        var total=x.settled+x.unsettled;
+        return '<div class="mee-approved-staff-row"><span class="mee-approved-staff-name">'+esc(x.sale)+'</span>'+
+          '<div class="mee-approved-track" role="img" aria-label="'+esc(x.sale)+': '+money(total)+'"><div style="width:'+Math.max(0,Math.min(100,total/top*100)).toFixed(1)+'%"></div></div>'+
+          '<b>'+money(total)+'</b></div>';
+      }).join(''):'<div class="mee-v361-empty">Chưa có dữ liệu doanh thu theo nhân viên trong kỳ.</div>')+
+      '<div class="mee-approved-footnote">Doanh thu đơn hàng, không phải hoa hồng · Theo kỳ đang chọn</div></div>';
+    section.dataset.meeApprovedSig=sig;
   }
 
   function patchDashboard(){
     if(!window.S||S.page!=='dashboard')return;
     var r=S.data&&S.data.dashboard,el=qs('#content');if(!r||!el)return;
     buildSummary(r,el);buildReport(r,el);
+    var oldGrid=qs('.dashboard-grid',el);
+    if(oldGrid){
+      oldGrid.classList.add('mee-approved-attention');
+      var right=qs('.dashboard-right',oldGrid);if(right)right.remove();
+      var left=qs('.dashboard-left',oldGrid);if(left){
+        var heading=qs('.section-head h3',left);if(heading)heading.textContent='Cần chú ý trong ngày';
+        var leftHead=qs('.section-head',left);if(leftHead)leftHead.classList.add('mee-approved-attention-heading');
+      }
+    }
+    var pageHead=qs('.page-header',el);if(pageHead)pageHead.classList.add('mee-approved-page-header');
     if(hourlyState.dashboardRef!==r){hourlyState.dashboardRef=r;loadHourly(el,true)}else renderHourly(el);
   }
 
