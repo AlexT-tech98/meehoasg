@@ -891,14 +891,6 @@
     var b=document.createElement('button');b.type='button';b.className='btn danger full mee-delete-order';b.textContent='Xóa đơn';b.addEventListener('click',function(){requestDelete(id,b)});actions.appendChild(b);
   }
 
-  function installReload(){
-    if(qs('#meeReloadApp'))return;
-    var host=qs('.side-user')||qs('.sidebar');if(!host)return;
-    var b=document.createElement('button');b.id='meeReloadApp';b.type='button';b.className='btn secondary full mee-reload-app-v365';b.textContent='↻ Tải lại ứng dụng';
-    b.onclick=function(){try{Object.keys(localStorage).filter(function(k){return k.indexOf('meehoa-shell-')===0}).forEach(function(k){localStorage.removeItem(k)})}catch(_){ }location.reload()};
-    host.insertBefore(b,host.firstChild);
-  }
-
   function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();patchCopyActions();patchDelete()}
   function wrapOpenForm(){
     if(!window.MEEOPS7||!MEEOPS7.openOrderForm||MEEOPS7.openOrderForm._mee365)return;

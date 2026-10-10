@@ -1100,3 +1100,9 @@ body .dashboard-right:has(.dashboard-progress-card){display:none!important}
 body .mee-atelier-dashboard-header h1{font-weight:800!important;font-size:clamp(25px,3vw,35px)!important;letter-spacing:-.05em!important}
 body .mee-atelier-dashboard-header .sub:empty{display:none!important}
 @media(max-width:900px){body .topbar .mee-refresh-action{display:inline-flex!important;align-items:center!important;visibility:visible!important;font-size:12px!important;padding:8px!important;min-width:0!important;white-space:nowrap!important}body .topbar .actions{display:flex!important;gap:5px!important}body .topbar .topbar-user{display:none!important}}
+
+/* Stable dashboard presentation and bounded order image grid */
+body.mee-page-dashboard-v365 .mee-atelier-dashboard-header>div:first-child::before{content:"Dashboard Meehoasg";display:block;color:#ef6d54;font-size:11px;letter-spacing:.13em;font-weight:800;margin-bottom:14px}
+body .order-card-mobile .order-card-mobile-thumb,body .order-card-mobile .order-card-mobile-thumb-empty{width:56px!important;height:56px!important;max-width:56px!important;max-height:56px!important;aspect-ratio:1!important}
+body .order-card-mobile .order-card-mobile-body{grid-template-columns:56px minmax(0,1fr)!important;overflow:hidden!important}
+@media(max-width:900px){body #globalSearchInput{font-size:16px!important}body .topbar .mee-refresh-action{display:inline-flex!important}}
