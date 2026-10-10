@@ -47,3 +47,49 @@
   .mee-summary-main{font-size:23px}
   .mee-v361-report-card{padding:13px}
 }
+
+
+/* Approved Meehoasg dashboard design — intentionally flat, quiet and information-dense. */
+#content:has(.mee-approved-summary){font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#content .mee-approved-summary{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:10px!important;margin-bottom:16px!important}
+#content .mee-approved-kpi{min-width:0;background:var(--bg-surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:10px;padding:15px 13px;box-shadow:none;overflow:hidden}
+#content .mee-approved-kpi-label{color:var(--text-secondary,#65756e);font-size:11px;font-weight:550}
+#content .mee-approved-kpi-value{font-size:clamp(16px,1.8vw,24px);font-weight:750;letter-spacing:-.035em;line-height:1.22;margin:10px 0 7px;font-variant-numeric:tabular-nums;white-space:nowrap}
+#content .mee-approved-kpi-note{font-size:10px;line-height:1.4;color:var(--text-muted,#86938a)}
+#content #meeHourlySingleV361,#content .mee-approved-analytics-sales{min-width:0;margin:0!important;padding:0!important;border:0!important;box-shadow:none!important;background:transparent!important}
+#content .mee-approved-panel{background:var(--bg-surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:10px;padding:17px;min-height:218px;box-shadow:none}
+#content .mee-approved-title{font-size:14px;font-weight:720;letter-spacing:-.015em}
+#content .mee-approved-subtitle{font-size:11px;color:var(--text-muted,#82918a);margin:5px 0 15px}
+#content .mee-approved-hour-chart{height:138px;display:flex;gap:9px;align-items:stretch;justify-content:space-between}
+#content .mee-approved-hour-item{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:end;font-size:10px;gap:5px}
+#content .mee-approved-hour-item>b{font-size:10px;font-weight:680}
+#content .mee-approved-hour-column{max-width:34px;width:100%;min-height:3px;background:#a2beb4;border-radius:5px 5px 0 0}
+#content .mee-approved-hour-column.peak{background:#218264}
+#content .mee-approved-hour-item small{font-size:9px;color:var(--text-muted,#82918a);white-space:nowrap}
+#content .mee-approved-staff-row{display:grid;grid-template-columns:minmax(82px,1fr) minmax(35px,1.7fr) minmax(75px,auto);gap:9px;align-items:center;margin:13px 0;font-size:11px}
+#content .mee-approved-staff-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#content .mee-approved-staff-row>b{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+#content .mee-approved-track{height:8px;border-radius:20px;overflow:hidden;background:#eaf2ee}
+#content .mee-approved-track>div{height:100%;border-radius:20px;background:#218264}
+#content .mee-approved-footnote{font-size:10px;color:var(--text-muted,#82918a);border-top:1px solid var(--border,#e5e7eb);padding-top:10px;margin-top:14px}
+#content:has(.mee-approved-summary) .dashboard-grid{margin-top:16px}
+#content:has(.mee-approved-summary) .dashboard-grid .dashboard-right>div{box-shadow:none!important;border-radius:10px!important}
+#content:has(.mee-approved-summary) .page-header h1{letter-spacing:-.035em}
+@media(min-width:761px){
+#content:has(.mee-approved-summary){display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);column-gap:12px;align-items:start}
+#content:has(.mee-approved-summary)>.page-header,#content:has(.mee-approved-summary)>.mee-approved-summary,#content:has(.mee-approved-summary)>.dashboard-grid{grid-column:1/-1}
+#content:has(.mee-approved-summary)>#meeHourlySingleV361{grid-column:1;grid-row:3}
+#content:has(.mee-approved-summary)>.mee-approved-analytics-sales{grid-column:2;grid-row:3}
+}
+@media(max-width:1100px) and (min-width:761px){
+#content .mee-approved-summary{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+#content .mee-approved-kpi-value{font-size:19px}
+}
+@media(max-width:760px){
+#content .mee-approved-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+#content .mee-approved-kpi.revenue{grid-column:span 2}
+#content .mee-approved-kpi-value{font-size:23px;white-space:normal;overflow-wrap:anywhere}
+#content .mee-approved-panel{min-height:0;padding:14px}
+#content .mee-approved-hour-chart{gap:5px}
+#content .mee-approved-staff-row{grid-template-columns:minmax(74px,1fr) minmax(30px,1.2fr) minmax(65px,auto)}
+}
