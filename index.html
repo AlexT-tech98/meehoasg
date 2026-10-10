@@ -9,8 +9,8 @@
 <meta name="apple-mobile-web-app-title" content="Meehoa OPS">
 <title>Meehoa OPS</title>
 <link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=7">
-<link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=7">
-<link rel="manifest" href="/manifest.webmanifest?v=7">
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/meehoa-apple-touch-icon.png?v=8">
+<link rel="manifest" href="/manifest.webmanifest?v=8">
 <link rel="preconnect" href="https://zxnfhshnavbmvdthrmrd.supabase.co" crossorigin>
 <link rel="preload" href="/html?prod-base=20261010-ux1" as="fetch">
 <link rel="preload" href="/assets/meehoa-core.css?v=20261010-ux1" as="style">
@@ -46,7 +46,7 @@ html,body{margin:0;min-height:100%;background:#fbf8f4;font-family:Inter,-apple-s
     html=html.replace(OLD_SPLASH,NEW_SPLASH);
     html=html.replace(/window\.__MEE_BOOT_STAGE__\s*=\s*'ready';/,
       "window.S=S;window.gas=gas;window.loadFlowers=loadFlowers;window.loadPage=loadPage;window.renderProduction=renderProduction;window.rememberOrders=rememberOrders;window.validateBuild=validateBuild;window.closeOverlay=closeOverlay;window.toast=toast;window.__MEE_BOOT_STAGE__='ready';");
-    html=html.replace(/<head>/i,'<head><base href="/"><meta name="theme-color" content="#0f4937"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Meehoa OPS"><link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=7"><link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=7"><link rel="manifest" href="/manifest.webmanifest?v=7">');
+    html=html.replace(/<head>/i,'<head><base href="/"><meta name="theme-color" content="#0f4937"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Meehoa OPS"><link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=7"><link rel="apple-touch-icon" sizes="180x180" href="/assets/meehoa-apple-touch-icon.png?v=8"><link rel="manifest" href="/manifest.webmanifest?v=8">');
     html=html.replace(/<title>[^<]*<\/title>/i,'<title>Meehoa OPS</title>');
     html=html.replace(/<\/head>/i,'<link rel="stylesheet" href="/assets/meehoa-core.css?v=20261010-ux1"></head>');
     html=html.replace(/<\/body>/i,'<script src="/assets/meehoa-core.js?v=20261010-ux1"><\/script></body>');
