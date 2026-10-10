@@ -31,11 +31,11 @@ test('hourly rendered rows preserve labels, counts and proportional bars',()=>{
   const api=loadDashboardTestApi();
   const rows=api.hourlyModel([{time:'10:00'},{time:'15:00'},{time:'15:30'},{time:'17:00'},{time:'21:00'}]);
   const html=api.hourlyHtml(rows);
-  assert.match(html,/10:00–10:59/);
-  assert.match(html,/15:00–15:59/);
-  assert.match(html,/17:00–17:59/);
-  assert.match(html,/21:00–21:59/);
-  assert.doesNotMatch(html,/11:00–11:59/);
+  assert.match(html,/10–12/);
+  assert.match(html,/14–16/);
+  assert.match(html,/16–18/);
+  assert.match(html,/20–22/);
+  assert.doesNotMatch(html,/12–14/);
   const fifteen=rows.find(x=>x.hour===15);
   const ten=rows.find(x=>x.hour===10);
   assert.equal(fifteen.count,2);
@@ -61,6 +61,6 @@ test('hourly render is idempotent and does not create a MutationObserver feedbac
   api.renderHourly(root);
   api.renderHourly(root);
   assert.equal(writes,1);
-  assert.match(section.innerHTML,/10:00–10:59/);
-  assert.match(section.innerHTML,/15:00–15:59/);
+  assert.match(section.innerHTML,/10–12/);
+  assert.match(section.innerHTML,/14–16/);
 });

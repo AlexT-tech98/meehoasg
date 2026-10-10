@@ -6,6 +6,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
 <style>
 
 /* ===== MEEHOASG BOTANICAL STUDIO DESIGN SYSTEM ===== */
@@ -1225,7 +1226,7 @@ tbody tr:last-child td { border-bottom: 0; }
       <div class="brand-mark">M</div>
       <div class="brand-copy">
         <b>MEEHOASG</b>
-        <small>OPERATIONS</small>
+        <small>MEEHOASG OPERATIONS</small>
       </div>
     </div>
     <nav id="nav" class="nav"></nav>
@@ -1254,7 +1255,7 @@ tbody tr:last-child td { border-bottom: 0; }
         </div>
       </div>
       <div class="actions">
-        <button class="btn secondary" onclick="MEEOPS7.refreshPage()" title="Làm mới dữ liệu">↻ Làm mới</button>
+        <button class="btn secondary mee-refresh-action" onclick="MEEOPS7.refreshPage()" title="Làm mới dữ liệu">↻ Làm mới</button>
         <button class="btn primary" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button>
         <div class="topbar-user" id="topbarUser" style="display:flex;align-items:center;gap:8px;padding-left:8px;border-left:1px solid var(--border)">
           <div class="user-avatar" id="topbarUserAvatar" style="width:28px;height:28px;font-size:12px">M</div>
@@ -2365,7 +2366,7 @@ function opsTile(o) {
         } else {
             var header = '<div class="search-dropdown-header">GỢI Ý ĐƠN HÀNG (' + matches.length + ')</div>';
             var items = topMatches.map(function(o) {
-                var thumb = (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
+                var thumb = firstImage(o, 180) || (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
                 var thumbHtml = thumb ?
                     '<img class="search-item-thumb" src="' + attr(thumb) + '" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
                     '<div class="search-item-thumb-empty">🌸</div>';
@@ -2492,7 +2493,7 @@ function opsTile(o) {
     var timeBadge = isNear 
       ? '<span class="badge red">≤60p · ' + esc(timeVN(o.time)) + '</span>' 
       : '<span class="badge gold">Quá giờ · ' + esc(timeVN(o.time)) + '</span>';
-    var thumb = (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
+    var thumb = firstImage(o, 180) || (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
     var thumbHtml = thumb ?
         '<img class="order-card-mobile-thumb" src="' + attr(thumb) + '" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
         '<div class="order-card-mobile-thumb-empty">🌸</div>';
@@ -2650,7 +2651,7 @@ function opsTile(o) {
   }).join('');
 
   var mobileCards = filteredList.map(function(o) {
-    var thumb = (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
+    var thumb = firstImage(o, 180) || (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
     var thumbHtml = thumb ?
         '<img class="order-card-mobile-thumb" src="' + attr(thumb) + '" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
         '<div class="order-card-mobile-thumb-empty">🌸</div>';

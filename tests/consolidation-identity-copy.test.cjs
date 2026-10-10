@@ -35,10 +35,11 @@ test('order copy excludes order id and uses synchronous clipboard fallback',()=>
   assert.match(ui,/document\.addEventListener\('click',delegatedCopyTap,true\)/);
 });
 
-test('shortcut has in-app reload control without signing out',()=>{
-  assert.match(ui,/meeReloadApp/);
-  assert.match(ui,/Tải lại ứng dụng/);
-  assert.match(ui,/location\.reload\(\)/);
-  assert.match(ui,/meehoa-shell-/);
-  assert.doesNotMatch(ui,/mee_token.*removeItem/);
+test('single refresh control replaces cache-clearing app reload',()=>{
+  const shell=fs.readFileSync('html','utf8');
+  assert.doesNotMatch(ui,/function installReload\(/);
+  assert.doesNotMatch(ui,/meeReloadApp/);
+  assert.match(shell,/mee-refresh-action/);
+  assert.match(shell,/MEEOPS7\.refreshPage\(\)/);
+  assert.doesNotMatch(shell,/Tải lại ứng dụng/);
 });
