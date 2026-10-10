@@ -134,6 +134,16 @@
     if(!window.S||S.page!=='dashboard')return;
     var r=S.data&&S.data.dashboard,el=qs('#content');if(!r||!el)return;
     buildSummary(r,el);buildReport(r,el);
+    var oldGrid=qs('.dashboard-grid',el);
+    if(oldGrid){
+      oldGrid.classList.add('mee-approved-attention');
+      var right=qs('.dashboard-right',oldGrid);if(right)right.remove();
+      var left=qs('.dashboard-left',oldGrid);if(left){
+        var heading=qs('.section-head h3',left);if(heading)heading.textContent='Cần chú ý trong ngày';
+        var leftHead=qs('.section-head',left);if(leftHead)leftHead.classList.add('mee-approved-attention-heading');
+      }
+    }
+    var pageHead=qs('.page-header',el);if(pageHead)pageHead.classList.add('mee-approved-page-header');
     if(hourlyState.dashboardRef!==r){hourlyState.dashboardRef=r;loadHourly(el,true)}else renderHourly(el);
   }
 
