@@ -134,6 +134,12 @@
     if(!window.S||S.page!=='dashboard')return;
     var r=S.data&&S.data.dashboard,el=qs('#content');if(!r||!el)return;
     buildSummary(r,el);buildReport(r,el);
+    var pageHead=qs('.page-header',el);
+    if(pageHead){
+      var h=qs('h1',pageHead);if(h)h.textContent='Một ngày ở Meehoasg.';
+      var sub=qs('.sub',pageHead);if(sub)sub.textContent='';
+      pageHead.classList.add('mee-atelier-dashboard-header');
+    }
     var oldGrid=qs('.dashboard-grid',el);
     if(oldGrid){
       oldGrid.classList.add('mee-approved-attention');
@@ -143,7 +149,7 @@
         var leftHead=qs('.section-head',left);if(leftHead)leftHead.classList.add('mee-approved-attention-heading');
       }
     }
-    var pageHead=qs('.page-header',el);if(pageHead)pageHead.classList.add('mee-approved-page-header');
+    if(pageHead)pageHead.classList.add('mee-approved-page-header');
     if(hourlyState.dashboardRef!==r){hourlyState.dashboardRef=r;loadHourly(el,true)}else renderHourly(el);
   }
 
