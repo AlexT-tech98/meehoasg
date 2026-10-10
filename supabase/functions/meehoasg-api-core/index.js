@@ -84,7 +84,8 @@ async function fastOrders(payload){
     and:`(order_date.gte.${start},order_date.lte.${end})`,
     order:'order_date.asc,order_time.asc'
   });
-  const matched=q?rows.filter(r=>norm([r.customer,r.phone,r.id,r.flower,r.sale].join(' ')).includes(q)):rows;
+  const phoneTerm=/^[+0-9() .-]+$/.test(clean(payload.q))?clean(payload.q).replace(/\\D/g,''):'';
+  const matched=q?rows.filter(r=>norm([r.customer,r.phone,r.id,r.flower,r.sale].join(' ')).includes(q)||(phoneTerm.length>=3&&String(r.phone||'').replace(/\\D/g,'').includes(phoneTerm))):rows;
   const selected=matched.slice((page-1)*pageSize,page*pageSize);
   const sm=await settlementMap(selected.map(r=>r.id));
   const items=await Promise.all(selected.map(async r=>decorate({...r,image_urls:await displayUrls(r.image_urls||[])},user,sm[r.id],dir)));
