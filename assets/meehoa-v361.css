@@ -1,4 +1,16 @@
 /* Canonical owner: dashboard summary + sales/day report. */
+/* Put today's workload first and keep the supporting figures compact. */
+@media(min-width:1201px){
+  .stat-grid-5{grid-template-columns:repeat(18,minmax(0,1fr))!important}
+  .stat-grid-5>.stat{grid-column:span 3}
+  .stat-grid-5>.stat:first-child{grid-column:span 6}
+}
+.stat-grid-5>.stat{background:#fff!important;border:1px solid #dfe7e1!important;border-radius:14px!important;box-shadow:none!important;transform:none!important;min-width:0}
+.stat-grid-5>.stat:first-child{background:#eaf3ed!important;border-color:#c9dfd0!important}
+.stat-grid-5>.stat:after{display:none!important}
+.stat-grid-5>.stat strong{font-size:23px!important;overflow-wrap:anywhere}
+.stat-grid-5>.stat:first-child strong{font-size:29px!important}
+.dashboard-right>div{background:#fff!important;border:1px solid #dfe7e1!important;border-radius:14px!important;box-shadow:none!important}
 .mee-dashboard-summary{
   display:grid!important;
   grid-template-columns:1.05fr 1.15fr .8fr!important;
@@ -9,9 +21,9 @@
   min-width:0;border:1px solid rgba(68,82,75,.08);border-radius:18px;padding:15px 16px;
   background:#fff;box-shadow:0 8px 24px rgba(58,45,39,.055);position:relative;overflow:hidden
 }
-.mee-dashboard-summary .mee-summary-card.orders{background:linear-gradient(145deg,#fff,#fff7df)}
-.mee-dashboard-summary .mee-summary-card.revenue{background:linear-gradient(145deg,#fff,#eef9f4)}
-.mee-dashboard-summary .mee-summary-card.debt{background:linear-gradient(145deg,#fff,#fff0f4)}
+.mee-dashboard-summary .mee-summary-card.orders{background:#f1f6ee}
+.mee-dashboard-summary .mee-summary-card.revenue{background:#fff}
+.mee-dashboard-summary .mee-summary-card.debt{background:#fff}
 .mee-summary-kicker{font-size:10.5px;line-height:1.2;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#7b8a82;margin-bottom:7px}
 .mee-summary-main{font-size:26px;font-weight:850;letter-spacing:-.04em;color:#20342b;line-height:1.08}
 .mee-summary-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}

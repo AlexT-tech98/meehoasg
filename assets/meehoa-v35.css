@@ -15,12 +15,10 @@
 .login-card .mee-brand-mark img{object-fit:cover!important}
 .mee-shipping-icon{display:inline-grid!important;place-items:center!important;width:22px!important;height:22px!important;margin-right:5px!important;border-radius:7px!important;background:#f2f8f5!important;font-size:13px!important;vertical-align:middle!important}
 
-body.mee-page-production #content{position:relative!important;isolation:isolate!important;border-radius:28px!important;padding-top:22px!important;background:radial-gradient(circle at 7% 4%,rgba(255,216,111,.30),transparent 18rem),radial-gradient(circle at 96% 8%,rgba(245,139,156,.22),transparent 19rem),radial-gradient(circle at 93% 94%,rgba(143,197,223,.20),transparent 20rem),radial-gradient(circle at 6% 90%,rgba(191,231,211,.34),transparent 20rem),linear-gradient(145deg,rgba(255,250,243,.94),rgba(255,245,248,.88) 48%,rgba(241,250,246,.94))!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.74)!important}
-body.mee-page-production #content:before,body.mee-page-production #content:after{position:absolute!important;z-index:-1!important;pointer-events:none!important;color:rgba(255,255,255,.72)!important;line-height:1!important;filter:drop-shadow(0 12px 20px rgba(80,55,45,.05))!important}
-body.mee-page-production #content:before{content:"✿  ❀"!important;font-size:86px!important;right:12px!important;top:60px!important;transform:rotate(12deg)!important}
-body.mee-page-production #content:after{content:"❀  ✿"!important;font-size:72px!important;left:8px!important;bottom:18px!important;transform:rotate(-13deg)!important}
-body.mee-page-production .lane,body.mee-page-production .order,body.mee-page-production .ops-tile{background:rgba(255,255,255,.94)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border-color:rgba(86,63,55,.07)!important;box-shadow:0 10px 28px rgba(74,50,42,.07)!important}
-body.mee-page-production .lane-title{background:linear-gradient(90deg,#eff9f4,#fff4f6 58%,#fff8dc)!important;border-radius:14px!important;padding:10px 12px!important}
+body.mee-page-production #content{position:relative!important;isolation:isolate!important;border-radius:0!important;padding-top:22px!important;background:transparent!important;box-shadow:none!important}
+body.mee-page-production #content:before,body.mee-page-production #content:after{display:none!important}
+body.mee-page-production .lane,body.mee-page-production .order,body.mee-page-production .ops-tile{background:#fffefb!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border-color:#d9ded6!important;box-shadow:none!important}
+body.mee-page-production .lane-title{background:#e9eee8!important;border-radius:5px!important;padding:10px 12px!important}
 body.mee-page-production .ops-grid{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(360px,1fr))!important;gap:16px!important;align-items:stretch!important}
 body.mee-page-production .ops-tile{grid-template-columns:84px minmax(0,1fr)!important;gap:13px!important;align-items:start!important;min-width:0!important;height:100%!important}
 body.mee-page-production .ops-tile>div:last-child{min-width:0!important;display:flex!important;flex-direction:column!important;gap:4px!important}
@@ -42,18 +40,18 @@ body.mee-page-production .ops-tile .actions{margin-top:auto!important;padding-to
 .calendar-selection{align-items:center!important}
 .calendar-selection>span{font-weight:800!important;color:#9b8b83!important}
 
-.mee-materials-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin:14px 0 18px;padding:18px;border-radius:20px;background:linear-gradient(135deg,#eff9f5,#fff 52%,#fff2f5);border:1px solid rgba(21,94,71,.08)}
+.mee-materials-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin:14px 0 18px;padding:18px;border-radius:8px;background:#e5eee8;border:1px solid #c9d9cf}
 .mee-materials-hero h3{margin:0 0 4px;font-size:18px}
 .mee-materials-summary{display:flex;gap:8px;flex-wrap:wrap}
 .mee-summary-chip{border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700;background:#fff;border:1px solid #e6ebe8}
 .mee-summary-chip.review{background:#fff1f2;color:#b52f4d;border-color:#ffd0d8}
 .mee-materials-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px}
-.mee-material-card{appearance:none;text-align:left;border:1px solid #e6ebe8;border-radius:18px;background:#fff;padding:16px;min-height:118px;box-shadow:0 8px 22px rgba(30,55,45,.05);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease;cursor:pointer}
-.mee-material-card:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(30,55,45,.09);border-color:#a9d8c5}
+.mee-material-card{appearance:none;text-align:left;border:1px solid #d9ded6;border-left:3px solid #65906c;border-radius:7px;background:#fffefb;padding:16px;min-height:118px;box-shadow:none;transition:background-color .16s ease,border-color .16s ease;cursor:pointer}
+.mee-material-card:hover{background:#f2f6f0;border-color:#a9c8b5}
 .mee-material-card:focus-visible{outline:3px solid rgba(21,94,71,.18);outline-offset:2px}
 .mee-material-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-.mee-material-name{font-size:16px;font-weight:800;line-height:1.3;color:#183329}
-.mee-material-count{display:inline-flex;align-items:center;justify-content:center;min-width:54px;padding:5px 9px;border-radius:999px;background:#eaf8f1;color:#166e50;border:1px solid #bee8d4;font-size:12px;font-weight:800}
+.mee-material-name{font-family:Georgia,"Iowan Old Style",serif;font-size:20px;font-weight:600;line-height:1.3;color:#183329}
+.mee-material-count{display:inline-flex;align-items:center;justify-content:center;min-width:54px;padding:5px 9px;border-radius:4px;background:#e8f1e9;color:#28684f;border:1px solid #cddfce;font-size:12px;font-weight:800}
 .mee-material-hint{margin-top:18px;font-size:12px;color:#7f8d86}.mee-material-hint:after{content:' →';font-weight:800;color:#3d745f}
 .mee-review-panel{margin-top:18px;padding:17px;border-radius:20px;background:linear-gradient(135deg,#fff4f4,#fff9ed);border:1px solid #ffd3d7}
 .mee-review-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px}
