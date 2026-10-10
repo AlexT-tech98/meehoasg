@@ -179,3 +179,7 @@ body.mee-page-dashboard-v365 .mee-atelier-dashboard-header>div:first-child::befo
 body .order-card-mobile .order-card-mobile-thumb,body .order-card-mobile .order-card-mobile-thumb-empty{width:56px!important;height:56px!important;max-width:56px!important;max-height:56px!important;aspect-ratio:1!important}
 body .order-card-mobile .order-card-mobile-body{grid-template-columns:56px minmax(0,1fr)!important;overflow:hidden!important}
 @media(max-width:900px){body #globalSearchInput{font-size:16px!important}body .topbar .mee-refresh-action{display:inline-flex!important}}
+
+/* Prevent iOS double-tap zoom on controls while retaining intentional pinch-to-zoom accessibility. */
+@media (hover:none) and (pointer:coarse){button,a,[role="button"],.nav button,.mobile-nav button,.order-card-mobile{touch-action:manipulation}}
+@media(max-width:900px){.topbar .actions .btn.secondary.mee-refresh-action{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-height:36px!important;touch-action:manipulation!important}}
