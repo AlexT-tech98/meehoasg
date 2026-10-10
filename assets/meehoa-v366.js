@@ -182,7 +182,7 @@
     host.insertBefore(b,host.firstChild);
   }
 
-  function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();patchCopyActions();patchDelete();installReload()}
+  function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();patchCopyActions();patchDelete()}
   function wrapOpenForm(){
     if(!window.MEEOPS7||!MEEOPS7.openOrderForm||MEEOPS7.openOrderForm._mee365)return;
     var orig=MEEOPS7.openOrderForm;
