@@ -115,3 +115,48 @@ html,body,.app,.main,#content{max-width:100%!important}#content>*{min-width:0!im
 @media(max-width:480px){#content>.stats{grid-template-columns:minmax(0,1fr)!important}.kpi-meta{align-items:flex-start;flex-wrap:wrap}.kpi-meta b{width:100%;text-align:left}.topbar{gap:6px!important}.topbar-search input{font-size:13px!important;padding-right:62px!important}}
 @media(max-width:900px){html{scroll-behavior:auto}body:not(.mee-overlay-open-v364):not(.mee-menu-open){touch-action:pan-y pinch-zoom}}
 @media(prefers-reduced-motion:reduce){#bootSplash .mee-splash-progress i{animation:none!important}}
+
+
+/* Meehoasg Atelier — approved visual language; presentation only, no workflow changes */
+:root{--bg-app:#f5f2ec;--bg-surface:#fffefa;--bg-subtle:#e3f1ff;--bg-hover:#edf5fe;--text-primary:#25253a;--text-secondary:#656679;--text-muted:#888899;--border:#e7e2de;--border-light:#f0ece8;--brand-green:#103f82;--brand-green-hover:#1853a0;--brand-green-soft:#e3f1ff;--brand-green-border:#c2ddf5;--shadow-card:none}
+html,body{background:#f5f2ec!important;color:#25253a!important;font-family:'DM Sans',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif!important}
+body .app,body .main,body #content,body .content{background-color:#f5f2ec!important}
+body .sidebar{background:#050b17!important;background-image:none!important;color:#f8faff!important;border-right:0!important;box-shadow:none!important}
+body .sidebar .nav button{color:#c0d1e8!important;background:transparent!important;border-radius:9px!important}
+body .sidebar .nav button.active,body .sidebar .nav button[aria-current="page"]{color:#fff!important;background:#103f82!important;border-color:transparent!important;box-shadow:none!important}
+body .sidebar .nav button:hover{background:#132844!important;color:white!important}
+body .sidebar .brand,body .sidebar .brand-copy,body .sidebar .brand-copy *,body .sidebar .side-user,body .sidebar .user-info,body .sidebar .user-info b{color:#f9fbff!important}
+body .sidebar .side-user{border-top-color:#284058!important}
+body .topbar{background:#f5f2ec!important;border-bottom:1px solid #e7e2de!important;box-shadow:none!important}
+body .content{max-width:1660px!important}
+body h1,body h2,body h3,.stat strong,.mee-approved-kpi-value{font-family:Manrope,Inter,sans-serif!important;letter-spacing:-.035em}
+body .btn.primary,body .fab,body button.primary{background:#103f82!important;background-image:none!important;color:#fff!important;border-color:#103f82!important;box-shadow:none!important}
+body .btn.primary:hover,body button.primary:hover{background:#1853a0!important}
+body .btn.secondary,body .date-filter-btn,body .topbar button:not(.primary){box-shadow:none!important}
+body .stat,body .panel,body .card,body .lane,body .ops-tile,body .order,body .mee-material-card,body .table-wrap,body .sheet-table-desktop,body .production-shell,body .mee-approved-panel,body .mee-approved-kpi{background:#fffefa!important;background-image:none!important;border:1px solid #e7e2de!important;box-shadow:none!important;border-radius:14px!important}
+body .modal,body .drawer,body .login-card,body .mee-form-section{background:#fffefa!important;box-shadow:0 14px 45px rgba(4,19,38,.10)!important}
+body .table-wrap,body .sheet-table-desktop{overflow-x:auto!important}
+body .control-table th,body .sheet-table th{background:#f7f6f2!important;color:#888899!important}
+body .control-table tr:hover td,body .sheet-table tr:hover td{background:#f2f7fd!important}
+body input:focus,body select:focus,body textarea:focus{outline-color:#4c91d9!important;border-color:#4c91d9!important}
+body .badge.info,body .badge.blue,body .mee-summary-chip{background:#e3f1ff!important;color:#26639c!important;border-color:#c6e0fa!important}
+body .mee-materials-hero{background:#e3f1ff!important;border-color:#c6e0fa!important;border-radius:14px!important}
+body.mee-page-production #content{background:transparent!important;box-shadow:none!important;border-radius:0!important}
+body.mee-page-production #content:before,body.mee-page-production #content:after{display:none!important}
+body.mee-page-production .lane-title{background:#e3f1ff!important;border-radius:9px!important}
+body.mee-page-production .lane,body.mee-page-production .order,body.mee-page-production .ops-tile{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+body .mee-approved-summary{display:grid!important;grid-template-columns:1.35fr repeat(4,minmax(0,1fr))!important;gap:11px!important}
+body .mee-approved-summary .mee-approved-kpi{padding:19px!important;min-height:146px!important;display:flex!important;flex-direction:column!important;justify-content:space-between!important}
+body .mee-approved-summary .mee-approved-kpi.revenue{background:#e3f1ff!important;border-color:#e3f1ff!important}
+body .mee-approved-summary .mee-approved-kpi.orders{background:#ffeadc!important;border-color:#ffeadc!important}
+body .mee-approved-kpi-label{color:#777781!important;font-size:11px!important}
+body .mee-approved-kpi-value{color:#25253a!important;font-weight:800!important}
+body .mee-approved-panel{padding:22px!important}
+body .mee-approved-hour-column{background:#a9d6ff!important}
+body .mee-approved-hour-column.peak{background:#ef6d54!important}
+body .mee-approved-track>div{background:#62a7e8!important}
+body .mee-approved-analytics-sales .mee-approved-staff-row:nth-child(2) .mee-approved-track>div{background:#efa183!important}
+body .dashboard-right:has(.dashboard-progress-card){display:none!important}
+@media(min-width:901px){body .sidebar{width:232px!important;padding:24px 16px!important}body .sidebar .nav button{min-height:47px!important;font-size:12px!important;padding:12px 13px!important}body .main{margin-left:232px!important;width:calc(100% - 232px)!important;max-width:calc(100% - 232px)!important}}
+@media(max-width:1200px){body .mee-approved-summary{grid-template-columns:repeat(3,minmax(0,1fr))!important}body .mee-approved-summary .mee-approved-kpi.revenue{grid-column:span 2}}
+@media(max-width:620px){body .mee-approved-summary,body .stat-grid-5{grid-template-columns:repeat(2,minmax(0,1fr))!important}body .mee-approved-summary .mee-approved-kpi.revenue,body .stat-grid-5>.stat:first-child{grid-column:span 2}body .mee-approved-summary .mee-approved-kpi{min-height:120px!important;padding:15px!important}body .mee-approved-kpi-value{font-size:23px!important}body .content{padding-inline:12px!important}body .sidebar{background:#050b17!important}body .mobile-nav,body .mobile-bottom-nav{background:#050b17!important}}
