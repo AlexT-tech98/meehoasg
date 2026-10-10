@@ -29,14 +29,14 @@ test('materials use direct session authentication instead of production-route de
   assert.doesNotMatch(flowerFn, /delegate\('getProductionOrders'/);
 });
 
-test('dashboard UI has one compact summary and one report table, without legacy chart injection', () => {
+test('dashboard UI has the approved KPI summary, two analytics and no legacy chart injection', () => {
   assert.match(ui, /mee-dashboard-summary/);
-  assert.match(ui, /Chưa tất toán/);
-  assert.match(ui, /Đã tất toán/);
-  assert.match(ui, /Báo cáo doanh thu theo nhân viên \/ ngày/);
+  assert.match(ui, /Công nợ còn thu/);
+  assert.match(ui, /Doanh thu theo nhân viên/);
+  assert.match(ui, /Đơn hàng theo khung giờ/);
   assert.doesNotMatch(ui, /mee-v361-charts/);
   assert.doesNotMatch(ui, /injectStyles/);
   assert.doesNotMatch(ui, /patchFit/);
   assert.match(css, /\.mee-dashboard-summary/);
-  assert.match(css, /\.mee-v361-table-wrap/);
+  assert.match(css, /\.mee-approved-panel/);
 });
