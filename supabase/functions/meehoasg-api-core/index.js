@@ -72,7 +72,29 @@ async function fullPaidReport(payload){const user=await requireUser(payload,['AD
 
 async function fastProduction(payload){const user=await requireUser(payload),dir=await saleDirectory(),date=clean(payload.date)||dateToday(),rows=await all('orders',{and:`(order_date.gte.${date},order_date.lte.${date})`,order:'order_time.asc'}),sm=await settlementMap(rows.map(r=>r.id));const orders=await Promise.all(rows.map(async r=>decorate({...r,image_urls:await displayUrls(r.image_urls||[])},user,sm[r.id],dir)));return {ok:true,date,orders,visibilityRule:'SALE_READ_ALL_EDIT_OWN'}}
 
-async function fastOrders(payload){const user=await requireUser(payload),dir=await saleDirectory(),start=clean(payload.start)||dateToday(),end=clean(payload.end)||start,q=norm(payload.q),page=Math.max(1,Math.floor(num(payload.page)||1)),pageSize=Math.min(200,Math.max(20,Math.floor(num(payload.pageSize)||80)));const rows=await all('orders',{and:`(order_date.gte.${start},order_date.lte.${end})`,order:'order_date.asc,order_time.asc'}),sm=await settlementMap(rows.map(r=>r.id));const decorated=await Promise.all(rows.map(async r=>decorate({...r,image_urls:await displayUrls(r.image_urls||[])},user,sm[r.id],dir)));const filtered=q?decorated.filter(o=>norm([o.customer,o.phone,o.id,o.flower,o.sale,o.saleUsername].join(' ')).includes(q)):decorated;const items=filtered.slice((page-1)*pageSize,page*pageSize);return {ok:true,range:{start,end},page,pageSize,total:filtered.length,items,hasMore:page*pageSize<filtered.length,visibilityRule:'SALE_READ_ALL_EDIT_OWN'}}
+async function fastOrders(payload){
+  const user=await requireUser(payload),dir=await saleDirectory();
+  const start=clean(payload.start)||dateToday(),end=clean(payload.end)||start,q=norm(payload.q);
+  const page=Math.max(1,Math.floor(num(payload.page)||1)),pageSize=Math.min(200,Math.max(20,Math.floor(num(payload.pageSize)||80)));
+  // A submitted search spans every order date. Date filters still apply when the search is cleared.
+  // Filter BEFORE signing thumbnail URLs or reading settlement details to avoid expensive work on every historical order.
+  const rows=await all('orders',q?{
+    order:'order_date.desc,order_time.desc'
+  }:{
+    and:`(order_date.gte.${start},order_date.lte.${end})`,
+    order:'order_date.asc,order_time.asc'
+  });
+  const phoneTerm=/^[+0-9() .-]+$/.test(clean(payload.q))?clean(payload.q).replace(/[^0-9]/g,''):'';
+  const matched=q?rows.filter(r=>norm([r.customer,r.phone,r.id,r.flower,r.sale].join(' ')).includes(q)||(phoneTerm.length>=3&&String(r.phone||'').replace(/[^0-9]/g,'').includes(phoneTerm))):rows;
+  const selected=matched.slice((page-1)*pageSize,page*pageSize);
+  const sm=await settlementMap(selected.map(r=>r.id));
+  const items=await Promise.all(selected.map(async r=>decorate({...r,image_urls:await displayUrls(r.image_urls||[])},user,sm[r.id],dir)));
+  return {
+    ok:true,range:q?null:{start,end},searchScope:q?'ALL_DATES':'SELECTED_DATE',
+    page,pageSize,total:matched.length,items,hasMore:page*pageSize<matched.length,
+    visibilityRule:'SALE_READ_ALL_EDIT_OWN'
+  };
+}
 
 async function fastDashboard(payload){const user=await requireUser(payload),dir=await saleDirectory(),start=clean(payload.start)||dateToday(),end=clean(payload.end)||start;const rows=await all('orders',{select:'id,updated_at,customer,phone,order_date,order_time,flower,note,shipping,address,flower_total,payment,sale,status,settled,full_paid,full_paid_total,full_paid_bill_urls,full_paid_by,full_paid_at,full_paid_invalidated_at,full_paid_invalidated_reason,ship_fee,ship_confirmed,card,card_qty,banner,charm_fee,paper_fee,vat,image_urls',and:`(order_date.gte.${start},order_date.lte.${end})`,order:'order_date.asc,order_time.asc'});const sm=await settlementMap(rows.map(r=>r.id));const orders=rows.map(r=>decorate(r,user,sm[r.id],dir));const summary={orders:0,revenue:0,grossRevenue:0,settledRevenue:0,unsettledRevenue:0,debt:0,cms:0,'Chờ bó':0,'Đã bó':0,'Đã giao':0,unsettled:0,alerts:0};const daily=new Map(),nearUnpacked=[],packedOverdue=[];const now=Date.now();for(const o of orders){summary.orders++;summary.grossRevenue+=o.flowerTotal;summary.debt+=o.debt;summary[o.status]=(summary[o.status]||0)+1;if(o.paymentVerified)summary.settledRevenue+=o.flowerTotal;else{summary.unsettledRevenue+=o.flowerTotal;summary.unsettled++}const who=o.saleUsername||saleKey(o.sale)||o.sale,key=`${o.date}|${who}`,x=daily.get(key)||{date:o.date,sale:o.sale,saleUsername:o.saleUsername||'',orders:0,settledOrders:0,unsettledOrders:0,grossRevenue:0,settledRevenue:0,unsettledRevenue:0,revenue:0};x.orders++;x.grossRevenue+=o.flowerTotal;if(o.paymentVerified){x.settledOrders++;x.settledRevenue+=o.flowerTotal}else{x.unsettledOrders++;x.unsettledRevenue+=o.flowerTotal}x.revenue=x.settledRevenue;daily.set(key,x);const due=Date.parse(`${o.date}T${o.time||'00:00'}:00+07:00`);if(Number.isFinite(due)){if(o.status==='Chờ bó'&&due>=now&&due-now<=3600000)nearUnpacked.push(o);if(o.status==='Đã bó'&&due<now)packedOverdue.push(o)}}summary.revenue=summary.grossRevenue;summary.cms=summary.settledRevenue*.08;summary.nearUnpacked=nearUnpacked.length;summary.packedOverdue=packedOverdue.length;summary.alerts=summary.nearUnpacked+summary.packedOverdue;const salesDaily=[...daily.values()].sort((a,b)=>a.date.localeCompare(b.date)||(b.grossRevenue-a.grossRevenue)||a.sale.localeCompare(b.sale,'vi'));return {ok:true,range:{start,end},summary,attentionGroups:{nearUnpacked:nearUnpacked.slice(0,20),packedOverdue:packedOverdue.slice(0,20)},attention:[...nearUnpacked,...packedOverdue].slice(0,40),salesDaily,revenueRule:'PAYMENT_VERIFIED',revenueLabels:{unsettled:'Doanh thu chưa xác nhận',settled:'Doanh thu đã xác nhận / Full Paid'},visibilityRule:'SALE_READ_ALL_EDIT_OWN'}}
 
