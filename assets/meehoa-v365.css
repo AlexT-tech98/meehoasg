@@ -160,3 +160,16 @@ body .dashboard-right:has(.dashboard-progress-card){display:none!important}
 @media(min-width:901px){body .sidebar{width:232px!important;padding:24px 16px!important}body .sidebar .nav button{min-height:47px!important;font-size:12px!important;padding:12px 13px!important}body .main{margin-left:232px!important;width:calc(100% - 232px)!important;max-width:calc(100% - 232px)!important}}
 @media(max-width:1200px){body .mee-approved-summary{grid-template-columns:repeat(3,minmax(0,1fr))!important}body .mee-approved-summary .mee-approved-kpi.revenue{grid-column:span 2}}
 @media(max-width:620px){body .mee-approved-summary,body .stat-grid-5{grid-template-columns:repeat(2,minmax(0,1fr))!important}body .mee-approved-summary .mee-approved-kpi.revenue,body .stat-grid-5>.stat:first-child{grid-column:span 2}body .mee-approved-summary .mee-approved-kpi{min-height:120px!important;padding:15px!important}body .mee-approved-kpi-value{font-size:23px!important}body .content{padding-inline:12px!important}body .sidebar{background:#050b17!important}body .mobile-nav,body .mobile-bottom-nav{background:#050b17!important}}
+
+/* UX corrections: keep refresh accessible, prevent thumbnail overflow and iOS focus zoom */
+#globalSearchInput,.topbar-search input,#orderForm input,#orderForm select,#orderForm textarea,.modal input,.modal select,.modal textarea,.drawer input,.drawer select,select,input[type="text"],input[type="search"],input[type="tel"],input[type="number"],input[type="date"],input[type="time"],textarea{font-size:16px!important}
+.order-card-mobile,.order-card-mobile-body,.order-card-mobile-details,.table-wrap,.sample-with-thumb,.flower-cell{min-width:0!important;max-width:100%!important}
+.order-card-mobile-thumb,.order-card-mobile-thumb-empty,.order-card-mobile-body img,.table-thumb,.sample-with-thumb img,.search-item-thumb{width:56px!important;max-width:56px!important;height:56px!important;max-height:56px!important;min-width:0!important;min-height:0!important;object-fit:cover!important;display:block!important;flex:none!important}
+.sample-with-thumb img,.table-thumb,.search-item-thumb{width:48px!important;max-width:48px!important;height:48px!important;max-height:48px!important}
+.order-card-mobile-body{display:grid!important;grid-template-columns:56px minmax(0,1fr)!important}
+.order-card-mobile-body a{display:block!important;max-width:56px!important;overflow:hidden!important}
+.order-card-mobile-body a img{width:100%!important}
+#meeReloadApp,.mee-reload-app-v365{display:none!important}
+body .mee-atelier-dashboard-header h1{font-weight:800!important;font-size:clamp(25px,3vw,35px)!important;letter-spacing:-.05em!important}
+body .mee-atelier-dashboard-header .sub:empty{display:none!important}
+@media(max-width:900px){body .topbar .mee-refresh-action{display:inline-flex!important;align-items:center!important;visibility:visible!important;font-size:12px!important;padding:8px!important;min-width:0!important;white-space:nowrap!important}body .topbar .actions{display:flex!important;gap:5px!important}body .topbar .topbar-user{display:none!important}}
