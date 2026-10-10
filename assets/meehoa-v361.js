@@ -48,7 +48,7 @@
   function renderHourly(el){
     if(!el)return;
     var section=hourSection(el),rows=hourlyState.rows||[],html='',sig='';
-    section.classList.add('mee-approved-analytics-hours');
+    if(section.classList)section.classList.add('mee-approved-analytics-hours');
     if(hourlyState.loading&&!rows.length){sig='loading';html='<div class="mee-approved-subtitle">Đang tải dữ liệu đơn hàng…</div>'}
     else if(hourlyState.error){sig='error|'+hourlyState.error;html='<div class="mee-v361-empty">'+esc(hourlyState.error)+' <button type="button" class="btn secondary" onclick="MEE_DASHBOARD_V361_RETRY()">Thử lại</button></div>'}
     else if(!rows.length){sig='empty';html='<div class="mee-v361-empty">Hôm nay chưa có đơn có giờ nhận.</div>'}
