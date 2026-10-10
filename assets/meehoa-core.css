@@ -780,6 +780,30 @@ body.mee-page-production .ops-tile .actions{margin-top:auto!important;padding-to
 #content .mee-approved-staff-row{grid-template-columns:minmax(74px,1fr) minmax(30px,1.2fr) minmax(65px,auto)}
 }
 
+/* Approved layout: three actual dashboard sections, no duplicate progress/debt panel. */
+#content:has(.mee-approved-summary){background:#fbf8f4;padding:0 2px 24px;grid-template-rows:auto auto auto auto!important}
+#content:has(.mee-approved-summary) .mee-approved-page-header{padding:7px 0 2px;margin-bottom:15px!important}
+#content:has(.mee-approved-summary) .mee-approved-page-header h1{font-size:23px!important;font-weight:750!important}
+#content:has(.mee-approved-summary) .mee-approved-attention{grid-column:1/-1!important;grid-row:4!important;display:block!important;margin-top:3px!important}
+#content:has(.mee-approved-summary) .mee-approved-attention .dashboard-left{width:100%!important;max-width:none!important}
+#content:has(.mee-approved-summary) .mee-approved-attention .dashboard-right{display:none!important}
+#content:has(.mee-approved-summary) .mee-approved-attention .table-wrap{border:1px solid var(--border)!important;border-radius:10px!important;box-shadow:none!important;background:#fff}
+#content:has(.mee-approved-summary) .mee-approved-attention .control-table{width:100%;border-collapse:collapse}
+#content:has(.mee-approved-summary) .mee-approved-attention .section-head h3{font-size:14px!important;letter-spacing:0!important;text-transform:none!important;font-weight:720!important}
+#content:has(.mee-approved-summary) .mee-approved-attention .section-head{margin-bottom:12px!important}
+#content:has(.mee-approved-summary) .mee-approved-attention .sheet-table th{background:#fafaf8!important;font-size:11px!important}
+#content:has(.mee-approved-summary) .mee-approved-kpi{border-radius:10px!important;background:#fff!important}
+#content:has(.mee-approved-summary) .mee-approved-panel{border-radius:10px!important;background:#fff!important}
+#content:has(.mee-approved-summary) .mee-approved-kpi.revenue{background:#fff!important}
+@media(max-width:760px){
+#content:has(.mee-approved-summary){display:flex!important;flex-direction:column!important;gap:12px!important}
+#content:has(.mee-approved-summary) .mee-approved-summary{order:1!important;width:100%;margin:0!important}
+#content:has(.mee-approved-summary) .mee-approved-page-header{order:0!important}
+#content:has(.mee-approved-summary) #meeHourlySingleV361{order:2!important;width:100%}
+#content:has(.mee-approved-summary) .mee-approved-analytics-sales{order:3!important;width:100%}
+#content:has(.mee-approved-summary) .mee-approved-attention{order:4!important;width:100%}
+}
+
 /* ===== meehoa-v362.css ===== */
 /* Canonical owner: materials AI diagnostics. */
 .mee-ai-error{
