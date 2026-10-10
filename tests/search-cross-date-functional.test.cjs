@@ -33,7 +33,7 @@ function makeFastOrders(){
 }
 test('phone search finds a later-date order without changing the date filter',async()=>{
  const {query,activity}=makeFastOrders();
- const found=await query({start:'2026-10-10',end:'2026-10-10',q:'0987654321',page:1,pageSize:20});
+ const found=await query({start:'2026-10-10',end:'2026-10-10',q:'0987 654 321',page:1,pageSize:20});
  assert.equal(found.total,1);
  assert.equal(found.items[0].id,'B');
  assert.equal(found.searchScope,'ALL_DATES');
