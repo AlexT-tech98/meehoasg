@@ -31,7 +31,17 @@
 
   function ensureBranding(){
     qsa('.brand-mark').forEach(function(mark){mark.dataset.meeLogo='7';mark.classList.add('mee-brand-mark');mark.innerHTML='<img src="/assets/meehoa-mark.svg?v=7" alt="Meehoa">'});
-    qsa('.sidebar .brand').forEach(function(brand){brand.dataset.meeBrand='7';brand.classList.add('mee-brand-compact-only');var mark=brand.querySelector('.brand-mark');if(!mark){mark=document.createElement('div');mark.className='brand-mark mee-brand-mark';brand.insertBefore(mark,brand.firstChild)}mark.innerHTML='<img src="/assets/meehoa-mark.svg?v=7" alt="Meehoa">';var copy=brand.querySelector('.brand-copy');if(copy)copy.remove()});
+    qsa('.sidebar .brand').forEach(function(brand){brand.dataset.meeBrand='8';brand.classList.add('mee-brand-compact-only');var mark=brand.querySelector('.brand-mark');if(!mark){mark=document.createElement('div');mark.className='brand-mark mee-brand-mark';brand.insertBefore(mark,brand.firstChild)}mark.innerHTML='<img src="/assets/meehoa-mark.svg?v=7" alt="">';var copy=brand.querySelector('.brand-copy');if(!copy){copy=document.createElement('div');copy.className='brand-copy';brand.appendChild(copy)}copy.innerHTML='<b>MEEHOA</b><small>ATELIER OPS</small>'});
+  }
+
+  function structureNavigation(){
+    var nav=qs('#nav');if(!nav)return;
+    var buttons=qsa('button[data-p]',nav),signature=buttons.map(function(b){return b.getAttribute('data-p')}).join('|');
+    if(nav.dataset.meeGroupSig===signature&&qs('.mee-nav-group-title',nav))return;
+    qsa('.mee-nav-group-title',nav).forEach(function(x){x.remove()});
+    var groups=[['CÔNG VIỆC',['dashboard','production','orders','debt']],['KIỂM SOÁT',['payment','kpi','flowers']],['HỆ THỐNG',['admin']]];
+    groups.forEach(function(group){var first=buttons.find(function(b){return group[1].includes(b.getAttribute('data-p'))});if(!first)return;var label=document.createElement('div');label.className='mee-nav-group-title';label.textContent=group[0];label.setAttribute('aria-hidden','true');nav.insertBefore(label,first)});
+    nav.dataset.meeGroupSig=signature;
   }
 
   function updateSearchVisibility(){
@@ -43,6 +53,7 @@
     document.body.classList.toggle('mee-search-page',show);
     document.body.classList.toggle('mee-page-production',page==='production');
     document.body.classList.toggle('mee-page-kpi',page==='kpi');
+    ['dashboard','orders','debt','payment','flowers','admin'].forEach(function(id){document.body.classList.toggle('mee-page-'+id,page===id)});
   }
 
   function cleanKpiCopy(){
@@ -62,7 +73,7 @@
     })
   }
 
-  function patchShell(){retireLegacyMobileNav();ensureMenu();ensureBranding();updateSearchVisibility();cleanKpiCopy();decorateShippingIcons()}
+  function patchShell(){retireLegacyMobileNav();ensureMenu();ensureBranding();structureNavigation();updateSearchVisibility();cleanKpiCopy();decorateShippingIcons()}
   var timer=null,mo=new MutationObserver(function(ms){
     var relevant=ms.some(function(m){return m.type==='childList'&&(m.addedNodes.length||m.removedNodes.length)});if(!relevant)return;
     clearTimeout(timer);timer=setTimeout(patchShell,80)

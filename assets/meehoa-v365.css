@@ -118,3 +118,214 @@ html,body,.app,.main,#content{max-width:100%!important}#content>*{min-width:0!im
 @media(max-width:480px){#content>.stats{grid-template-columns:minmax(0,1fr)!important}.kpi-meta{align-items:flex-start;flex-wrap:wrap}.kpi-meta b{width:100%;text-align:left}.topbar{gap:6px!important}.topbar-search input{font-size:13px!important;padding-right:62px!important}}
 @media(max-width:900px){html{scroll-behavior:auto}body:not(.mee-overlay-open-v364):not(.mee-menu-open){touch-action:pan-y pinch-zoom}}
 @media(prefers-reduced-motion:reduce){#bootSplash .mee-splash-progress i{animation:none!important}}
+
+/* Meehoa Atelier: one visual language for the working application. The restrained
+   palette leaves status colours for decisions, not decoration. */
+:root{
+  --bg-app:#f3f2ec;--bg-surface:#fffefb;--bg-subtle:#eaece5;--bg-hover:#f0f3ee;
+  --border:#d9ded6;--border-light:#e9ede7;
+  --text-primary:#182d29;--text-secondary:#49615a;--text-muted:#70837a;
+  --brand-green:#153e37;--brand-green-hover:#26564b;--brand-green-soft:#e5eee8;--brand-green-border:#c9d9cf;
+  --rose-petal:#a44c43;--rose-petal-bg:#f8ebe8;--rose-petal-border:#e9cfc9;
+  --amber-honey:#946b2f;--amber-honey-bg:#f8f0df;--amber-honey-border:#e5d8b9;
+  --mint-leaf:#2c7458;--mint-leaf-bg:#e8f1e9;--mint-leaf-border:#cddfce;
+  --blossom-blue:#446b79;--blossom-blue-bg:#eaf1f2;--blossom-blue-border:#cedfe1;
+  --radius-sm:4px;--radius-md:7px;--radius-lg:10px;--radius-xl:13px;
+  --shadow-card:0 1px 0 rgba(24,45,41,.035);--shadow-hover:0 9px 26px rgba(24,45,41,.07);
+  --mee-display:Georgia,"Iowan Old Style","Palatino Linotype",serif;
+}
+html,body{background:#f3f2ec!important;color:var(--text-primary)!important;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif!important}
+body{font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #497961!important;outline-offset:2px!important}
+.app,.main{background:#f3f2ec!important}
+.content{max-width:1520px!important;padding-top:32px!important}
+#content h1,#content h2,.page-header h1{font-family:var(--mee-display)!important;font-weight:600!important;letter-spacing:-.035em!important;color:#173c33!important}
+#content h1{font-size:clamp(27px,2.35vw,38px)!important;line-height:1.12!important}
+#content h2{font-size:clamp(21px,1.8vw,29px)!important;line-height:1.18!important}
+#content h3{letter-spacing:.065em!important;font-size:12px!important;font-weight:800!important;text-transform:uppercase!important;color:#3d5a4f!important}
+.sub,.meta{color:#70837a!important}
+
+/* Navigation: a work index rather than a decorative app rail. */
+@media(min-width:901px){
+  .sidebar{width:220px!important;padding:20px 13px!important;background:#153e37!important;border-right:1px solid #12332d!important;box-shadow:none!important}
+  .main{margin-left:220px!important;width:calc(100% - 220px)!important;max-width:calc(100% - 220px)!important}
+  .sidebar .brand{padding:12px 10px 24px!important;margin-bottom:10px!important}
+  .sidebar .mee-brand-wordmark{width:134px!important;max-width:100%!important}
+  .sidebar .nav button{min-height:44px!important;padding:10px 12px!important;font-size:13px!important}
+  .content{padding-left:36px!important;padding-right:36px!important}
+}
+.sidebar{background:#153e37!important;color:#edf4ec!important}
+.sidebar .brand{border-bottom:1px solid #42645b!important}
+.sidebar .brand:after{display:none!important}
+.sidebar .brand-copy b,.sidebar .brand-copy small,.sidebar .user-info b,.sidebar .user-info .sub{color:#edf4ec!important}
+.sidebar .brand-copy{display:block!important;min-width:0!important}
+.sidebar .brand-copy b{display:block!important;font-family:var(--mee-display)!important;font-size:20px!important;font-weight:600!important;letter-spacing:.06em!important;line-height:1!important}
+.sidebar .brand-copy small{display:block!important;margin-top:5px!important;font-size:9px!important;font-weight:800!important;letter-spacing:.16em!important;opacity:.78!important}
+.sidebar .brand-mark{flex:0 0 35px!important;width:35px!important;height:35px!important;border-radius:7px!important;overflow:hidden!important;background:#eaf0e7!important}
+.sidebar .brand-mark img{width:100%!important;height:100%!important;object-fit:contain!important}
+.sidebar .nav{gap:2px!important}
+.sidebar .mee-nav-group-title{padding:18px 12px 7px!important;color:#91b6a5!important;font-size:9px!important;letter-spacing:.17em!important;font-weight:850!important}
+.sidebar .mee-nav-group-title:first-child{padding-top:8px!important}
+.sidebar .nav button{color:#c5d7cf!important;background:transparent!important;border-radius:5px!important;font-weight:600!important;box-shadow:none!important;transition:background-color .13s ease,color .13s ease!important}
+.sidebar .nav button:hover{background:#245349!important;color:#fff!important}
+.sidebar .nav button.active{background:#eaf0e7!important;color:#153e37!important;border-left:3px solid #ac724c!important;box-shadow:none!important;font-weight:800!important}
+.sidebar .side-user{border-top:1px solid #42645b!important}
+.sidebar .side-user-card{background:#20483f!important;border:1px solid #42645b!important}
+.sidebar .side-user .btn{background:#20483f!important;color:#edf4ec!important;border:1px solid #42645b!important}
+.topbar{height:68px!important;background:#fffefb!important;border-bottom:1px solid #d9ded6!important;box-shadow:none!important;padding-left:36px!important;padding-right:36px!important}
+.topbar h2,#pageTitle{font-family:var(--mee-display)!important;font-size:24px!important;letter-spacing:-.03em!important;font-weight:600!important;color:#173c33!important}
+.topbar-user{border-left:1px solid #d9ded6!important}
+.mee-menu-btn{background:#153e37!important;box-shadow:none!important;border-radius:6px!important}
+.mee-menu-btn span:before,.mee-menu-btn span:after{background:#fff!important}
+.mee-menu-btn span{background:#fff!important}
+
+/* Shared controls: a predictable rhythm across all workflows. */
+.btn,.date-filter-btn,.status-pill,.calendar-nav{border-radius:6px!important;box-shadow:none!important;font-weight:700!important}
+.btn{min-height:38px!important}
+.btn.primary,.fab{background:#153e37!important;border-color:#153e37!important;color:#fff!important;box-shadow:none!important}
+.btn.primary:hover,.fab:hover{background:#28584c!important;border-color:#28584c!important}
+.btn.secondary,.btn:not(.primary):not(.danger):not(.gold){background:#fffefb!important;border-color:#cbd6ce!important;color:#23483d!important}
+.btn.danger{background:#f8ebe8!important;color:#963d36!important;border-color:#e9cfc9!important}
+.btn.gold{background:#f8f0df!important;color:#775728!important;border-color:#e5d8b9!important}
+.fab{border-radius:8px!important;padding:0 18px!important}
+input,select,textarea{background:#fffefb!important;border:1px solid #cbd6ce!important;border-radius:6px!important;color:#182d29!important;box-shadow:none!important}
+label{font-size:10px!important;letter-spacing:.09em!important;font-weight:800!important;color:#4b6659!important}
+.badge{border-radius:4px!important;font-weight:750!important;font-size:10px!important;letter-spacing:.02em!important}
+.badge.red,.badge.status-wait{background:#f8ebe8!important;color:#963d36!important;border-color:#e9cfc9!important}
+.badge.gold{background:#f8f0df!important;color:#775728!important;border-color:#e5d8b9!important}
+.badge.info,.badge.status-packed{background:#eaf1f2!important;color:#446b79!important;border-color:#cedfe1!important}
+.badge.status-delivered{background:#e8f1e9!important;color:#2c7458!important;border-color:#cddfce!important}
+.notice{border-radius:6px!important;background:#eef2ea!important;color:#315449!important;border-color:#d4e1d6!important}
+.date-filter-btn{background:#fffefb!important;border:1px solid #cbd6ce!important;color:#23483d!important;padding:0 13px!important}
+.calendar-modal{background:#fffefb!important}
+.calendar-day{background:#f3f5f0!important;border-radius:4px!important}
+.calendar-day.selected{background:#153e37!important;color:#fff!important}
+.calendar-day.in-range{background:#e1ece2!important}
+.search-dropdown,.calendar-modal,.modal,.drawer{background:#fffefb!important;border:1px solid #d9ded6!important;box-shadow:0 24px 70px rgba(16,46,38,.17)!important}
+.modal,.calendar-modal{border-radius:12px!important}
+.drawer{border-radius:0!important}
+.modal-head,.drawer-head{border-bottom:1px solid #d9ded6!important}
+.modal-head h3,.drawer-head h3{font-family:var(--mee-display)!important;font-size:25px!important;font-weight:600!important;letter-spacing:-.03em!important;text-transform:none!important;color:#173c33!important}
+
+/* Dense tables and compact cards make decisions scannable. */
+.table-wrap,.order,.ops-tile,.sales-kpi-card,.debt-card,.order-card-mobile,.lane,.section{background:#fffefb!important;border:1px solid #d9ded6!important;border-radius:9px!important;box-shadow:none!important}
+.table-wrap{overflow:auto!important}
+.control-table,.sheet-table{border-collapse:collapse!important}
+.control-table th,.sheet-table th,table th{background:#e9eee8!important;color:#3c574d!important;font-size:10px!important;font-weight:800!important;letter-spacing:.075em!important;text-transform:uppercase!important;border-bottom:1px solid #cbd6ce!important}
+.control-table td,.sheet-table td,table td{border-bottom:1px solid #e5eae3!important}
+.control-table tbody tr:hover,.sheet-table tbody tr:hover,table tbody tr:hover{background:#f2f6f0!important}
+.order,.ops-tile,.debt-card,.order-card-mobile{padding:14px!important}
+.order-card-mobile-top{border-bottom:1px solid #e5eae3!important;padding-bottom:9px!important}
+.order-card-mobile-footer{border-top:1px solid #e5eae3!important;padding-top:10px!important}
+.status-filter-tabs{gap:6px!important}
+.status-pill{border:1px solid #cbd6ce!important;background:#fffefb!important;color:#3b594d!important}
+.status-pill.active{background:#153e37!important;border-color:#153e37!important;color:#fff!important}
+
+/* Dashboard: editorial operations briefing. */
+.mee-dashboard-summary{gap:0!important;background:#fffefb!important;border:1px solid #d9ded6!important;border-radius:9px!important;overflow:hidden!important}
+.mee-dashboard-summary .mee-summary-card{background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding:22px!important}
+.mee-dashboard-summary .mee-summary-card.orders{background:#153e37!important;color:#fff!important}
+.mee-dashboard-summary .mee-summary-card.orders .mee-summary-kicker,.mee-dashboard-summary .mee-summary-card.orders .mee-summary-main,.mee-dashboard-summary .mee-summary-card.orders .mee-summary-mini span,.mee-dashboard-summary .mee-summary-card.orders .mee-summary-mini b{color:#fff!important}
+.mee-dashboard-summary .mee-summary-card.orders .mee-summary-mini{background:#255147!important;border-color:#466c60!important}
+.mee-dashboard-summary .mee-summary-card.revenue{border-right:1px solid #e1e7df!important}
+.mee-dashboard-summary .mee-summary-kicker{color:#466052!important;letter-spacing:.09em!important}
+.mee-hour-card,.dashboard-right>div{background:#fffefb!important;border:1px solid #d9ded6!important;border-radius:8px!important;box-shadow:none!important}
+.mee-hour-fill{background:#456f5e!important}
+.mee-hour-track{background:#e9eee8!important}
+
+/* Production uses lane identity; fulfilment is distinct from order entry. */
+.kanban{gap:12px!important}
+.kanban .lane{padding:12px!important;background:#f8f9f5!important;border-top:3px solid #a56751!important}
+.kanban .lane:nth-child(2){border-top-color:#567c87!important}
+.kanban .lane:nth-child(3){border-top-color:#4e8668!important}
+.lane-title{font-size:12px!important;font-weight:800!important;letter-spacing:.035em!important;color:#24443a!important}
+.production-filter{padding:9px 0 18px!important;border-bottom:1px solid #d9ded6!important}
+.kanban .order{background:#fffefb!important;border-left:2px solid #d6ded6!important}
+
+/* Debt and payment have stronger financial hierarchy and review affordances. */
+.debt-card{border-left:3px solid #a44c43!important}
+.debt-amount{color:#963d36!important;font-size:19px!important;font-weight:800!important}
+.settlement-card{border-left:3px solid #946b2f!important}
+.settle-check{accent-color:#153e37!important}
+.pending-banner,.rejected-banner{border-radius:5px!important}
+body.mee-page-payment #content>.section-head{padding:16px 18px!important;background:#f6efdf!important;border:1px solid #dfd2b6!important;border-radius:8px!important;margin-bottom:14px!important}
+body.mee-page-payment #content>.section-head h3{color:#6b5028!important}
+body.mee-page-payment .settlement-card .money{font-family:var(--mee-display)!important;font-size:24px!important;color:#6b5028!important}
+body.mee-page-debt #content>.stats{gap:0!important;background:#fffefb!important;border:1px solid #d9ded6!important;border-radius:8px!important;overflow:hidden!important}
+body.mee-page-debt #content>.stats>.stat{border:0!important;border-radius:0!important;box-shadow:none!important;border-right:1px solid #d9ded6!important;background:transparent!important}
+body.mee-page-debt #content>.stats>.stat:last-child{border-right:0!important}
+body.mee-page-debt #content>.stats>.stat:first-child{background:#f8ebe8!important}
+body.mee-page-orders .status-filter-tabs{padding:8px 0 14px!important;border-bottom:1px solid #d9ded6!important}
+body.mee-page-orders .sheet-table .note-cell{min-width:175px!important}
+body.mee-page-orders .sheet-table tbody tr{cursor:pointer}
+
+/* Reports and materials are presented as ledgers, not repeated dashboard cards. */
+.sales-kpi-grid{gap:12px!important}
+body.mee-page-kpi #content>.stats{gap:0!important;background:#fffefb!important;border:1px solid #d9ded6!important;border-radius:8px!important;overflow:hidden!important}
+body.mee-page-kpi #content>.stats>.stat{border:0!important;border-radius:0!important;border-right:1px solid #d9ded6!important;background:transparent!important;box-shadow:none!important}
+body.mee-page-kpi #content>.stats>.stat:last-child{border-right:0!important;background:#e5eee8!important}
+body.mee-page-kpi #content>.stats>.stat:after{display:none!important}
+.sales-kpi-card{background:#fffefb!important;border-top:3px solid #426c5d!important;padding:21px!important;box-shadow:none!important}
+.sales-kpi-card .notice{background:#eef2ea!important;border-radius:5px!important}
+.kpi-track{height:7px!important;background:#e8eee7!important;box-shadow:none!important}
+.kpi-fill{background:#4c8266!important;box-shadow:none!important}
+.kpi-fill.gold{background:#b38a4e!important}
+.payout-box{background:#edf2e9!important;border:1px solid #d6e1d2!important;border-radius:6px!important}
+body.mee-page-flowers .order-grid .order{border-left:3px solid #65906c!important;min-height:118px!important}
+body.mee-page-flowers .order-grid .order .order-top b{font-family:var(--mee-display)!important;font-size:20px!important;font-weight:600!important;color:#173c33!important}
+body.mee-page-admin #content>.section-head{padding-bottom:15px!important;border-bottom:1px solid #d9ded6!important}
+body.mee-page-admin .table-wrap{border-radius:7px!important}
+
+/* Order creation reads as a sequence of decisions, on both screen sizes. */
+#orderForm.mee-order-form{background:#fffefb!important;border:1px solid #d9ded6!important;border-radius:12px!important;box-shadow:0 24px 70px rgba(16,46,38,.17)!important}
+#orderForm.mee-order-form .modal-head{background:#e5eee8!important;border-bottom:1px solid #c9d9cf!important;padding:20px 22px!important}
+#orderForm.mee-order-form .modal-head:before,#orderForm.mee-order-form .modal-head:after{display:none!important}
+#orderForm .mee-form-section{background:#fffefb!important;border:0!important;border-top:1px solid #d9ded6!important;border-radius:0!important;box-shadow:none!important;padding:17px 6px!important}
+#orderForm .mee-form-section:first-child{border-top:0!important}
+#orderForm .mee-form-section h4,#orderForm .mee-form-section .mee-section-title{color:#245549!important}
+#orderForm .mee-card-qty-v365{background:#f8f6ee!important;border:1px solid #e4dfcc!important;border-radius:6px!important}
+
+/* Arrival screens follow the same identity as the workspace. */
+.login:not(.hidden){background:#153e37!important}
+.login:before,.login:after{display:none!important}
+.login-card{background:#fffefb!important;border:1px solid #d9ded6!important;border-radius:12px!important;box-shadow:0 30px 90px rgba(4,25,17,.2)!important;padding:36px!important}
+.login-card:before{background:#e5eee8!important;border-radius:4px!important;color:#315449!important;letter-spacing:.12em!important}
+.login-card h2{font-family:var(--mee-display)!important;font-weight:600!important;color:#173c33!important}
+.login-card .btn.primary{background:#153e37!important;box-shadow:none!important;border-radius:6px!important}
+#bootSplash.boot-splash:not(.hidden){background:#153e37!important}
+#bootSplash .mee-splash-card{background:#fffefb!important;border-radius:12px!important;box-shadow:0 30px 90px rgba(4,25,17,.2)!important}
+#bootSplash .mee-splash-flower,#bootSplash .mee-splash-pet{display:none!important}
+#bootSplash .mee-splash-badge{background:#e5eee8!important;color:#315449!important;border-radius:4px!important}
+#bootSplash .mee-splash-logo{background:#eaf0e7!important;border-radius:8px!important;box-shadow:none!important}
+#bootSplash .mee-splash-title{font-family:var(--mee-display)!important;font-weight:600!important;color:#173c33!important}
+
+/* Mobile carries the same hierarchy with denser touch-safe controls. */
+@media(max-width:900px){
+  .sidebar{background:#153e37!important;box-shadow:12px 0 36px rgba(10,40,30,.24)!important}
+  .topbar{height:62px!important;min-height:62px!important;padding:8px 12px!important;background:#fffefb!important}
+  .content{padding:22px max(14px,env(safe-area-inset-left)) calc(100px + env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-right))!important}
+  #pageTitle{font-size:21px!important}
+  .mee-menu-btn{width:42px!important;height:42px!important;min-width:42px!important}
+  .fab{height:50px!important;min-width:116px!important;bottom:calc(16px + env(safe-area-inset-bottom))!important}
+  .order-card-mobile,.debt-card,.ops-tile{border-radius:8px!important}
+  .kanban .lane{background:#f8f9f5!important}
+  #orderForm.mee-order-form{border-radius:12px 12px 0 0!important}
+  #orderForm .mee-form-section{padding:16px 2px!important}
+  body.mee-page-debt #content>.stats{display:grid!important;grid-template-columns:1fr!important}
+  body.mee-page-debt #content>.stats>.stat{border-right:0!important;border-bottom:1px solid #d9ded6!important}
+  body.mee-page-debt #content>.stats>.stat:last-child{border-bottom:0!important}
+  body.mee-page-kpi #content>.stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  body.mee-page-kpi #content>.stats>.stat{border-bottom:1px solid #d9ded6!important}
+  body.mee-page-kpi #content>.stats>.stat:last-child{grid-column:1/-1!important;border-bottom:0!important}
+}
+@media(max-width:620px){
+  .mee-dashboard-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .mee-dashboard-summary .mee-summary-card.orders{grid-column:1/-1!important}
+  .mee-dashboard-summary .mee-summary-card{padding:15px!important;min-width:0!important}
+  .mee-dashboard-summary .mee-summary-card.revenue{border-right:1px solid #e1e7df!important}
+  .mee-dashboard-summary .mee-summary-card strong{overflow-wrap:anywhere!important}
+  .content{padding-top:20px!important}
+  #content h1{font-size:29px!important}
+}
+@media(prefers-reduced-motion:reduce){.sidebar,.btn,.status-pill,.fab{transition:none!important}}
