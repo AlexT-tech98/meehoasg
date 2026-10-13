@@ -191,3 +191,12 @@ body .sidebar .brand .mee-atelier-wordmark{display:block!important;color:white!i
 body .sidebar .brand .mee-atelier-wordmark i{font-style:normal!important;color:#ef6d54!important}
 body .sidebar .brand.mee-atelier-brand .brand-copy{display:block!important;padding:0!important;margin:0!important;width:auto!important;min-width:0!important;max-width:100%!important;flex:none!important}
 body .sidebar .brand.mee-atelier-brand .brand-copy small{display:block!important;color:#b4c9e8!important;font-size:9px!important;font-weight:700!important;letter-spacing:.14em!important;white-space:nowrap!important}
+
+/* Desktop and mobile dashboard parity: one source, all KPI + analytics + actionable orders. */
+#content:has(.mee-approved-summary)>.mee-approved-summary{width:100%!important;grid-column:1/-1!important}
+#content:has(.mee-approved-summary)>#meeHourlySingleV361,#content:has(.mee-approved-summary)>.mee-approved-analytics-sales{display:block!important;visibility:visible!important;min-width:0!important}
+#content:has(.mee-approved-summary)>.mee-approved-attention{display:block!important;visibility:visible!important;grid-column:1/-1!important;min-width:0!important}
+#content:has(.mee-approved-summary) .mee-approved-kpi{min-width:0!important;overflow:hidden!important}
+#content:has(.mee-approved-summary) .mee-approved-kpi-value{overflow-wrap:anywhere!important;white-space:normal!important}
+@media(min-width:761px){#content:has(.mee-approved-summary){grid-template-rows:auto auto auto auto!important}#content:has(.mee-approved-summary)>#meeHourlySingleV361,#content:has(.mee-approved-summary)>.mee-approved-analytics-sales{grid-row:3!important}#content:has(.mee-approved-summary)>.mee-approved-attention{grid-row:4!important}}
+@media(max-width:900px){body.mee-search-page .topbar-search{min-width:0!important;max-width:100%!important}}
