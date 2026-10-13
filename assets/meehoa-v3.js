@@ -47,7 +47,7 @@
     var page=(window.S&&S.page)||(active&&active.getAttribute('data-p'))||'';
     /* Production's legacy search field never filtered production orders. Hide it there
        until a production-owned search implementation exists instead of showing a dead control. */
-    var show=page==='orders';
+    var show=page==='orders'||page==='dashboard';
     document.body.classList.toggle('mee-search-page',show);
     document.body.classList.toggle('mee-page-production',page==='production');
     document.body.classList.toggle('mee-page-kpi',page==='kpi');
