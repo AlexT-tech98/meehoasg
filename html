@@ -2778,7 +2778,7 @@ function opsTile(o) {
   var ov = document.getElementById('overlay');
   if (!ov) return;
   var ctx = S.drawerContext || S.page, isDebt = ctx === 'debt';
-  var imgs = (o.imageUrls || []).map(function(u, i) {
+  var imgs = (loadingDetail ? [] : (o.imageUrls || [])).map(function(u, i) {
     return '<a href="' + attr((o.driveUrls || [])[i] || u) + '" target="_blank" title="Xem ảnh gốc"><img src="' + attr(imageSrc(u, 1000)) + '" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)"></a>';
   }).join('');
   var actions = shipFeeAction(o) + (isDebt ? settlementAction(o) : ((o.canEdit ? '<button class="btn primary" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settlementAction(o)));
