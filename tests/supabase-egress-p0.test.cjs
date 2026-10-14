@@ -68,3 +68,10 @@ test('sample upload is compressed but evidence photo settings remain unchanged',
   assert.match(html, /p\.billFiles=await Promise\.all\(files\.map\(fileData\)\)/);
   assert.match(html, /maxSide=opts\.maxSide\|\|1800,quality=opts\.quality\|\|\.82/);
 });
+
+test('orders only fetch settlement rows after pagination, but decorate returned rows using settlement', () => {
+  const fn = between('async function fastOrders(', 'async function fastDashboard(');
+  assert.ok(fn.indexOf('const pageRows=') < fn.indexOf('await settlementMap('));
+  assert.match(fn, /settlementMap\(pageRows\.map\(x=>x\.row\.id\)\)/);
+  assert.match(fn, /decorate\(x\.row,user,sm\[x\.row\.id\],dir\)/);
+});
