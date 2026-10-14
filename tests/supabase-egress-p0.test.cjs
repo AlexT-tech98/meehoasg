@@ -21,9 +21,11 @@ test('orders filter and paginate before requesting signed image URLs', () => {
   assert.match(fn, /imageUrls:urls,driveUrls:urls/);
 });
 
-test('debt filters rows before requesting signed image URLs', () => {
+test('debt list does not sign images; detailed order endpoint still does', () => {
   const fn = between('async function fastDebt(', 'async function fullPaidReport(');
-  assert.ok(fn.indexOf('selected=decorated.filter(') < fn.indexOf('await displayUrls('));
+  assert.match(fn, /selected=decorated\.filter/);
+  assert.match(fn, /const items=selected/);
+  assert.doesNotMatch(fn, /displayUrls\(/);
   assert.match(fn, /summary:\{orders:items\.length,debt:items\.reduce/);
 });
 
@@ -49,4 +51,10 @@ test('canonical HTML lazy loads order previews and mobile cards', () => {
   assert.match(html, /class="search-item-thumb"[^>]*loading="lazy"/);
   assert.match(html, /class="order-card-mobile-thumb"[^>]*loading="lazy"/);
   assert.doesNotMatch(html, /class="order-preview"[^>]*loading="eager"/);
+});
+
+test('drawer defers picture display until detail load completes', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../html'), 'utf8');
+  assert.match(html, /var imgs = \(loadingDetail \? \[\] : \(o\.imageUrls \|\| \[\]\)\)/);
+  assert.match(html, /ensureOrderDetail\(id\)\.then/);
 });
