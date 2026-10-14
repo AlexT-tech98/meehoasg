@@ -17,7 +17,8 @@ test('orders filter and paginate before requesting signed image URLs', () => {
   assert.ok(fn.indexOf('const pageRows=') < fn.indexOf('await displayUrls('));
   assert.match(fn, /total:filtered\.length/);
   assert.match(fn, /hasMore:page\*pageSize<filtered\.length/);
-  assert.match(fn, /imageUrls:await displayUrls\(/);
+  assert.match(fn, /const urls=await displayUrls\(/);
+  assert.match(fn, /imageUrls:urls,driveUrls:urls/);
 });
 
 test('debt filters rows before requesting signed image URLs', () => {
