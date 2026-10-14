@@ -59,3 +59,12 @@ test('drawer defers picture display until detail load completes', () => {
   assert.match(html, /var imgs = \(loadingDetail \? \[\] : \(o\.imageUrls \|\| \[\]\)\)/);
   assert.match(html, /ensureOrderDetail\(id\)\.then/);
 });
+
+test('sample upload is compressed but evidence photo settings remain unchanged', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../html'), 'utf8');
+  assert.match(html, /function fileData\(f, options\)/);
+  assert.match(html, /fileData\(file,\{maxSide:1600,quality:\.78\}\)/);
+  assert.match(html, /order\.fullPaidBillFiles=await Promise\.all\(billFiles\.map\(fileData\)\)/);
+  assert.match(html, /p\.billFiles=await Promise\.all\(files\.map\(fileData\)\)/);
+  assert.match(html, /maxSide=opts\.maxSide\|\|1800,quality=opts\.quality\|\|\.82/);
+});
