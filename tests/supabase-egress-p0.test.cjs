@@ -24,7 +24,8 @@ test('orders filter and paginate before requesting signed image URLs', () => {
 test('debt list does not sign images; detailed order endpoint still does', () => {
   const fn = between('async function fastDebt(', 'async function fullPaidReport(');
   assert.match(fn, /selected=decorated\.filter/);
-  assert.match(fn, /const items=selected/);
+  assert.match(fn, /const items=selected\.map\(/);
+  assert.match(fn, /imageUrls:\[\],driveUrls:\[\],detailLoaded:false/);
   assert.doesNotMatch(fn, /displayUrls\(/);
   assert.match(fn, /summary:\{orders:items\.length,debt:items\.reduce/);
 });
