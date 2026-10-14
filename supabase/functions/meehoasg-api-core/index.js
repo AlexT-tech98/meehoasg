@@ -46,7 +46,37 @@ function accessoryTotal(row){return cardQty(row)*10000+(row.banner?35000:0)+num(
 function orderTotal(row){const ship=norm(row?.shipping).includes('shop')&&row?.ship_confirmed?num(row.ship_fee):0;return num(row?.flower_total)+accessoryTotal(row)+num(row?.vat)+ship}
 function paidAmount(payment,base,settled){if(settled>0)return settled;const text=norm(payment);if(!text||/chua/.test(text))return 0;if(/full|da tt|da thanh toan (?:du|toan bo)|thanh toan du/.test(text))return base;const m=text.replace(/\s/g,'').match(/([0-9.,]+)(k|tr|trieu)?/);if(!m)return /da thanh toan/.test(text)?base:0;let a=num(m[1]);if(m[2]==='tr'||m[2]==='trieu')a*=1000000;else if(m[2]==='k'||(a>0&&a<=1000&&!/\d\s*(?:đ|d|vn[dđ])(?:$|[\s),.])/i.test(text)))a*=1000;return Math.max(0,a)}
 function contactFields(row){const contact=clean(row.address);const p=contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);return {phone:clean(row.phone)||(p?clean(p[1]):''),address:contact.replace(/(?:SĐT|SDT)\s*:\s*[^\n]+\n?/i,'').replace(/^Địa chỉ\s*:\s*/i,'').trim()}}
-async function displayUrls(urls){const out=[];for(const url of urls||[]){const m=String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);if(!m){out.push(url);continue}const r=await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${m[1]}/${m[2]}`,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});if(!r.ok)continue;const s=await r.json();out.push(`${SUPABASE_URL}/storage/v1${s.signedURL}`)}return out}
+// Warm-isolate, bounded cache: immutable Storage object keys are never upserted.
+const signedImageCache=new Map();
+const SIGNED_IMAGE_TTL_MS=45*60*1000;
+async function signImage(bucket,path){
+  const key=bucket+'/'+path,now=Date.now(),cached=signedImageCache.get(key);
+  if(cached&&cached.expiresAt>now)return cached.promise;
+  if(cached)signedImageCache.delete(key);
+  const promise=(async()=>{
+    const r=await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path}`,{
+      method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},
+      body:JSON.stringify({expiresIn:3600})
+    });
+    if(!r.ok)return null;
+    const body=await r.json();
+    return body.signedURL?`${SUPABASE_URL}/storage/v1${body.signedURL}`:null;
+  })();
+  signedImageCache.set(key,{expiresAt:now+SIGNED_IMAGE_TTL_MS,promise});
+  if(signedImageCache.size>512)signedImageCache.delete(signedImageCache.keys().next().value);
+  try{const url=await promise;if(!url)signedImageCache.delete(key);return url}
+  catch(e){signedImageCache.delete(key);throw e}
+}
+async function displayUrls(urls){
+  const out=[];
+  for(const url of urls||[]){
+    const m=String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
+    if(!m){out.push(url);continue}
+    const signed=await signImage(m[1],m[2]);
+    if(signed)out.push(signed);
+  }
+  return out;
+}
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
 const uploadEvidenceImages=operationStorage.uploadImages;
 async function settlementMap(ids){if(!ids.length)return {};const unique=[...new Set(ids)],parts=[];for(let i=0;i<unique.length;i+=30){const chunk=unique.slice(i,i+30);parts.push(all('settlement_requests',{order_id:'in.('+chunk.map(id=>'"'+String(id).replaceAll('"','')+'"').join(',')+')',order:'submitted_at.desc'}))}const rows=(await Promise.all(parts)).flat(),map={};for(const row of rows)if(!map[row.order_id])map[row.order_id]=row;return map}
