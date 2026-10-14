@@ -2254,7 +2254,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function debtBreakdown(o){var x=[];if(o.card){var q=Math.max(1,Number(o.cardQty||1)),fee=Number(o.cardFee)||q*10000;x.push('+'+vnd(fee)+' thiệp'+(q>1?' (×'+q+')':''));}if(o.banner)x.push('+35.000đ banner');if(Number(o.charmFee))x.push('+'+vnd(o.charmFee)+' charm');if(Number(o.paperFee))x.push('+'+vnd(o.paperFee)+' thay giấy');if(Number(o.vat))x.push('+'+vnd(o.vat)+' VAT');if(isShop(o.shipping)&&o.shipConfirmed)x.push('+'+vnd(o.shipFee)+' phí ship');return x.length?'<div class="debt-breakdown">'+x.map(esc).join('<br>')+'</div>':'';}
     function multiline(s){return esc(s).replace(/\r?\n/g,'<br>');}
     function firstImage(o,size){var a=o&&o.imageUrls||[];return a.length?imageSrc(a[0],size||320):'';}
-    function orderPreview(o){var u=firstImage(o,480);return u?'<img class="order-preview" src="'+attr(u)+'" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)">':'';}
+    function orderPreview(o){var u=firstImage(o,480);return u?'<img class="order-preview" src="'+attr(u)+'" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)">':'';}
     function tableSample(o) {
   var u = firstImage(o, 180),
       thumb = u ? '<img class="table-thumb" src="' + attr(u) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)">'
@@ -2368,7 +2368,7 @@ function opsTile(o) {
             var items = topMatches.map(function(o) {
                 var thumb = firstImage(o, 180) || (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
                 var thumbHtml = thumb ?
-                    '<img class="search-item-thumb" src="' + attr(thumb) + '" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
+                    '<img class="search-item-thumb" src="' + attr(thumb) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
                     '<div class="search-item-thumb-empty">🌸</div>';
 
                 return '<div class="search-dropdown-item" onclick="MEEOPS7.selectSearchResult(\'' + o.id + '\')">' +
@@ -2495,7 +2495,7 @@ function opsTile(o) {
       : '<span class="badge gold">Quá giờ · ' + esc(timeVN(o.time)) + '</span>';
     var thumb = firstImage(o, 180) || (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
     var thumbHtml = thumb ?
-        '<img class="order-card-mobile-thumb" src="' + attr(thumb) + '" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
+        '<img class="order-card-mobile-thumb" src="' + attr(thumb) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
         '<div class="order-card-mobile-thumb-empty">🌸</div>';
     return '<article class="order-card-mobile" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'dashboard\')">' +
       '<div class="order-card-mobile-top">' +
@@ -2653,7 +2653,7 @@ function opsTile(o) {
   var mobileCards = filteredList.map(function(o) {
     var thumb = firstImage(o, 180) || (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
     var thumbHtml = thumb ?
-        '<img class="order-card-mobile-thumb" src="' + attr(thumb) + '" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
+        '<img class="order-card-mobile-thumb" src="' + attr(thumb) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
         '<div class="order-card-mobile-thumb-empty">🌸</div>';
 
     var debtStyle = Number(o.debt) > 0 ? 'color:var(--danger);font-weight:700' : 'color:var(--text-muted)';
