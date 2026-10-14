@@ -32,3 +32,13 @@ test('direct order detail retains its image signing path', () => {
   assert.match(fn, /displayUrls\(row\.image_urls\|\|\[\]\)/);
   assert.match(fn, /displayUrls\(row\.full_paid_bill_urls\|\|\[\]\)/);
 });
+
+test('signed URL cache is bounded, reuses in-flight requests and expires before token', () => {
+  const fn = between('const signedImageCache=new Map();', 'const operationStorage=');
+  assert.match(fn, /SIGNED_IMAGE_TTL_MS=45\*60\*1000/);
+  assert.match(fn, /cached&&cached\.expiresAt>now/);
+  assert.match(fn, /return cached\.promise/);
+  assert.match(fn, /signedImageCache\.size>512/);
+  assert.match(fn, /if\(!url\)signedImageCache\.delete\(key\)/);
+  assert.match(fn, /catch\(e\)\{signedImageCache\.delete\(key\)/);
+});
