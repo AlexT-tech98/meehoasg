@@ -42,3 +42,11 @@ test('signed URL cache is bounded, reuses in-flight requests and expires before 
   assert.match(fn, /if\(!url\)signedImageCache\.delete\(key\)/);
   assert.match(fn, /catch\(e\)\{signedImageCache\.delete\(key\)/);
 });
+
+test('canonical HTML lazy loads order previews and mobile cards', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../html'), 'utf8');
+  assert.match(html, /class="order-preview"[^>]*loading="lazy"/);
+  assert.match(html, /class="search-item-thumb"[^>]*loading="lazy"/);
+  assert.match(html, /class="order-card-mobile-thumb"[^>]*loading="lazy"/);
+  assert.doesNotMatch(html, /class="order-preview"[^>]*loading="eager"/);
+});
