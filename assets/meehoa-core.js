@@ -300,7 +300,7 @@
   function materialSig(r,d){return d+'|'+(r.reviewCount||0)+'|'+(r.items||[]).map(function(x){return x.name+':'+x.orders}).join(',')}
   function renderMaterials(){
     if(!window.S||S.page!=='flowers')return;
-    var d=S.filters&&S.filters.flowers&&S.filters.flowers.date,r=S.data&&S.data.flowers&&S.data.flowers[d],el=qs('#content');if(!d||!r||!el)return;
+    var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],el=qs('#content');if(!d||!r||!el)return;
     var sig=materialSig(r,d);if(el.dataset.meeMaterialsSig===sig)return;
     var filter=qs('.date-filter-bar',el),filterHtml=filter?filter.outerHTML:'';
     var items=(r.items||[]).map(function(f){return '<button type="button" class="mee-material-card" data-material="'+attr(f.name)+'"><div class="mee-material-top"><span class="mee-material-name">'+esc(f.name)+'</span><span class="mee-material-count">'+Number(f.orders||0)+' đơn</span></div><div class="mee-material-hint">Bấm để xem danh sách đơn</div></button>'}).join('');
@@ -499,7 +499,7 @@
 
   function patchMaterialsStatus(){
     if(!window.S||S.page!=='flowers')return;
-    var d=S.filters&&S.filters.flowers&&S.filters.flowers.date;
+    var ff=S.filters&&S.filters.flowers||{};var d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date);
     var r=d&&S.data&&S.data.flowers&&S.data.flowers[d];
     var el=qs('#content');if(!r||!el)return;
 
