@@ -1918,10 +1918,10 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function accessoryStateFromOrder(o){
         o=o||{};
         var card=!!o.card,banner=!!o.banner,charm=Number(o.charmFee||0)>0,paper=Number(o.paperFee||0)>0,vat=Number(o.vat||0)>0,ship=!!o.shipConfirmed&&isShop(o.shipping);
-        var qty=card?Math.max(1,Number(o.cardQty||1)):0;
+        var qty=card?Math.max(1,Number(o.cardQty||1)):0,bannerQty=banner?Math.max(1,Number(o.bannerQty||1)):0;
         var count=[card,banner,charm,paper,vat,ship].filter(Boolean).length;
-        var total=qty*10000+(banner?35000:0)+(charm?Number(o.charmFee||0):0)+(paper?Number(o.paperFee||0):0)+(vat?Number(o.vat||0):0)+(ship?Number(o.shipFee||0):0);
-        return {card:card,banner:banner,charm:charm,paper:paper,vat:vat,ship:ship,qty:qty,count:count,total:total};
+        var total=qty*10000+bannerQty*35000+(charm?Number(o.charmFee||0):0)+(paper?Number(o.paperFee||0):0)+(vat?Number(o.vat||0):0)+(ship?Number(o.shipFee||0):0);
+        return {card:card,banner:banner,charm:charm,paper:paper,vat:vat,ship:ship,qty:qty,bannerQty:bannerQty,count:count,total:total};
     }
     function accessoryEditor(o){
         o=o||{};var a=accessoryStateFromOrder(o);
@@ -1940,7 +1940,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             '</div></div></div>'+
             '<div class="mee-accessory-items">'+
               '<div class="'+itemClass(a.card)+'" data-accessory-item="card" data-active="'+(a.card?'1':'0')+'"><div class="mee-accessory-item-head"><label class="check"><input type="checkbox" name="card" '+(a.card?'checked':'')+'> <b>Thiệp</b> <span class="sub">10.000đ / thiệp</span></label><button type="button" class="mee-accessory-remove" onclick="MEEOPS7.toggleAccessoryItem(\'card\')">×</button></div><div class="mee-card-qty-native"><label>SỐ LƯỢNG THIỆP</label><input type="number" name="cardQty" min="1" max="99" step="1" inputmode="numeric" value="'+(a.qty||1)+'"></div><label>NỘI DUNG THIỆP</label><textarea name="cardText" rows="3" placeholder="Nội dung thiệp">'+esc(o.cardText||'')+'</textarea></div>'+
-              '<div class="'+itemClass(a.banner)+'" data-accessory-item="banner" data-active="'+(a.banner?'1':'0')+'"><div class="mee-accessory-item-head"><label class="check"><input type="checkbox" name="banner" '+(a.banner?'checked':'')+'> <b>Banner</b> <span class="sub">35.000đ</span></label><button type="button" class="mee-accessory-remove" onclick="MEEOPS7.toggleAccessoryItem(\'banner\')">×</button></div><label>NỘI DUNG BANNER</label><textarea name="bannerText" rows="2" placeholder="Nội dung banner">'+esc(o.bannerText||'')+'</textarea></div>'+
+              '<div class="'+itemClass(a.banner)+'" data-accessory-item="banner" data-active="'+(a.banner?'1':'0')+'"><div class="mee-accessory-item-head"><label class="check"><input type="checkbox" name="banner" '+(a.banner?'checked':'')+'> <b>Banner</b> <span class="sub">35.000đ</span></label><button type="button" class="mee-accessory-remove" onclick="MEEOPS7.toggleAccessoryItem(\'banner\')">×</button></div><div class="mee-card-qty-native"><label>SỐ LƯỢNG BANNER</label><input type="number" name="bannerQty" min="1" max="99" step="1" inputmode="numeric" value="'+(a.bannerQty||1)+'"></div><label>NỘI DUNG BANNER</label><textarea name="bannerText" rows="2" placeholder="Nội dung banner">'+esc(o.bannerText||'')+'</textarea></div>'+
               '<div class="'+itemClass(a.ship)+'" data-accessory-item="ship" data-active="'+(a.ship?'1':'0')+'"><input type="hidden" name="shipFeeActive" value="'+(a.ship?'1':'0')+'"><div class="mee-accessory-item-head"><b>Phí ship</b><button type="button" class="mee-accessory-remove" onclick="MEEOPS7.toggleAccessoryItem(\'ship\')">×</button></div><label>PHÍ SHIP THỰC TẾ</label><input name="shipFee" inputmode="numeric" value="'+attr(a.ship?new Intl.NumberFormat('vi-VN').format(Number(o.shipFee||0)):'0')+'" oninput="MEEOPS7.formatMoneyInput(this)"></div>'+
               '<div class="'+itemClass(a.paper)+'" data-accessory-item="paper" data-active="'+(a.paper?'1':'0')+'"><div class="mee-accessory-item-head"><b>Thay giấy</b><button type="button" class="mee-accessory-remove" onclick="MEEOPS7.toggleAccessoryItem(\'paper\')">×</button></div><div class="mee-accessory-fee-grid"><div><label>PHÍ</label><input name="paperFee" inputmode="numeric" value="'+attr(o.paperFee?new Intl.NumberFormat('vi-VN').format(o.paperFee):'0')+'" oninput="MEEOPS7.formatMoneyInput(this)"></div><div><label>GHI CHÚ</label><textarea name="paperText" rows="2" placeholder="Nội dung thay giấy">'+esc(o.paperText||'')+'</textarea></div></div></div>'+
               '<div class="'+itemClass(a.charm)+'" data-accessory-item="charm" data-active="'+(a.charm?'1':'0')+'"><div class="mee-accessory-item-head"><b>Đính charm</b><button type="button" class="mee-accessory-remove" onclick="MEEOPS7.toggleAccessoryItem(\'charm\')">×</button></div><div class="mee-accessory-fee-grid"><div><label>PHÍ</label><input name="charmFee" inputmode="numeric" value="'+attr(o.charmFee?new Intl.NumberFormat('vi-VN').format(o.charmFee):'0')+'" oninput="MEEOPS7.formatMoneyInput(this)"></div><div><label>GHI CHÚ</label><textarea name="charmText" rows="2" placeholder="Nội dung charm">'+esc(o.charmText||'')+'</textarea></div></div></div>'+
@@ -1980,7 +1980,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         function active(k){var x=form.querySelector('[data-accessory-item="'+k+'"]');return !!x&&x.dataset.active==='1';}
         var count=0,total=0;
         if(active('card')){count++;var q=Math.max(1,Number((form.querySelector('[name="cardQty"]')||{}).value||1));total+=q*10000;}
-        if(active('banner')){count++;total+=35000;}
+        if(active('banner')){count++;var bq=Math.max(1,Number((form.querySelector('[name="bannerQty"]')||{}).value||1));total+=bq*35000;}
         if(active('ship')){count++;total+=moneyDigits((form.querySelector('[name="shipFee"]')||{}).value||0);}
         if(active('paper')){count++;total+=moneyDigits((form.querySelector('[name="paperFee"]')||{}).value||0);}
         if(active('charm')){count++;total+=moneyDigits((form.querySelector('[name="charmFee"]')||{}).value||0);}
