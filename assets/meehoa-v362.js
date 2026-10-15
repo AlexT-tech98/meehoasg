@@ -7,7 +7,7 @@
 
   function patchMaterialsStatus(){
     if(!window.S||S.page!=='flowers')return;
-    var d=S.filters&&S.filters.flowers&&S.filters.flowers.date;
+    var ff=S.filters&&S.filters.flowers||{};var d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date);
     var r=d&&S.data&&S.data.flowers&&S.data.flowers[d];
     var el=qs('#content');if(!r||!el)return;
 
