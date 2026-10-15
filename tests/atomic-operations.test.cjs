@@ -161,3 +161,11 @@ test('THO_OPS can submit eligible settlement and cannot approve it',async()=>{
  const approved=await rpc('reviewSettlement',{settlementId:submitted.requestId,decision:'APPROVED'},{actor:'admin'});
  assert.equal(approved.ok,true,JSON.stringify(approved));
 });
+
+test('SALE may submit settlement on another sale order, but cannot edit or approve it',async()=>{
+ const row=await delivered();
+ const submitResult=await rpc('submitSettlement',{orderId:row.id,expectedUpdatedAt:row.updated_at,newSettlementId:'CROSS-'+(++seq),newBillUrls:['supabase://settlement-bills/cross-sale.jpg']},{actor:'sale2'});
+ assert.equal(submitResult.ok,true,JSON.stringify(submitResult));
+ const denyReview=await rpc('reviewSettlement',{settlementId:submitResult.requestId,decision:'APPROVED'},{actor:'sale2'});
+ assert.equal(denyReview.code,'NOT_OWNER');
+});
