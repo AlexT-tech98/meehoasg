@@ -11,6 +11,7 @@ Issue #36 contains **13 technical checks for 12 operator reports**. A successful
 - `node scripts/browser-acceptance.cjs`: actual shell and generated CSS/JS in Chromium, widths 1440/390, ADMIN/SALE/THO_OPS, synthetic API only. All external requests are intercepted. Produces screenshots, Playwright traces and request-name/check results in `artifacts/browser/`.
 - `node scripts/rollback-rehearsal.cjs`: migrates fresh PostgreSQL WASM fixtures, verifies legacy banner financial parity, 3-banner total, and exact row/total restore from both pre-release and post-release snapshots. Produces `artifacts/rollback/results.json`. This does not test managed database PITR, roles, Storage, or external writers.
 - `node scripts/release-manifest.cjs`: refuses a dirty tracked tree; records commit and SHA-256 of every tracked file in `artifacts/release/`. CI uploads all evidence under the exact validated head SHA. CI never changes the branch it validates.
+- [Read-only public static parity](validation/release-39-public-static-parity.json): live `index.html`, `html` and both core assets match the current `main` byte for byte. Candidate differences are expected before deployment. Edge Function and Apps Script parity remain unverified.
 
 Local Chromium can be selected with `MEEHOA_CHROMIUM=/usr/bin/chromium`. CI installs the pinned Playwright Chromium. Viewport emulation is not an iOS/Safari device test. Cold/warm durations in browser results measure local fixture UI only; they are not production API P50/P95 or Egress measurements.
 
