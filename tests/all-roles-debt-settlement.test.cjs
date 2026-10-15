@@ -1,0 +1,10 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const api=fs.readFileSync('supabase/functions/meehoasg-api-core/index.js','utf8');
+const sql=fs.readFileSync('supabase/migrations/20261015_allow_active_users_settlement.sql','utf8');
+const debt=api.slice(api.indexOf('async function fastDebt('),api.indexOf('async function fullPaidReport('));
+test('debt eligible for all active shop roles, not restricted to own sale',()=>{assert.ok(debt.includes("scope:'ALL_ACTIVE_USERS'"));assert.ok(!debt.includes("user.role==='ADMIN'"));assert.ok(!debt.includes("saleKey(user.username)"));assert.ok(debt.includes("o.status==='Đã giao'&&!o.paymentVerified&&o.debt>0"));});
+test('debt filters eligible orders before signed image URL calls',()=>{assert.ok(debt.indexOf('const eligible=')<debt.indexOf('displayUrls(o.imageUrls'));assert.ok(debt.includes('imageUrls:urls,driveUrls:urls'));});
+test('settlement request accepts active shop users but review stays admin-only',()=>{const submit=sql.slice(sql.indexOf("elsif p_action='submitSettlement' then"),sql.indexOf("elsif p_action='reviewSettlement' then"));assert.ok(submit.length>0);assert.ok(!submit.includes("u.role not in ('ADMIN','SALE')"));assert.ok(submit.includes('not u.active or o.settled'));assert.ok(sql.includes("if u.role<>'ADMIN' then return jsonb_build_object('ok',false,'code','NOT_OWNER'"));});
+test('settlement retains proof and duplicate protections',()=>{for(const str of ["o.status<>'Đã giao'","SETTLEMENT_EXISTS","SHIP_FEE_REQUIRED","BILL_REQUIRED","VERSION_REQUIRED"])assert.ok(sql.includes(str),str);});
