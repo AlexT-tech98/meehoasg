@@ -15,11 +15,13 @@ async function main(){
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const origin='http://127.0.0.1:'+server.address().port;
  const browser=await chromium.launch({headless:true,...(process.env.MEEHOA_CHROMIUM?{executablePath:process.env.MEEHOA_CHROMIUM}:{}),args:['--no-sandbox']});
- const results=[];
+ const results=[];let activeContext,activePage,activeLabel;
  try{for(const width of [1440,390])for(const role of ['ADMIN','SALE','THO_OPS']){
   const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce'});
+  activeContext=context;activeLabel=`${width}-${role}`;
   await context.tracing.start({screenshots:true,snapshots:true});
   const page=await context.newPage(),calls=[],errors=[];
+  activePage=page;
   page.on('pageerror',e=>errors.push(e.message));
   await context.route('**/*',async route=>{
    const req=route.request(),url=new URL(req.url());
@@ -65,8 +67,8 @@ async function main(){
   await page.evaluate(()=>MEEOPS7.closeOverlay());
   await page.evaluate(()=>MEEOPS7.openDrawer('FIXTURE-0'));await page.locator('#overlay').getByText('Banner ×3',{exact:true}).waitFor();
   await page.evaluate(()=>MEEOPS7.closeOverlay());
-  await page.evaluate(()=>window.scrollTo(0,1000));await page.waitForTimeout(150);
-  assert.ok(await page.evaluate(()=>window.scrollY>500),'page actually scrolled before sticky assertion');
+  await page.waitForFunction(()=>!document.body.classList.contains('mee-overlay-open-v364')&&!document.body.classList.contains('mee-menu-open'));
+  await page.waitForFunction(()=>{window.scrollTo(0,1000);return window.scrollY>500;});
   const top=await page.locator('.topbar').boundingBox();assert.ok(Math.abs(top.y)<2,'topbar stays at viewport top: '+top.y);
   if(role!=='SALE'){
    await page.evaluate(()=>MEEOPS7.go('production'));await page.waitForFunction(()=>S.page==='production'&&document.querySelector('#content input[type=checkbox]'));
@@ -78,8 +80,8 @@ async function main(){
   await page.screenshot({path:path.join(out,`${width}-${role}.png`),fullPage:true});
   assert.deepEqual(errors,[],'no browser exceptions');
   results.push({width,role,coldMs,warmMs,checks:['new-date-blank-required','edit-date-retained','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation']:[])],calls:calls.map(c=>c.name)});
-  await context.tracing.stop({path:path.join(out,`${width}-${role}.zip`)});await context.close();
- }}finally{await browser.close();server.close();fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:'isolated UI integration; synthetic API; NOT staging E2E',results},null,2)+'\n');}
+  await context.tracing.stop({path:path.join(out,`${width}-${role}.zip`)});await context.close();activeContext=null;activePage=null;
+ }}finally{if(activeContext){await activePage.screenshot({path:path.join(out,activeLabel+'-failure.png'),fullPage:true}).catch(()=>{});await activeContext.tracing.stop({path:path.join(out,activeLabel+'-failure.zip')}).catch(()=>{});}await browser.close();server.close();fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:'isolated UI integration; synthetic API; NOT staging E2E',complete:results.length===6,results},null,2)+'\n');}
  console.log(JSON.stringify(results,null,2));
 }
 main().catch(e=>{console.error(e);server.close();process.exitCode=1;});
