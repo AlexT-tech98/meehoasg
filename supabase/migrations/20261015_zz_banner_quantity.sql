@@ -111,7 +111,7 @@ begin
      end if;
      return jsonb_build_object('ok',false,'code','ORDER_DELETING','message','Đơn đang chờ xóa; không thể sửa hoặc tất toán.');
    end if;
-   if p_action in ('updateOrder','saveShipFee','submitSettlement') and u.role='SALE' and not public.mee_ops_owner(o.sale,u) then
+   if p_action in ('updateOrder','saveShipFee') and u.role='SALE' and not public.mee_ops_owner(o.sale,u) then
      return jsonb_build_object('ok',false,'code','NOT_OWNER','message','Sale chỉ được cập nhật đơn do mình phụ trách.');
    end if;
    if p_action in ('updateOrder','saveShipFee','updateStatus','deleteOrder') and
