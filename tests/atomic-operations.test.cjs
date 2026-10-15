@@ -140,3 +140,14 @@ test('two real PostgreSQL sessions submit settlement with exactly one pending re
  assert.equal(results.filter(r=>r.ok).length,1);assert.equal(results.filter(r=>r.code==='ORDER_CONFLICT').length,1);
  assert.equal((await db.query('select count(*)::int as n from settlement_requests')).rows[0].n,1);
 });
+
+test('banner quantity is persisted and charged at 35k per banner',async()=>{
+ const a=await create({banner:true,bannerQty:3,bannerText:'Banner test'});
+ assert.equal(a.ok,true);assert.equal(a.row.banner_qty,3);
+ const r=await db.query('select public.mee_ops_total(o) as total from public.orders o where id=$1',[a.orderId]);
+ assert.equal(Number(r.rows[0].total),605000);
+});
+test('banner quantity validation rejects zero and non-integer counts',()=>{
+ assert.throws(()=>api.normalizeOperationOrder({...base(),banner:true,bannerText:'Test',bannerQty:0},user));
+ assert.throws(()=>api.normalizeOperationOrder({...base(),banner:true,bannerText:'Test',bannerQty:1.5},user));
+});
