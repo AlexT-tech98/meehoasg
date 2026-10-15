@@ -2271,7 +2271,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function card(o, select) {
   if (select === void 0) select = false;
   var next = nextStatusValue(o.status), prev = previousStatusValue(o.status);
-  var check = select && canOps() ? '<input type="checkbox" style="width:18px;height:18px;cursor:pointer" ' + (S.selected.has(o.id) ? 'checked' : '') + ' onchange="MEEOPS7.togglePick(\'' + o.id + '\',this.checked)"> ' : '';
+  var check = select && canOps() ? '<input type="checkbox" style="width:18px;height:18px;cursor:pointer" ' + (S.selected.has(o.id) ? 'checked' : '') + ' onclick="event.stopPropagation()" onchange="event.stopPropagation();MEEOPS7.togglePick(\'' + o.id + '\',this.checked)"> ' : '';
   var isUrgent = dashboardAttentionKind(o) || o.hasAccessories;
   return '<article class="order ' + (isUrgent ? 'urgent' : '') + ' ' + (o.hasAccessories ? 'accessory' : '') + '">' +
     '<div class="order-top">' +
