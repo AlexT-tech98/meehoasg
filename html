@@ -1642,7 +1642,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                         f = S.filters.orders;
                         if (!append)
                             f.page = 1;
-                        args = { start: f.start, end: f.end, q: f.q, page: f.page, pageSize: f.pageSize };
+                        args = { start: f.start, end: f.end, q: f.q, globalSearch: Boolean(String(f.q||'').trim()), page: f.page, pageSize: f.pageSize };
                         _a.label = 1;
                     case 1:
                         _a.trys.push([1, 3, , 4]);
