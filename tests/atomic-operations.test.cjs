@@ -151,3 +151,13 @@ test('banner quantity validation rejects zero and non-integer counts',()=>{
  assert.throws(()=>api.normalizeOperationOrder({...base(),banner:true,bannerText:'Test',bannerQty:0},user));
  assert.throws(()=>api.normalizeOperationOrder({...base(),banner:true,bannerText:'Test',bannerQty:1.5},user));
 });
+
+test('THO_OPS can submit eligible settlement and cannot approve it',async()=>{
+ const row=await delivered();
+ const submitted=await rpc('submitSettlement',{orderId:row.id,expectedUpdatedAt:row.updated_at,newSettlementId:'THO-'+(++seq),newBillUrls:['supabase://settlement-bills/tho.jpg']},{actor:'tho'});
+ assert.equal(submitted.ok,true,JSON.stringify(submitted));
+ const denied=await rpc('reviewSettlement',{settlementId:submitted.requestId,decision:'APPROVED'},{actor:'tho'});
+ assert.equal(denied.code,'NOT_OWNER');
+ const approved=await rpc('reviewSettlement',{settlementId:submitted.requestId,decision:'APPROVED'},{actor:'admin'});
+ assert.equal(approved.ok,true,JSON.stringify(approved));
+});
