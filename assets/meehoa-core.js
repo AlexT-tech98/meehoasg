@@ -453,7 +453,7 @@
         var total=x.settled+x.unsettled;
         return '<div class="mee-approved-staff-row"><span class="mee-approved-staff-name">'+esc(x.sale)+'</span>'+
           '<div class="mee-approved-track" role="img" aria-label="'+esc(x.sale)+': '+money(total)+'"><div style="width:'+Math.max(0,Math.min(100,total/top*100)).toFixed(1)+'%"></div></div>'+
-          '<b>'+money(total)+'</b></div>';
+          '<b>'+x.orders+' đơn · '+money(total)+'</b></div>';
       }).join(''):'<div class="mee-v361-empty">Chưa có dữ liệu doanh thu theo nhân viên trong kỳ.</div>')+
       '<div class="mee-approved-footnote">Doanh thu đơn hàng, không phải hoa hồng · Theo kỳ đang chọn</div></div>';
     section.dataset.meeApprovedSig=sig;
