@@ -2579,6 +2579,10 @@ function opsTile(o) {
         '</div>' +
       '</div>' +
     '</div>';
+  var bySale=new Map();
+  (r.salesDaily||[]).forEach(function(x){var key=x.saleUsername||x.sale||'',v=bySale.get(key)||{sale:x.sale||x.saleUsername||'Chưa phân công',orders:0,settledOrders:0,unsettledOrders:0,grossRevenue:0,settledRevenue:0};v.orders+=Number(x.orders||0);v.settledOrders+=Number(x.settledOrders||0);v.unsettledOrders+=Number(x.unsettledOrders||0);v.grossRevenue+=Number(x.grossRevenue||0);v.settledRevenue+=Number(x.settledRevenue||0);bySale.set(key,v)});
+  var saleRows=Array.from(bySale.values()).sort(function(a,b){return b.grossRevenue-a.grossRevenue});
+  el.insertAdjacentHTML('beforeend','<section class="section" style="margin-top:18px"><div class="section-head"><h3>Doanh thu và số đơn theo Sale</h3><span class="sub">Cùng khoảng ngày với Dashboard</span></div><div class="table-wrap"><table><thead><tr><th>Sale</th><th>Số đơn</th><th>Đã xác nhận</th><th>Chưa xác nhận</th><th>Tổng tiền hoa</th><th>Doanh thu xác nhận</th></tr></thead><tbody>'+(saleRows.map(function(x){return '<tr><td>'+esc(x.sale)+'</td><td><b>'+x.orders+'</b></td><td>'+x.settledOrders+'</td><td>'+x.unsettledOrders+'</td><td>'+vnd(x.grossRevenue)+'</td><td><b>'+vnd(x.settledRevenue)+'</b></td></tr>'}).join('')||'<tr><td colspan="6" class="empty">Không có đơn trong khoảng ngày này.</td></tr>')+'</tbody></table></div></section>');
 }
     function renderProduction() {
   var f = S.filters.production, r = S.data.production || {}, all = r.orders || [], el = document.getElementById('content');
