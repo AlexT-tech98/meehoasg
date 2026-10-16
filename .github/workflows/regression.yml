@@ -90,3 +90,49 @@ jobs:
           name: browser-evidence-${{ github.event.pull_request.head.sha || github.sha }}
           path: artifacts/browser/
           if-no-files-found: error
+
+  staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: 'v2.5.6'
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - name: Create fresh local QA credentials (never uploaded)
+        run: node scripts/staging-config.cjs
+      - name: Start isolated PostgreSQL 17, PostgREST and Supabase Storage
+        run: docker --host=unix:///var/run/docker.sock compose --env-file artifacts/staging/docker.local.env -f infra/staging.compose.yml up -d --wait --wait-timeout 180
+      - name: Seed synthetic accounts, orders and environment marker
+        run: node scripts/staging-seed.cjs
+      - name: Run candidate APIs and QA frontend on loopback
+        run: |
+          MEEHOA_DENO="$(command -v deno)" DENO_DIR="$RUNNER_TEMP/meehoa-deno-cache" node scripts/staging-run.cjs > artifacts/staging/runtime.local.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/__qa_health > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Authenticated API, storage, finance and role acceptance
+        run: node scripts/staging-acceptance.cjs
+      - name: Real backend desktop and mobile browser acceptance
+        env:
+          MEEHOA_CHROMIUM: bundled
+        run: node scripts/staging-browser.cjs
+      - name: Upload sanitized local staging evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/staging-evidence/
+          if-no-files-found: error
+      - name: Remove disposable CI QA containers and volumes
+        if: always()
+        run: docker --host=unix:///var/run/docker.sock compose --env-file artifacts/staging/docker.local.env -f infra/staging.compose.yml down -v

@@ -12,6 +12,7 @@ Issue #36 contains **13 technical checks for 12 operator reports**. A successful
 - `node scripts/rollback-rehearsal.cjs`: migrates fresh PostgreSQL WASM fixtures, verifies legacy banner financial parity, 3-banner total, and exact row/total restore from both pre-release and post-release snapshots. Produces `artifacts/rollback/results.json`. This does not test managed database PITR, roles, Storage, or external writers.
 - `node scripts/release-manifest.cjs`: refuses a dirty tracked tree; records commit and SHA-256 of every tracked file in `artifacts/release/`. CI uploads all evidence under the exact validated head SHA. CI never changes the branch it validates.
 - [Read-only public static parity](validation/release-39-public-static-parity.json): live `index.html`, `html` and both core assets match the current `main` byte for byte. Candidate differences are expected before deployment. Edge Function and Apps Script parity remain unverified.
+- [Local real-service staging](release-39-local-staging.md): separate PostgreSQL17/PostgREST/Supabase Storage plus candidate Deno APIs and QA accounts; 12 API scenarios and 6 Chromium role/viewport combinations PASS locally. This exposed and fixed flower-only payment incorrectly clearing accessory debt. The CI staging job rebuilds this from empty volumes and uploads sanitized evidence only.
 
 Local Chromium can be selected with `MEEHOA_CHROMIUM=/usr/bin/chromium`. CI installs the pinned Playwright Chromium. Viewport emulation is not an iOS/Safari device test. Cold/warm durations in browser results measure local fixture UI only; they are not production API P50/P95 or Egress measurements.
 
@@ -35,7 +36,7 @@ Local Chromium can be selected with `MEEHOA_CHROMIUM=/usr/bin/chromium`. CI inst
 
 ## Release blockers
 
-1. No isolated staging endpoint or test-account credentials are configured in this execution environment. Do not substitute production accounts/data for staging.
+1. A local real-service QA environment and test accounts now exist; the cloud branch request was cancelled. Hosted staging and managed Supabase deployment parity remain unverified. Do not substitute production accounts/data for these remaining checks.
 2. Complete authenticated API-backed desktop/mobile E2E for all 13 checks, including financial mutations on disposable records; retain reconciliation, request IDs, traces and CI SHA.
 3. Confirm the business approval provenance for active-user debt/settlement scope introduced in #37; retain Admin-only approval. Do not infer approval from a green test.
 4. Review global search date filtering, privacy, scale and query plan; review banner migration and financially verified historical orders. Do not mark performance PASS from static assertions.
