@@ -214,7 +214,7 @@ async function getDebt(payload, user) {
   const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
   const sale = user.role === 'ADMIN' ? norm(payload.sale) : null;
   const items = (await decoratedRange(start, end, user)).filter(o => {
-    if (o.status !== 'Đã giao' || o.paymentVerified || o.debt <= 0) return false;
+    if (o.paymentVerified) return false;
     if (user.role === 'ADMIN') return !sale || norm(o.sale) === sale;
     return norm(o.sale) === norm(user.username) || norm(o.sale) === norm(user.display_name);
   });

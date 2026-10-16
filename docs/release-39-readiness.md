@@ -59,3 +59,7 @@ The owner's subsequent instruction restricts debt to the assigned Sale and settl
 ## Delivery-order regression correction
 
 The owner reported that late delivery times unexpectedly appeared first. Pre-PR39 `fastOrders` used ascending delivery date/time; the bounded page RPC introduced descending ordering outside the requested scope. `20261016130221_restore_order_delivery_sort.sql` restores ascending date, time and deterministic ID ties for both bounded and compatibility search RPCs, including explicit JSON aggregation order. It changes no order rows, permissions, UI layout or filters. Tests cover07:30 before19:00, multiple dates, equal-time ties, global/date keyword search and disjoint pages; real API and browser acceptance assert the restored order.
+
+## Unsettled-order debt membership clarification
+
+The debt list now tracks unfinished settlement, not only positive balances on delivered orders: every assigned order not settled and not Full Paid remains visible in the chosen date range. UI incremental reconciliation applies the same rule; zero-balance/not-delivered notes explain why the item remains. Tests cover a14-order cohort with4 completed and10 unsettled (including5 zero-balance and3 not-delivered), pending requests remaining visible, Full Paid exclusion, pre-upload foreign denial and owner/Admin settlement of a zero-balance order. Delivery ordering, date filters, owner permissions, KPI calculation and monetary formulas are unchanged. No customer rows are rewritten.

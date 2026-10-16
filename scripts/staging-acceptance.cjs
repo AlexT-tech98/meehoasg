@@ -39,7 +39,7 @@ async function main(){
    assert.equal(r.summary.grossRevenue,rows.reduce((n,x)=>n+x.revenue,0));return{orders:r.summary.orders,grossRevenue:r.summary.grossRevenue};
   });
   await check('new date blank rejected without row write',async()=>{const before=(await db.query('select count(*) from orders')).rows[0].count;const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),date:''}},'qa_sale');assert.equal(r.ok,false);assert.equal(r.code,'ORDER_INPUT_INVALID');assert.equal((await db.query('select count(*) from orders')).rows[0].count,before);});
-  let order,thoOrder;
+  let order,thoOrder,zeroOrder;
   await check('create 3-banner order through real API; idempotent retry one SQL receipt',async()=>{
    const p={requestId:crypto.randomUUID(),order:{...base(),imageFiles:[png]}};const r=await call('createOrder',p,'qa_sale');assert.equal(r.ok,true,JSON.stringify({code:r.code,message:r.message}));order=r.order;
    assert.equal(order.bannerQty,3);assert.equal(order.totalDue,625000);assert.equal(order.debt,625000);
@@ -52,11 +52,15 @@ async function main(){
    assert.ok(order,'create prerequisite');const denied=await call('updateOrder',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,order:{...base(),flower:'Changed'}},'qa_sale_other');assert.equal(denied.code,'NOT_OWNER');
    for(const status of ['Đã bó','Đã giao']){const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,status},'qa_tho');assert.equal(r.ok,true,r.message);assert.equal(r.order.status,status);order=r.order;}
   });
+  await check('zero-balance unverified order remains in debt until settlement, Full Paid excluded',async()=>{
+   const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),customer:run+' Zero Balance',payment:'Đã thanh toán 625000 đ'}},'qa_sale');assert.equal(r.ok,true,r.message);zeroOrder=r.order;for(const status of ['Đã bó','Đã giao']){const changed=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:zeroOrder.id,expectedUpdatedAt:zeroOrder.updatedAt,status},'qa_tho');assert.equal(changed.ok,true,changed.message);zeroOrder=changed.order;}
+   assert.equal(zeroOrder.debt,0);assert.equal(zeroOrder.fullPaid,false);assert.equal(zeroOrder.settled,false);const d=await call('getDebtReview',{start:date,end:date},'qa_sale');const seen=d.items.find(o=>o.id===zeroOrder.id);assert.ok(seen,'zero-debt order must not disappear');assert.equal(seen.canSubmitSettlement,true);assert.ok(d.items.some(o=>o.status!=='Đã giao'),'not-delivered unsettled orders also visible');return{orderId:zeroOrder.id};
+  });
   await check('owner debt scopes reconcile exact IDs; foreign Sale filter cannot widen scope',async()=>{
    async function ownDelivered(actor,sale){const created=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),...(sale?{sale}:{})}},actor);assert.equal(created.ok,true,created.message);let o=created.order;for(const status of ['Đã bó','Đã giao']){const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status},'qa_tho');assert.equal(r.ok,true,r.message);o=r.order;}return o;}
    thoOrder=await ownDelivered('qa_admin','QA Tiên');await ownDelivered('qa_sale_other');
    const counts={};for(const actor of ['qa_admin','qa_sale','qa_tho','qa_sale_other']){
-    const expected=(await db.query("select o.id from orders o join app_users u on u.username=$2 where o.order_date=$1 and o.status='Đã giao' and not o.settled and not o.full_paid and (u.role='ADMIN' or mee_ops_owner(o.sale,u))",[date,actor])).rows;
+    const expected=(await db.query("select o.id from orders o join app_users u on u.username=$2 where o.order_date=$1 and not o.settled and not o.full_paid and (u.role='ADMIN' or mee_ops_owner(o.sale,u))",[date,actor])).rows;
     const r=await call('getDebtReview',{start:date,end:date,...(actor==='qa_admin'?{}:{sale:'qa_admin'})},actor);assert.equal(r.ok,true);assert.equal(r.scope,actor==='qa_admin'?'ADMIN':'SELF');assert.deepEqual(r.items.map(o=>o.id).sort(),expected.map(o=>o.id).sort());for(const o of r.items)if(actor!=='qa_admin')assert.equal(o.saleUsername,actor);counts[actor]=r.items.length;
    }return{counts};
   });

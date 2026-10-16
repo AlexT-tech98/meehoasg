@@ -37,3 +37,7 @@ Apply only the five delta migrations in `scripts/release-migrations.json`; do no
 ## Owner-scope correction supersedes prior backend fallback
 
 After the owner-scope correction, **restore frontend only and retain the current owner-scoped core/legacy/order-actions/shared service and database function**. The earlier all-shop API core is not authorization-compatible and must not be restored. The historical-reader drill proves financial-read parity only, not permission-policy compatibility; the release archive now excludes backend files from the fallback directory. Existing customer financial records are not changed by the correction.
+
+## All-unsettled membership correction supersedes old HTML fallback
+
+Retain current `index.html`, `html`, owner-scoped APIs/shared service and SQL during any fallback. Older HTML's incremental debt matcher hides not-delivered orders and must not be restored. The packaged fallback now contains legacy consolidated assets only, not the HTML shells or backend. An incident recovery must validate unfinished zero-balance/not-delivered/PENDING inclusion and Full Paid exclusion before reopening the debt view; otherwise use a forward fix.

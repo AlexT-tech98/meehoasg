@@ -19,3 +19,7 @@ The owner's subsequent assignment-only policy supersedes all-shop debt/submissio
 ## Delivery-order regression correction
 
 For production already at the owner-scope correction, apply only `20261016130221_restore_order_delivery_sort.sql`, after verifying the current search function definitions. No Edge Function redeployment or frontend change is needed: the current core reads the corrected RPC. The existing descending composite index supports an ascending reverse scan. Retain the owner-scoped debt/submission correction; no customer rows are rewritten.
+
+## All-unsettled debt membership correction
+
+Deploy current core/legacy API and `html`/`index.html` together (`20261016-unsettled-debt-rc4`). No database migration, stored payment edit or status backfill is needed. Debt membership is assigned-owner/date-range plus not settled/not Full Paid, independently of delivery stage or remaining amount. Submission gates stay unchanged. Verify the zero-balance and not-delivered notes and that Full Paid leaves the list after both full refresh and incremental updates. Retain current HTML and API membership checks during recovery; older HTML hides unfinished orders.
