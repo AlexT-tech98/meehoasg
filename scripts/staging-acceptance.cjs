@@ -75,6 +75,13 @@ async function main(){
    const edited=await call('updateOrder',{requestId:crypto.randomUUID(),orderId:r.orderId,expectedUpdatedAt:r.order.updatedAt,order:{...base(),bannerQty:4,payment:r.order.payment,fullPaidRequested:true,imageUrls:r.order.imageUrls}},'qa_sale');assert.equal(edited.ok,true,edited.message);assert.equal(edited.order.fullPaid,false);assert.equal(edited.order.paid,625000);assert.equal(edited.order.debt,35000);
    const preview=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),customer:run+' Full Preview',fullPaidRequested:true,imageFiles:[png],fullPaidBillFiles:[png],payment:'Đã thanh toán toàn bộ đơn'}},'qa_sale');assert.equal(preview.ok,true,preview.message);return {orderId:preview.orderId,customer:preview.order.customer};
   });
+  await check('earliest delivery first in dated/global search with stable pagination',async()=>{
+   const label=run+' Sort';for(const [time,d] of [['19:00',date],['07:30',date],['07:30',date],['06:00','2030-01-02']]){const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),customer:label,time,date:d}},'qa_sale');assert.equal(r.ok,true,r.message);}
+   const key=o=>[o.date,o.time,o.id].join('|');
+   const global=await call('getOrders',{q:label,globalSearch:true,page:1,pageSize:20});assert.equal(global.total,4);assert.deepEqual(global.items.map(key),global.items.map(key).slice().sort());assert.equal(global.items[0].time,'07:30');assert.equal(global.items[3].date,'2030-01-02');
+   const dated=await call('getOrders',{q:label,globalSearch:false,start:date,end:date,page:1,pageSize:20});assert.equal(dated.total,3);assert.deepEqual(dated.items.map(o=>o.time),['07:30','07:30','19:00']);
+   const plain=await call('getOrders',{q:'',start:date,end:date,page:1,pageSize:200});assert.deepEqual(plain.items.map(key),plain.items.map(key).slice().sort());return{orders:4,first:'07:30',lastSameDay:'19:00'};
+  });
  }finally{
   await db.end();fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'api-results.json'),JSON.stringify({scope:'real local PostgreSQL17/PostgREST/Supabase Storage/Deno candidate APIs; not managed cloud or production Egress',fixtureSearch:run,results},null,2)+'\n');
  }

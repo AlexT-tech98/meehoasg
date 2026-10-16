@@ -32,7 +32,7 @@ async function main(){
    }
    const c=stats(cold),w=stats(warm);client.push({width,role:a.role,coldClient:c,warmOrders:w,requestCounts:counts,budget:{coldP95Ms:budgets.coldClientP95Ms,warmP95Ms:budgets.warmModuleP95Ms},pass:c.p95Ms<=budgets.coldClientP95Ms&&w.p95Ms<=budgets.warmModuleP95Ms});console.log('Benchmarked '+width+' '+a.role);
   }
-  const plan=(await db.query("explain (analyze,format json) select * from orders where order_date=$1 order by order_date desc,order_time desc,id desc limit 80",[env.today])).rows[0]['QUERY PLAN'];fs.writeFileSync(path.join(out,'query-plan.json'),JSON.stringify(plan,null,2)+'\n');
+  const plan=(await db.query("explain (analyze,format json) select * from orders where order_date=$1 order by order_date asc,order_time asc,id asc limit 80",[env.today])).rows[0]['QUERY PLAN'];fs.writeFileSync(path.join(out,'query-plan.json'),JSON.stringify(plan,null,2)+'\n');
   assert.ok(api.every(r=>r.pass)&&client.every(r=>r.pass),'local engineering latency budgets exceeded');complete=true;
  }finally{
   if(browser)await browser.close();await db.query("delete from orders where id like 'QA-BENCH-%'");await db.end();

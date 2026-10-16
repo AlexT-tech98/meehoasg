@@ -16,3 +16,17 @@ const query=async(q,start,end,offset=0)=>(await db.query('select mee_search_orde
 assert.equal((await query('tien',null,null)).total,3);const one=await query('tien','2026-10-15','2026-10-15'),two=await query('tien','2026-10-15','2026-10-15',1);assert.equal(one.total,2);assert.notEqual(one.rows[0].id,two.rows[0].id);assert.equal((await query('100%',null,null)).total,1);
 await db.exec('set role anon');await assert.rejects(query('tien',null,null),/permission denied/);await db.exec('reset role');await assert.rejects(query('x',null,null),/SEARCH_QUERY_INVALID/);
 }finally{await db.close()}});
+
+
+test('delivery ordering restores earliest first for date/global search and remains stable across pages',async()=>{const db=new PGlite();try{
+ await db.exec("create role anon;create role authenticated;create role service_role;create table public.orders(id text primary key,customer text,phone text,flower text,sale text,order_date date,order_time text);");
+ await db.exec(sql);await db.exec(fs.readFileSync('supabase/migrations/20261016080722_bounded_order_pages.sql','utf8'));await db.exec(fs.readFileSync('supabase/migrations/20261016130221_restore_order_delivery_sort.sql','utf8'));
+ await db.exec("insert into orders values ('late','Sort QA','0','Tulip','sale','2026-10-16','18:00'),('early-b','Sort QA','0','Tulip','sale','2026-10-16','07:30'),('early-a','Sort QA','0','Tulip','sale','2026-10-16','07:30'),('previous','Sort QA','0','Tulip','sale','2026-10-15','19:00'),('tomorrow','Sort QA','0','Tulip','sale','2026-10-17','06:00');");
+ const all=async(q,start,end,limit=200,offset=0)=>(await db.query('select mee_search_orders_page($1,$2,$3,$4,$5) as r',[q,start,end,limit,offset])).rows[0].r;
+ assert.deepEqual((await all('','2026-10-16','2026-10-16')).rows.map(o=>o.id),['early-a','early-b','late']);
+ assert.deepEqual((await all('sort',null,null)).rows.map(o=>o.id),['previous','early-a','early-b','late','tomorrow']);
+ assert.deepEqual((await all('sort','2026-10-16','2026-10-16')).rows.map(o=>o.id),['early-a','early-b','late']);
+ const one=await all('sort',null,null,2,0),two=await all('sort',null,null,2,2),three=await all('sort',null,null,2,4);assert.deepEqual([...one.rows,...two.rows,...three.rows].map(o=>o.id),['previous','early-a','early-b','late','tomorrow']);
+ const legacy=(await db.query("select mee_search_orders_global('sort',200,0) as r")).rows[0].r;assert.deepEqual(legacy.rows.map(o=>o.id),['previous','early-a','early-b','late','tomorrow']);
+ await db.exec('set role anon');await assert.rejects(all('sort',null,null),/permission denied/);
+}finally{await db.close();}});

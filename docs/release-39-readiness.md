@@ -55,3 +55,7 @@ Owner instruction on16 October2026: **“Bỏ qua phần trigger, xử lý sau.�
 ## Post-deployment owner correction
 
 The owner's subsequent instruction restricts debt to the assigned Sale and settlement submission to that owner only, including THO_OPS accounts such as Tiên. This supersedes earlier all-shop eligibility statements in this ledger. ADMIN retains shop-wide review and approval, but cannot submit on another owner's behalf. Cross-account denial is covered through actual SQL mutations, pre-upload API rejection, core reader identity tests, and role/viewport E2E. See `20261016123513_settlement_owner_scope.sql` and the superseding policy record. No customer amounts or historical requests are rewritten.
+
+## Delivery-order regression correction
+
+The owner reported that late delivery times unexpectedly appeared first. Pre-PR39 `fastOrders` used ascending delivery date/time; the bounded page RPC introduced descending ordering outside the requested scope. `20261016130221_restore_order_delivery_sort.sql` restores ascending date, time and deterministic ID ties for both bounded and compatibility search RPCs, including explicit JSON aggregation order. It changes no order rows, permissions, UI layout or filters. Tests cover07:30 before19:00, multiple dates, equal-time ties, global/date keyword search and disjoint pages; real API and browser acceptance assert the restored order.

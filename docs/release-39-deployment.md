@@ -15,3 +15,7 @@ If a gate fails, stop and follow `release-39-rollback.md`. Prefer compatible for
 ## Owner-scope corrective deployment
 
 The owner's subsequent assignment-only policy supersedes all-shop debt/submission. For production already at `20261016121553_release39_reviewed_unified_delta`, apply **only** `20261016123513_settlement_owner_scope.sql`; do not replay the original five deltas. Deploy current core/legacy/order-actions with the updated shared write service, then frontend cache version `20261016-owner-scope-rc3`. Inactive and anonymous access stay denied. ADMIN reviews shop-wide and approves/rejects; new settlement submissions are owner-only for every role. Customer financial records are not updated by this migration. Keep the corrected backend/SQL during any frontend fallback.
+
+## Delivery-order regression correction
+
+For production already at the owner-scope correction, apply only `20261016130221_restore_order_delivery_sort.sql`, after verifying the current search function definitions. No Edge Function redeployment or frontend change is needed: the current core reads the corrected RPC. The existing descending composite index supports an ascending reverse scan. Retain the owner-scoped debt/submission correction; no customer rows are rewritten.
