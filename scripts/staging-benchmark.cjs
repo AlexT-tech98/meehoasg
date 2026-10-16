@@ -22,7 +22,7 @@ async function main(){
   for(const width of [1440,390])for(const username of ['qa_admin','qa_sale','qa_tho']){
    const a=accounts.find(x=>x.username===username),cold=[],warm=[],counts=[];
    for(let i=0;i<iterations;i++){
-    const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce'}),page=await context.newPage(),calls=[];
+    const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce',timezoneId:'Asia/Ho_Chi_Minh'}),page=await context.newPage(),calls=[];
     await context.route('**/*',route=>['http://127.0.0.1:4173','http://127.0.0.1:54321'].includes(new URL(route.request().url()).origin)?route.continue():route.abort());
     page.on('request',r=>{if(r.method()==='POST'&&r.url().includes('/functions/v1/'))try{calls.push(r.postDataJSON().name);}catch{}});
     const t=performance.now();await page.goto('http://127.0.0.1:4173');await page.locator('#loginUser').fill(a.username);await page.locator('#loginPass').fill(a.password);await page.locator('#loginBtn').click();await page.waitForFunction(()=>S.user&&document.querySelector('#content')?.textContent.length>30);await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));cold.push(performance.now()-t);

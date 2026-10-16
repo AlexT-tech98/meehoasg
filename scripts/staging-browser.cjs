@@ -10,7 +10,7 @@ async function main(){
  const browser=await chromium.launch({headless:true,...(selected==='bundled'?{}:{executablePath:selected}),args:['--no-sandbox']});
  const results=[];let activePage,label;
  try{for(const width of [1440,390])for(const username of ['qa_admin','qa_sale','qa_tho']){
-  const a=accounts.find(x=>x.username===username),context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce'}),page=await context.newPage();activePage=page;label=width+'-'+a.role;
+  const a=accounts.find(x=>x.username===username),context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce',timezoneId:'Asia/Ho_Chi_Minh'}),page=await context.newPage();activePage=page;label=width+'-'+a.role;
   const errors=[],calls=[],checks=[];page.on('pageerror',e=>errors.push(e.message));
   page.on('request',req=>{if(req.method()==='POST'&&req.url().includes('/functions/v1/')){try{const body=req.postDataJSON();calls.push(body.name||body.action);}catch{}}});
   await context.route('**/*',route=>[origin,api].includes(new URL(route.request().url()).origin)?route.continue():route.abort());
