@@ -26,4 +26,4 @@ Deploy current core/legacy API and `html`/`index.html` together (`20261016-unset
 
 ## Create-order latency correction (2026-10-16)
 
-See [measured scope, limits, tests and rollback](validation/create-order-performance-2026-10-16.md). Backend-only correction for bounded concurrent image upload/signing and redundant post-create read. Deploy core, legacy API and order-actions together because all import shared storage. Preserve verify_jwt=true. No SQL, frontend, Apps Script or customer-data migration.
+See [measured scope, limits, tests and rollback](validation/create-order-performance-2026-10-16.md). Backend-only correction for bounded concurrent image upload/signing and redundant post-create read. Deploy core, legacy API and order-actions together because all import shared storage. Preserve existing JWT settings: core/API true; order-actions false with its own session authentication. No SQL, frontend, Apps Script or customer-data migration.
