@@ -59,7 +59,8 @@ function mapOrder(raw) {
   const sourceId = clean(raw.id), id = clean(raw.sync_id || sourceId);
   const orderDate = isoDate(raw.order_date || raw.date);
   if (!sourceId || !id || !orderDate) return null;
-  const status = clean(raw.status);
+  const status = clean(raw.status), bannerQty=raw.banner_qty==null?null:Number(raw.banner_qty);
+  if(bannerQty!==null&&(!Number.isInteger(bannerQty)||bannerQty<0||bannerQty>99||(bool(raw.banner)&&bannerQty<1)))return null;
   return {
     id, source_sheet: clean(raw.source_sheet) || null,
     source_row: Number(raw.source_row) || null,
@@ -74,6 +75,7 @@ function mapOrder(raw) {
     ship_confirmed: bool(raw.ship_confirmed),
     card: bool(raw.card), card_text: clean(raw.card_text),
     banner: bool(raw.banner), banner_text: clean(raw.banner_text),
+    ...(bannerQty===null?{}:{banner_qty:bool(raw.banner)?bannerQty:0}),
     charm_fee: num(raw.charm_fee), charm_text: clean(raw.charm_text),
     paper_fee: num(raw.paper_fee), paper_text: clean(raw.paper_text),
     vat: num(raw.vat),
@@ -164,7 +166,7 @@ async function getOrdersForSheet(payload) {
   const since = clean(payload.since);
   const limit = Math.min(200, Math.max(1, Number(payload.limit) || 100));
   const query = {
-    select: 'id,customer,phone,order_date,order_time,flower,note,shipping,address,flower_total,payment,sale,status,settled,ship_fee,ship_confirmed,card,card_qty,full_paid,full_paid_total,full_paid_bill_urls,full_paid_by,full_paid_at,full_paid_invalidated_at,full_paid_invalidated_reason,card_text,banner,banner_text,charm_fee,charm_text,paper_fee,paper_text,vat,image_urls,source_sheet,source_row,updated_at,created_at',
+    select: 'id,customer,phone,order_date,order_time,flower,note,shipping,address,flower_total,payment,sale,status,settled,ship_fee,ship_confirmed,card,card_qty,full_paid,full_paid_total,full_paid_bill_urls,full_paid_by,full_paid_at,full_paid_invalidated_at,full_paid_invalidated_reason,card_text,banner,banner_qty,banner_text,charm_fee,charm_text,paper_fee,paper_text,vat,image_urls,source_sheet,source_row,updated_at,created_at',
     order: 'updated_at.desc',
     limit: String(limit)
   };

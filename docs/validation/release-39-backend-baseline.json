@@ -1,0 +1,143 @@
+{
+  "observedUtc": "2026-10-16T08:28:46.898044+00:00",
+  "scope": "read-only deployed Edge source/config metadata; no production mutations or customer data",
+  "functions": [
+    {
+      "slug": "meehoasg-api-core",
+      "liveVersion": 7,
+      "verifyJwt": true,
+      "serverBundleSha256": "2a19e0f3304b4126da9862e6120ea3f9cd7ab0b8ad86e2693781f81329e65160",
+      "files": [
+        {
+          "path": "meehoasg-api-core/index.js",
+          "liveSha256": "8c801e5d913531a3b0c8733f05f13483c4608cc56ab7f3ff39c61b937e0a6835",
+          "localPath": "supabase/functions/meehoasg-api-core/index.js",
+          "candidateSha256": "2f600829a6892a3fbd1f283cfce1687b7072aa0e697baf5a6fee1d54ce979caf",
+          "candidateMatchesLive": false
+        },
+        {
+          "path": "_shared/storage.js",
+          "liveSha256": "cac928b8e9646b8b604a5f780643a6cd68aaa418afe12d310c3a1913d16fe3bb",
+          "localPath": "supabase/functions/_shared/storage.js",
+          "candidateSha256": "cac928b8e9646b8b604a5f780643a6cd68aaa418afe12d310c3a1913d16fe3bb",
+          "candidateMatchesLive": true
+        },
+        {
+          "path": "_shared/operations.js",
+          "liveSha256": "73d165189677b315ea2c7e8e64f29794c958083a02528ea35b4a77733abb8b46",
+          "localPath": "supabase/functions/_shared/operations.js",
+          "candidateSha256": "5cbb4fb1274eaac6675209afccd4eef6dd67940ec611bffe00f348c29995aff4",
+          "candidateMatchesLive": false
+        }
+      ]
+    },
+    {
+      "slug": "meehoasg-api",
+      "liveVersion": 15,
+      "verifyJwt": true,
+      "serverBundleSha256": "8440eeb3eff5f5b31e32449719b50c4438aae5d9fbe49b4ff721fab5ed6eea9c",
+      "files": [
+        {
+          "path": "meehoasg-api/index.js",
+          "liveSha256": "b7521b756972037f275c28866c0098a887e07fde4182924ea4edb777f6266a20",
+          "localPath": "supabase/functions/meehoasg-api/index.js",
+          "candidateSha256": "0b6efa7dd2c4da55cb931baa16969c75df395b6aaf639a3702fb2bed565a3167",
+          "candidateMatchesLive": false
+        },
+        {
+          "path": "_shared/storage.js",
+          "liveSha256": "cac928b8e9646b8b604a5f780643a6cd68aaa418afe12d310c3a1913d16fe3bb",
+          "localPath": "supabase/functions/_shared/storage.js",
+          "candidateSha256": "cac928b8e9646b8b604a5f780643a6cd68aaa418afe12d310c3a1913d16fe3bb",
+          "candidateMatchesLive": true
+        },
+        {
+          "path": "_shared/operations.js",
+          "liveSha256": "73d165189677b315ea2c7e8e64f29794c958083a02528ea35b4a77733abb8b46",
+          "localPath": "supabase/functions/_shared/operations.js",
+          "candidateSha256": "5cbb4fb1274eaac6675209afccd4eef6dd67940ec611bffe00f348c29995aff4",
+          "candidateMatchesLive": false
+        }
+      ]
+    },
+    {
+      "slug": "meehoasg-ingest",
+      "liveVersion": 10,
+      "verifyJwt": false,
+      "serverBundleSha256": "87ef8b188cf876b1690d52d13c1a9abe6d7bf237b56dbcce3157acde855298cc",
+      "files": [
+        {
+          "path": "index.js",
+          "liveSha256": "4a2475137ef1915494a7852a51824fd52027db61baa7edb379e5a5dadaa41777",
+          "localPath": "supabase/functions/meehoasg-ingest/index.js",
+          "candidateSha256": "a42ae5a31969559c806cbaee918ca9717d37059c072e576090992f8149ea3291",
+          "candidateMatchesLive": false
+        }
+      ]
+    },
+    {
+      "slug": "meehoasg-order-actions",
+      "liveVersion": 3,
+      "verifyJwt": false,
+      "serverBundleSha256": "7335a4e43c4cddb656dd6b5d3419eb876b548b3aaa204a54fab657983df37934",
+      "files": [
+        {
+          "path": "meehoasg-order-actions/index.ts",
+          "liveSha256": "2e74afe3cb09356312db11b8f26eaf3d4c7ac8902069461c66ab521a2189499b",
+          "localPath": "supabase/functions/meehoasg-order-actions/index.ts",
+          "candidateSha256": "2e74afe3cb09356312db11b8f26eaf3d4c7ac8902069461c66ab521a2189499b",
+          "candidateMatchesLive": true
+        },
+        {
+          "path": "_shared/storage.js",
+          "liveSha256": "cac928b8e9646b8b604a5f780643a6cd68aaa418afe12d310c3a1913d16fe3bb",
+          "localPath": "supabase/functions/_shared/storage.js",
+          "candidateSha256": "cac928b8e9646b8b604a5f780643a6cd68aaa418afe12d310c3a1913d16fe3bb",
+          "candidateMatchesLive": true
+        },
+        {
+          "path": "_shared/operations.js",
+          "liveSha256": "73d165189677b315ea2c7e8e64f29794c958083a02528ea35b4a77733abb8b46",
+          "localPath": "supabase/functions/_shared/operations.js",
+          "candidateSha256": "5cbb4fb1274eaac6675209afccd4eef6dd67940ec611bffe00f348c29995aff4",
+          "candidateMatchesLive": false
+        }
+      ]
+    },
+    {
+      "slug": "meehoasg-settlement-ingest",
+      "liveVersion": 3,
+      "verifyJwt": false,
+      "serverBundleSha256": "e84922f678cd32f837f50c66f55e9ae50909008d334e8dc070dec846bf95fe46",
+      "files": [
+        {
+          "path": "index.js",
+          "liveSha256": "e314054121e96105ce878af76fcadebc804e7cd0164bbbeb84d77e906225ea94",
+          "localPath": "supabase/functions/meehoasg-settlement-ingest/index.js",
+          "candidateSha256": "e314054121e96105ce878af76fcadebc804e7cd0164bbbeb84d77e906225ea94",
+          "candidateMatchesLive": true
+        }
+      ]
+    },
+    {
+      "slug": "meehoasg-writeback-feed",
+      "liveVersion": 4,
+      "verifyJwt": false,
+      "serverBundleSha256": "e69259bf0647cc7bbb938772653bf2e8ba1f0fa03e8b3b0a180b09e0aec7ed7c",
+      "files": [
+        {
+          "path": "meehoasg-writeback-feed/index.js",
+          "liveSha256": "8897029225029dc8aae3bfe2357d3607ab9116e702124fb7666bfe82a255bb96",
+          "localPath": "supabase/functions/meehoasg-writeback-feed/index.js",
+          "candidateSha256": "e1104b2215b3cf94f348c9cf9344857b67bf9b3b44b709f9e3428398f6366e7c",
+          "candidateMatchesLive": false
+        }
+      ]
+    }
+  ],
+  "appsScript": {
+    "repositoryWriter": "v9.4 banner metadata, v9.2-compatible trigger names",
+    "liveStatus": "UNVERIFIED",
+    "reason": "No Apps Script project/deployment API capability or configured credentials. Connected Drive searches by MEEHOA and all script MIME metadata returned no accessible script projects. Repository source tests are not live trigger/deployment evidence."
+  }
+}

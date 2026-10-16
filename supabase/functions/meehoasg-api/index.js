@@ -130,7 +130,7 @@ function decorate(row, user, settlement) {
   const base = num(row.flower_total) + accessory + num(row.vat);
   const total = base + ship;
   const verified=!!row.settled||!!row.full_paid;
-  const paid = row.full_paid ? (num(row.full_paid_total)||total) : paidAmount(row.payment, base, row.settled ? total : 0);
+  const paid = row.full_paid ? (num(row.full_paid_total)||total) : paidAmount(row.payment, num(row.flower_total), row.settled ? total : 0);
   const status = row.full_paid ? 'AUTO_FULL_PAID' : (settlement?.status || 'NONE');
   const locked = !!row.settled || ['PENDING', 'APPROVED'].includes(status);
   // Owner check: so username (sau mapping) và display_name (đơn cũ chưa mapping)

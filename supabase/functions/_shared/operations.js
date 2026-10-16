@@ -22,15 +22,15 @@ export function normalizeOperationOrder(input,user,current={}) {
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+'T00:00:00Z'))||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date)throw Error('Ngày nhận không hợp lệ.');
   if(!t||Number(t[1])>23||Number(t[2])>59)throw Error('Giờ nhận không hợp lệ.');
   if(!['Shop book ship','Khách tự book','Ghé lấy'].includes(clean(d.shipping)))throw Error('Hình thức vận chuyển không hợp lệ.');
-  const card=bool(d.card),banner=bool(d.banner),qty=card?Number(d.cardQty??current.card_qty??1):0;
+  const card=bool(d.card),banner=bool(d.banner),qty=card?Number(d.cardQty??current.card_qty??1):0,bannerQty=banner?Number(d.bannerQty??current.banner_qty??1):0;
   if(card&&(!Number.isInteger(qty)||qty<1||qty>99||!clean(d.cardText)))throw Error('Thiệp cần số lượng 1–99 và nội dung.');
-  if(banner&&!clean(d.bannerText))throw Error('Banner cần nội dung.');
+  if(banner&&(!Number.isInteger(bannerQty)||bannerQty<1||bannerQty>99||!clean(d.bannerText)))throw Error('Banner cần số lượng 1–99 và nội dung.');
   const shipping=clean(d.shipping),shipActive=clean(d.shipFeeActive)==='1';
   if(shipActive&&shipping!=='Shop book ship')throw Error('Phí ship chỉ dùng cho đơn Shop book ship.');
   return {customer:clean(d.customer),phone:clean(d.phone),order_date:date,order_time:t[1].padStart(2,'0')+':'+t[2],
     flower:clean(d.flower),note:clean(d.note),shipping,address:clean(d.address),flower_total:operationMoney(d.flowerTotal),payment:clean(d.payment),
     sale:user.role==='SALE'?user.username:clean(d.sale||current.sale||user.username),
-    card,card_qty:qty,card_text:clean(d.cardText),banner,banner_text:clean(d.bannerText),
+    card,card_qty:qty,card_text:clean(d.cardText),banner,banner_qty:bannerQty,banner_text:clean(d.bannerText),
     charm_fee:operationMoney(d.charmFee,true),charm_text:clean(d.charmText),paper_fee:operationMoney(d.paperFee,true),paper_text:clean(d.paperText),vat:operationMoney(d.vat,true),
     ship_fee:shipActive?operationMoney(d.shipFee):0,ship_confirmed:shipActive,image_urls:[]};
 }

@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -30,7 +30,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -43,22 +44,118 @@ jobs:
         run: node scripts/flatten-core-bootstrap.cjs
       - name: Build consolidated runtime assets
         run: node scripts/build-runtime.cjs
+      - name: Verify committed release artifacts are reproducible
+        run: git diff --exit-code
       - name: Run regression suite
         run: node --test tests/*.test.cjs
       - name: Run transactional suite with independent PostgreSQL sessions
         env:
           AUDIT_DATABASE_URL: postgresql://audit:audit-local-only@localhost:5432/audit
         run: node --test tests/atomic-operations.test.cjs
-      - name: Persist generated production cores on same-repo PRs
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+      - name: Generate exact commit release hashes
+        run: node scripts/release-manifest.cjs
+      - name: Build complete release and compatible fallback package
         run: |
-          FILES="supabase/functions/meehoasg-api-core/index.js assets/meehoa-core.css assets/meehoa-core.js runtime-metrics.json"
-          if [ -z "$(git status --porcelain -- $FILES)" ]; then
-            echo "Generated production cores already current."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add $FILES
-          git commit -m "build: refresh consolidated production cores"
-          git push origin HEAD:${{ github.head_ref }}
+          node scripts/build-release.cjs
+          cp artifacts/release/*.tar.gz.sha256 "$RUNNER_TEMP/release.sha256"
+          umask 077
+          node scripts/build-release.cjs
+          cd artifacts/release
+          sha256sum --check "$RUNNER_TEMP/release.sha256"
+      - name: Rehearse fixture backup and restore across release migrations
+        run: node scripts/rollback-rehearsal.cjs
+      - name: Upload release hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-hashes-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/release/
+          if-no-files-found: error
+      - name: Upload isolated rollback rehearsal
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rollback-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/rollback/
+          if-no-files-found: error
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - name: Desktop and mobile isolated browser acceptance
+        run: node scripts/browser-acceptance.cjs
+      - name: Upload browser evidence (synthetic API, not staging E2E)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/browser/
+          if-no-files-found: error
+
+  staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: 'v2.5.6'
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - name: Create fresh local QA credentials (never uploaded)
+        run: node scripts/staging-config.cjs
+      - name: Acquire content-verified QA images with official registry fallback
+        run: node scripts/staging-images.cjs
+      - name: Start isolated PostgreSQL 17, PostgREST and Supabase Storage
+        run: docker --host=unix:///var/run/docker.sock compose --env-file artifacts/staging/docker.local.env -f infra/staging.compose.yml up -d --wait --wait-timeout 180
+      - name: Seed synthetic accounts, orders and environment marker
+        run: node scripts/staging-seed.cjs
+      - name: Run candidate APIs and QA frontend on loopback
+        run: |
+          MEEHOA_DENO="$(command -v deno)" DENO_DIR="$RUNNER_TEMP/meehoa-deno-cache" node scripts/staging-run.cjs > artifacts/staging/runtime.local.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/__qa_health > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Authenticated API, storage, finance and role acceptance
+        run: node scripts/staging-acceptance.cjs
+      - name: Real backend desktop and mobile browser acceptance
+        env:
+          MEEHOA_CHROMIUM: bundled
+        run: node scripts/staging-browser.cjs
+      - name: Benchmark real API and cold-client/warm-module request budgets
+        env:
+          MEEHOA_CHROMIUM: bundled
+        run: node scripts/staging-benchmark.cjs
+      - name: Verify compatible fallback against upgraded local schema
+        env:
+          MEEHOA_DENO: deno
+        run: node scripts/staging-compatible-fallback.cjs
+      - name: Restore real PostgreSQL backup and independent Storage volume
+        run: node scripts/staging-restore.cjs
+      - name: Upload sanitized local staging evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/staging-evidence/
+          if-no-files-found: error
+      - name: Remove disposable CI QA containers and volumes
+        if: always()
+        run: docker --host=unix:///var/run/docker.sock compose --env-file artifacts/staging/docker.local.env -f infra/staging.compose.yml down -v

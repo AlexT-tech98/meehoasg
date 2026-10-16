@@ -97,14 +97,14 @@ body:has(.login:not(.hidden)){overflow:hidden!important;height:100dvh!important}
 }
 
 /* ===== Single vertical scroll owner ===== */
-html{height:auto!important;min-height:100%!important;overflow-x:hidden!important;overflow-y:auto!important;scroll-behavior:smooth;overscroll-behavior-y:none}
-body:not(.mee-overlay-open-v364):not(.mee-menu-open){height:auto!important;max-height:none!important;min-height:100dvh!important;overflow-x:hidden!important;overflow-y:visible!important;overscroll-behavior-y:auto!important}
+html{height:auto!important;min-height:100%!important;overflow-x:clip!important;overflow-y:auto!important;scroll-behavior:smooth;overscroll-behavior-y:none}
+body:not(.mee-overlay-open-v364):not(.mee-menu-open){height:auto!important;max-height:none!important;min-height:100dvh!important;overflow-x:clip!important;overflow-y:visible!important;overscroll-behavior-y:auto!important}
 body:not(.mee-overlay-open-v364) .app,body:not(.mee-overlay-open-v364) .main,body:not(.mee-overlay-open-v364) #content{height:auto!important;max-height:none!important;min-height:0;overflow-x:visible!important;overflow-y:visible!important;overscroll-behavior:auto!important}
 .table-wrap,.mee-v361-table-wrap{overflow-x:auto!important;overflow-y:visible!important;overscroll-behavior-x:contain;overscroll-behavior-y:auto!important;-webkit-overflow-scrolling:touch}
 .status-filter-tabs,.calendar-shortcuts{overflow-x:auto!important;overflow-y:hidden!important;overscroll-behavior-x:contain}
 .sidebar .nav,.search-dropdown,#overlay .modal,#overlay .drawer,.calendar-modal{overscroll-behavior:contain!important}
 body.mee-overlay-open-v364,body.mee-menu-open{overflow:hidden!important;overscroll-behavior:none!important}
-.topbar{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:rgba(255,250,247,.985)!important;contain:layout style}
+.topbar{position:sticky!important;top:0!important;z-index:300!important;flex-shrink:0!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:rgba(255,250,247,.985)!important}
 body.mee-page-production .lane,body.mee-page-production .order,body.mee-page-production .ops-tile{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
 #content{overflow-anchor:none}
 

@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, '..');
 const css = fs.readFileSync(path.join(root, 'assets', 'meehoa-v365.css'), 'utf8');
 const coreCss = fs.readFileSync(path.join(root, 'assets', 'meehoa-core.css'), 'utf8');
 const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-const base = fs.readFileSync(path.join(root, 'html'), 'utf8');
+const base = fs.readFileSync(path.join(root, 'assets', 'meehoa-v3.css'), 'utf8');
 
 test('scroll contract is owned by the final canonical stylesheet', () => {
   assert.match(index, /meehoa-core\.css\?v=[A-Za-z0-9._-]+/);
@@ -32,6 +32,6 @@ test('intentional local surfaces keep local scrolling and page locks still work'
 });
 
 test('high-cost scrolling blur is disabled on topbar and production cards', () => {
-  assert.match(css, /\.topbar\{backdrop-filter:none!important/);
+  assert.match(css, /\.topbar\{position:sticky!important;top:0!important;z-index:300!important;flex-shrink:0!important;backdrop-filter:none!important/);
   assert.match(css, /body\.mee-page-production \.lane,body\.mee-page-production \.order,body\.mee-page-production \.ops-tile\{backdrop-filter:none!important/);
 });

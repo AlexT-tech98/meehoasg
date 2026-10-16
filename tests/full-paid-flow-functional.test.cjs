@@ -24,8 +24,9 @@ test('Full Paid is a separate payment option with evidence requirements',()=>{
 });
 
 test('order total includes flower, all accessories, VAT and confirmed shop shipping',()=>{
-  const card=vm.runInNewContext('('+fnSource(core,'cardQty','function accessoryTotal')+')',{num:Number});
-  const acc=vm.runInNewContext('('+fnSource(core,'accessoryTotal','function orderTotal')+')',{cardQty:card,num:v=>Number(v)||0});
+  const card=vm.runInNewContext('('+fnSource(core,'cardQty','function bannerQty')+')',{num:Number});
+  const banner=vm.runInNewContext('('+fnSource(core,'bannerQty','function accessoryTotal')+')',{num:v=>Number(v)||0});
+  const acc=vm.runInNewContext('('+fnSource(core,'accessoryTotal','function orderTotal')+')',{cardQty:card,bannerQty:banner,num:v=>Number(v)||0});
   const total=vm.runInNewContext('('+fnSource(core,'orderTotal','function paidAmount')+')',{
     norm:v=>String(v||'').toLowerCase(),num:v=>Number(v)||0,accessoryTotal:acc
   });
@@ -34,7 +35,7 @@ test('order total includes flower, all accessories, VAT and confirmed shop shipp
 });
 
 test('Full Paid is excluded from debt and included in KPI verification',()=>{
-  assert.match(core,/if\(o\.status!=='Đã giao'\|\|o\.paymentVerified\|\|o\.debt<=0\)return false/);
+  assert.match(core,/o\.status==='Đã giao'&&!o\.paymentVerified&&o\.debt>0/);
   assert.match(core,/if\(!\(r\.settled\|\|r\.full_paid\)\)continue/);
   assert.match(core,/canSubmitSettlement:!locked&&!fullPaid/);
   assert.match(core,/settlementStatus:ss/);

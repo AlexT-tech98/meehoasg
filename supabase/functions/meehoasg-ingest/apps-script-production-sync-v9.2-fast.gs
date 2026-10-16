@@ -1,5 +1,5 @@
 /**
- * MEEHOASG — PRODUCTION WRITEBACK v9.3 RESUMABLE (v9.2 trigger compatibility)
+ * MEEHOASG — PRODUCTION WRITEBACK v9.4 BANNER METADATA (v9.2 trigger compatibility)
  * Version: 2026-10-08
  *
  * Requires v9.1 helpers to remain in v9.gs.
@@ -357,9 +357,10 @@ function _p92WriteMeta(metaSheet, existingRow, o, id) {
     }
   }
 
-  if(metaSheet.getMaxColumns && metaSheet.getMaxColumns()<25)metaSheet.insertColumnsAfter(metaSheet.getMaxColumns(),25-metaSheet.getMaxColumns());
+  if(metaSheet.getMaxColumns && metaSheet.getMaxColumns()<26)metaSheet.insertColumnsAfter(metaSheet.getMaxColumns(),26-metaSheet.getMaxColumns());
   if(metaSheet.getRange(1,18).getDisplayValue()!=='Số thiệp')metaSheet.getRange(1,18,1,8).setValues([['Số thiệp','Full Paid','Tiền Full Paid','Bill Full Paid','Người xác nhận','Thời gian xác nhận','Thời gian gỡ','Lý do gỡ']]);
-  metaSheet.getRange(row, 1, 1, 25).setValues([[
+  if(metaSheet.getRange(1,26).getDisplayValue()!=='Số banner')metaSheet.getRange(1,26).setValues([['Số banner']]);
+  metaSheet.getRange(row, 1, 1, 26).setValues([[
     id,
     o.status || 'Chờ bó',
     Number(o.ship_fee || 0),
@@ -375,7 +376,7 @@ function _p92WriteMeta(metaSheet, existingRow, o, id) {
     Number(o.vat || 0),
     o.phone || '',
     JSON.stringify(Array.isArray(o.image_urls) ? o.image_urls : []),
-    'SYNC_WEB_PROD_V93',
+    'SYNC_WEB_PROD_V94',
     new Date(),
     Number(o.card_qty || (o.card ? 1 : 0)),
     Boolean(o.full_paid),
@@ -384,6 +385,7 @@ function _p92WriteMeta(metaSheet, existingRow, o, id) {
     o.full_paid_by || '',
     o.full_paid_at || '',
     o.full_paid_invalidated_at || '',
-    o.full_paid_invalidated_reason || ''
+    o.full_paid_invalidated_reason || '',
+    Number(o.banner_qty || (o.banner ? 1 : 0))
   ]]);
 }

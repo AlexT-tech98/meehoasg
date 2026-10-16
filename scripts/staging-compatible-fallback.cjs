@@ -1,0 +1,17 @@
+// Read-only fallback validation against the upgraded synthetic local database.
+const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'..'),dir=path.join(root,'artifacts/staging'),cfg=JSON.parse(fs.readFileSync(path.join(dir,'supabase.local.json'))),accounts=JSON.parse(fs.readFileSync(path.join(dir,'credentials.local.json'))).accounts;
+assert.equal(cfg.API_URL,'http://127.0.0.1:54321');
+const anchor='52718b2cd9311891297e4666dfeba4a72629b463',runtime=path.join(dir,'fallback/functions');
+for(const f of ['meehoasg-api-core/index.js','_shared/storage.js','_shared/operations.js']){const p=path.join(runtime,f);fs.mkdirSync(path.dirname(p),{recursive:true});let bytes=cp.execFileSync('git',['show',anchor+':supabase/functions/'+f],{cwd:root});if(f.startsWith('meehoasg-api-core/'))bytes=Buffer.from(bytes.toString().replace('Deno.serve(',"Deno.serve({hostname:'127.0.0.1',port:4184},"));fs.writeFileSync(p,bytes);}
+const child=cp.spawn(process.env.MEEHOA_DENO||'deno',['run','--no-prompt','--allow-net=127.0.0.1','--allow-env',path.join(runtime,'meehoasg-api-core/index.js')],{env:{...process.env,SUPABASE_URL:cfg.API_URL,SUPABASE_SERVICE_ROLE_KEY:cfg.SERVICE_ROLE_KEY,SUPABASE_ANON_KEY:cfg.ANON_KEY,LEGACY_PASSWORD_SALT:'MEE-FLOWER-V4'},stdio:['ignore','ignore','ignore']});
+async function call(url,name,payload){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name,payload})});assert.equal(r.status,200);const body=await r.json();assert.equal(body.ok,true,body.code);return body;}
+async function main(){try{let ready=false;for(let i=0;i<40;i++){try{await fetch('http://127.0.0.1:4184/');ready=true;break;}catch{}await new Promise(r=>setTimeout(r,250));}assert.ok(ready,'fallback Deno starts');
+const current=cfg.API_URL+'/functions/v1/meehoasg-api-core';
+// Gateway requires the QA anon JWT; direct candidate listener uses identical business logic.
+const candidate='http://127.0.0.1:4181/',fallback='http://127.0.0.1:4184/',a=accounts.find(a=>a.username==='qa_admin');const session=await call(candidate,'loginAndBootstrap',{username:a.username,password:a.password});
+const payload={token:session.token,q:JSON.parse(fs.readFileSync(path.join(root,'artifacts/staging-evidence/api-results.json'))).fixtureSearch,globalSearch:true,page:1,pageSize:200};
+const now=await call(candidate,'getOrders',payload),old=await call(fallback,'getOrders',payload);const project=o=>({id:o.id,bannerQty:o.bannerQty,totalDue:o.totalDue,debt:o.debt,fullPaid:o.fullPaid,payment:o.payment});assert.ok(now.items.some(o=>o.bannerQty===3),'multi-banner fixture');assert.ok(now.items.some(o=>o.fullPaid),'Full Paid fixture');assert.deepEqual(old.items.map(project).sort((a,b)=>a.id.localeCompare(b.id)),now.items.map(project).sort((a,b)=>a.id.localeCompare(b.id)));
+fs.writeFileSync(path.join(root,'artifacts/staging-evidence/compatible-fallback.json'),JSON.stringify({pass:true,anchor,scope:'read-only candidate vs fallback core on upgraded local schema; financial fields, multi-banner and Full Paid preserved; not a production rollback',orders:now.items.length,requires:'Retain release DB, ingest/feed and v9.4 writer. Fallback has earlier search UX.'},null,2)+'\n');console.log('PASS compatible fallback finance/read parity');
+}finally{child.kill('SIGTERM');}}
+main().catch(e=>{console.error(e.message);process.exitCode=1;});

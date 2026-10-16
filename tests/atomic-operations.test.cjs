@@ -140,3 +140,32 @@ test('two real PostgreSQL sessions submit settlement with exactly one pending re
  assert.equal(results.filter(r=>r.ok).length,1);assert.equal(results.filter(r=>r.code==='ORDER_CONFLICT').length,1);
  assert.equal((await db.query('select count(*)::int as n from settlement_requests')).rows[0].n,1);
 });
+
+test('banner quantity is persisted and charged at 35k per banner',async()=>{
+ const a=await create({banner:true,bannerQty:3,bannerText:'Banner test'});
+ assert.equal(a.ok,true);assert.equal(a.row.banner_qty,3);
+ const r=await db.query('select public.mee_ops_total(o) as total from public.orders o where id=$1',[a.orderId]);
+ assert.equal(Number(r.rows[0].total),605000);
+});
+test('banner quantity validation rejects zero and non-integer counts',()=>{
+ assert.throws(()=>api.normalizeOperationOrder({...base(),banner:true,bannerText:'Test',bannerQty:0},user));
+ assert.throws(()=>api.normalizeOperationOrder({...base(),banner:true,bannerText:'Test',bannerQty:1.5},user));
+});
+
+test('THO_OPS can submit eligible settlement and cannot approve it',async()=>{
+ const row=await delivered();
+ const submitted=await rpc('submitSettlement',{orderId:row.id,expectedUpdatedAt:row.updated_at,newSettlementId:'THO-'+(++seq),newBillUrls:['supabase://settlement-bills/tho.jpg']},{actor:'tho'});
+ assert.equal(submitted.ok,true,JSON.stringify(submitted));
+ const denied=await rpc('reviewSettlement',{settlementId:submitted.requestId,decision:'APPROVED'},{actor:'tho'});
+ assert.equal(denied.code,'NOT_OWNER');
+ const approved=await rpc('reviewSettlement',{settlementId:submitted.requestId,decision:'APPROVED'},{actor:'admin'});
+ assert.equal(approved.ok,true,JSON.stringify(approved));
+});
+
+test('SALE may submit settlement on another sale order, but cannot edit or approve it',async()=>{
+ const row=await delivered();
+ const submitResult=await rpc('submitSettlement',{orderId:row.id,expectedUpdatedAt:row.updated_at,newSettlementId:'CROSS-'+(++seq),newBillUrls:['supabase://settlement-bills/cross-sale.jpg']},{actor:'sale2'});
+ assert.equal(submitResult.ok,true,JSON.stringify(submitResult));
+ const denyReview=await rpc('reviewSettlement',{settlementId:submitResult.requestId,decision:'APPROVED'},{actor:'sale2'});
+ assert.equal(denyReview.code,'NOT_OWNER');
+});

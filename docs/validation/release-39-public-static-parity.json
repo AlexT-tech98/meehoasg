@@ -1,0 +1,45 @@
+{
+  "observedUtc": "2026-10-15T18:17:12.848371+00:00",
+  "scope": "read-only public static files only; no authenticated API/customer data",
+  "mainCommit": "a503be5d37b1e3e3155b627c652d120cbc7a64ae",
+  "candidateSourceCommit": "abb50f3bb4f51c78e5dd229b72b1baca0e5d6bcd",
+  "interpretation": "Live public frontend matches main; candidate differences are expected before approved deployment. Does not establish Edge Function or Apps Script parity.",
+  "files": [
+    {
+      "path": "index.html",
+      "url": "https://ops.meehoasg.com/",
+      "liveSha256": "eb6615057a6c9120b96d19362675cafc9bee2bfc7b39ee027dd3f396ea8bcf4d",
+      "mainSha256": "eb6615057a6c9120b96d19362675cafc9bee2bfc7b39ee027dd3f396ea8bcf4d",
+      "candidateSha256": "b099722e9b0eb3cb9a4cd9a55769f25733e7668915031cebfb6aaaf6a96c6871",
+      "liveMatchesMain": true,
+      "liveMatchesCandidate": false
+    },
+    {
+      "path": "html",
+      "url": "https://ops.meehoasg.com/html",
+      "liveSha256": "87372d6ae73c22db3dd2732f1a2d2224e3a8d18ba021628c876b22be0401af8b",
+      "mainSha256": "87372d6ae73c22db3dd2732f1a2d2224e3a8d18ba021628c876b22be0401af8b",
+      "candidateSha256": "da08c44676b0855eafee703db6824c3461cf6e380360159060117539ef32ab3e",
+      "liveMatchesMain": true,
+      "liveMatchesCandidate": false
+    },
+    {
+      "path": "assets/meehoa-core.css",
+      "url": "https://ops.meehoasg.com/assets/meehoa-core.css",
+      "liveSha256": "41a29b28d73df98325def19ef64100822bfddb2b676f428d56094ba55d9377e8",
+      "mainSha256": "41a29b28d73df98325def19ef64100822bfddb2b676f428d56094ba55d9377e8",
+      "candidateSha256": "0c4bda8def8f1affee21369abc77c508242f46454d85704813729e66c52db030",
+      "liveMatchesMain": true,
+      "liveMatchesCandidate": false
+    },
+    {
+      "path": "assets/meehoa-core.js",
+      "url": "https://ops.meehoasg.com/assets/meehoa-core.js",
+      "liveSha256": "7a0663fddc41ba55283a23b4f09308c989cd070a8bd08124df490bbe3e0924d9",
+      "mainSha256": "7a0663fddc41ba55283a23b4f09308c989cd070a8bd08124df490bbe3e0924d9",
+      "candidateSha256": "2db3e86c695d8ebdc5c4a2e804da45e82cbd659523d0f339c79c0fb83980352d",
+      "liveMatchesMain": true,
+      "liveMatchesCandidate": false
+    }
+  ]
+}

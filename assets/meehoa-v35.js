@@ -80,7 +80,7 @@
       if(S.filters[key]){if('date' in S.filters[key])S.filters[key].date=start;if('start' in S.filters[key])S.filters[key].start=start;if('end' in S.filters[key])S.filters[key].end=end}
       if(window.closeOverlay)closeOverlay();
       if(key==='production'&&x.mode!=='single'){await loadProductionRange(start,end);return}
-      if(key==='orders')S.filters.orders.page=1;
+      if(key==='orders'){S.filters.orders.page=1;if(String(S.filters.orders.q||'').trim())S.filters.orders.searchWithinRange=true;}
       if(key==='flowers'&&window.loadFlowers)await loadFlowers(true);else if(window.loadPage)await loadPage(key,true);
     };
     return true;
@@ -100,7 +100,7 @@
   function materialSig(r,d){return d+'|'+(r.reviewCount||0)+'|'+(r.items||[]).map(function(x){return x.name+':'+x.orders}).join(',')}
   function renderMaterials(){
     if(!window.S||S.page!=='flowers')return;
-    var d=S.filters&&S.filters.flowers&&S.filters.flowers.date,r=S.data&&S.data.flowers&&S.data.flowers[d],el=qs('#content');if(!d||!r||!el)return;
+    var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],el=qs('#content');if(!d||!r||!el)return;
     var sig=materialSig(r,d);if(el.dataset.meeMaterialsSig===sig)return;
     var filter=qs('.date-filter-bar',el),filterHtml=filter?filter.outerHTML:'';
     var items=(r.items||[]).map(function(f){return '<button type="button" class="mee-material-card" data-material="'+attr(f.name)+'"><div class="mee-material-top"><span class="mee-material-name">'+esc(f.name)+'</span><span class="mee-material-count">'+Number(f.orders||0)+' đơn</span></div><div class="mee-material-hint">Bấm để xem danh sách đơn</div></button>'}).join('');
@@ -112,7 +112,7 @@
   }
 
   function openMaterialDrawer(name){
-    if(!window.S)return;var d=S.filters&&S.filters.flowers&&S.filters.flowers.date,r=S.data&&S.data.flowers&&S.data.flowers[d],ov=qs('#overlay');if(!r||!ov)return;
+    if(!window.S)return;var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],ov=qs('#overlay');if(!r||!ov)return;
     var item=(r.items||[]).find(function(x){return x.name===name});if(!item)return;
     var orders=(item.orderList||[]).map(function(x){return '<article class="mee-material-order"><div class="mee-material-order-top"><div><b>'+esc(x.customer||'Chưa rõ khách')+'</b><div class="sub">'+esc((x.time||'—')+' · '+dateVN2(x.date||d))+'</div></div><span class="badge">'+esc(name)+'</span></div><div class="flower-copy">'+esc(x.flower||'')+'</div>'+(x.id?'<button type="button" class="btn" data-open-order="'+attr(x.id)+'">Mở đơn hàng</button>':'')+'</article>'}).join('');
     ov.innerHTML='<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer"><div class="drawer-head"><div><h3 style="margin:0">'+esc(name)+'</h3><div class="sub">'+Number(item.orders||0)+' đơn cần loại hoa này</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="mee-material-drawer-list">'+(orders||'<div class="empty">Không có đơn.</div>')+'</div></aside></div>';

@@ -280,7 +280,7 @@
       if(S.filters[key]){if('date' in S.filters[key])S.filters[key].date=start;if('start' in S.filters[key])S.filters[key].start=start;if('end' in S.filters[key])S.filters[key].end=end}
       if(window.closeOverlay)closeOverlay();
       if(key==='production'&&x.mode!=='single'){await loadProductionRange(start,end);return}
-      if(key==='orders')S.filters.orders.page=1;
+      if(key==='orders'){S.filters.orders.page=1;if(String(S.filters.orders.q||'').trim())S.filters.orders.searchWithinRange=true;}
       if(key==='flowers'&&window.loadFlowers)await loadFlowers(true);else if(window.loadPage)await loadPage(key,true);
     };
     return true;
@@ -300,7 +300,7 @@
   function materialSig(r,d){return d+'|'+(r.reviewCount||0)+'|'+(r.items||[]).map(function(x){return x.name+':'+x.orders}).join(',')}
   function renderMaterials(){
     if(!window.S||S.page!=='flowers')return;
-    var d=S.filters&&S.filters.flowers&&S.filters.flowers.date,r=S.data&&S.data.flowers&&S.data.flowers[d],el=qs('#content');if(!d||!r||!el)return;
+    var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],el=qs('#content');if(!d||!r||!el)return;
     var sig=materialSig(r,d);if(el.dataset.meeMaterialsSig===sig)return;
     var filter=qs('.date-filter-bar',el),filterHtml=filter?filter.outerHTML:'';
     var items=(r.items||[]).map(function(f){return '<button type="button" class="mee-material-card" data-material="'+attr(f.name)+'"><div class="mee-material-top"><span class="mee-material-name">'+esc(f.name)+'</span><span class="mee-material-count">'+Number(f.orders||0)+' đơn</span></div><div class="mee-material-hint">Bấm để xem danh sách đơn</div></button>'}).join('');
@@ -312,7 +312,7 @@
   }
 
   function openMaterialDrawer(name){
-    if(!window.S)return;var d=S.filters&&S.filters.flowers&&S.filters.flowers.date,r=S.data&&S.data.flowers&&S.data.flowers[d],ov=qs('#overlay');if(!r||!ov)return;
+    if(!window.S)return;var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],ov=qs('#overlay');if(!r||!ov)return;
     var item=(r.items||[]).find(function(x){return x.name===name});if(!item)return;
     var orders=(item.orderList||[]).map(function(x){return '<article class="mee-material-order"><div class="mee-material-order-top"><div><b>'+esc(x.customer||'Chưa rõ khách')+'</b><div class="sub">'+esc((x.time||'—')+' · '+dateVN2(x.date||d))+'</div></div><span class="badge">'+esc(name)+'</span></div><div class="flower-copy">'+esc(x.flower||'')+'</div>'+(x.id?'<button type="button" class="btn" data-open-order="'+attr(x.id)+'">Mở đơn hàng</button>':'')+'</article>'}).join('');
     ov.innerHTML='<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer"><div class="drawer-head"><div><h3 style="margin:0">'+esc(name)+'</h3><div class="sub">'+Number(item.orders||0)+' đơn cần loại hoa này</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="mee-material-drawer-list">'+(orders||'<div class="empty">Không có đơn.</div>')+'</div></aside></div>';
@@ -391,6 +391,8 @@
   async function loadHourly(el,force){
     if(!window.gas||!window.S||S.page!=='dashboard')return;
     var day=today();
+    var inline=S.data&&S.data.dashboard&&S.data.dashboard.hourlyCounts;
+    if(!force&&Array.isArray(inline)){var max=Math.max.apply(null,inline.map(function(x){return Number(x.count)||0}).concat([0]));hourlyState.day=day;hourlyState.rows=inline.map(function(x){return {hour:x.hour,label:hourLabel(x.hour),count:x.count,percent:max?x.count/max*100:0}});hourlyState.error='';renderHourly(el);return;}
     if(!force&&hourlyState.day===day&&hourlyState.rows){renderHourly(el);return}
     if(hourlyState.loading)return;
     hourlyState.loading=true;hourlyState.day=day;hourlyState.error='';renderHourly(el);
@@ -453,7 +455,7 @@
         var total=x.settled+x.unsettled;
         return '<div class="mee-approved-staff-row"><span class="mee-approved-staff-name">'+esc(x.sale)+'</span>'+
           '<div class="mee-approved-track" role="img" aria-label="'+esc(x.sale)+': '+money(total)+'"><div style="width:'+Math.max(0,Math.min(100,total/top*100)).toFixed(1)+'%"></div></div>'+
-          '<b>'+money(total)+'</b></div>';
+          '<b>'+x.orders+' đơn · '+money(total)+'</b></div>';
       }).join(''):'<div class="mee-v361-empty">Chưa có dữ liệu doanh thu theo nhân viên trong kỳ.</div>')+
       '<div class="mee-approved-footnote">Doanh thu đơn hàng, không phải hoa hồng · Theo kỳ đang chọn</div></div>';
     section.dataset.meeApprovedSig=sig;
@@ -479,7 +481,7 @@
       }
     }
     if(pageHead)pageHead.classList.add('mee-approved-page-header');
-    if(hourlyState.dashboardRef!==r){hourlyState.dashboardRef=r;loadHourly(el,true)}else renderHourly(el);
+    if(hourlyState.dashboardRef!==r){hourlyState.dashboardRef=r;loadHourly(el,false)}else renderHourly(el);
   }
 
   if(window.__MEE_TEST_MODE__)window.__MEE_DASHBOARD_V361_TEST__={hourlyModel:hourlyModel,hourlyHtml:hourlyHtml,renderHourly:renderHourly,hourlyState:hourlyState};
@@ -499,7 +501,7 @@
 
   function patchMaterialsStatus(){
     if(!window.S||S.page!=='flowers')return;
-    var d=S.filters&&S.filters.flowers&&S.filters.flowers.date;
+    var ff=S.filters&&S.filters.flowers||{};var d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date);
     var r=d&&S.data&&S.data.flowers&&S.data.flowers[d];
     var el=qs('#content');if(!r||!el)return;
 
@@ -792,7 +794,7 @@
     if(!o)return'';
     var q=Math.max(1,Number(o.cardQty||1)),accessory=[];
     if(o.card)accessory.push('Thiệp: '+(o.cardText||'')+' ('+vnd(q*10000)+')');
-    if(o.banner)accessory.push('Banner: '+(o.bannerText||'')+' (35.000đ)');
+    if(o.banner){var bq=Math.max(1,Number(o.bannerQty||1));accessory.push('Banner ×'+bq+': '+(o.bannerText||'')+' ('+vnd(bq*35000)+')');}
     if(Number(o.charmFee))accessory.push('Charm: '+(o.charmText||'')+' ('+vnd(o.charmFee)+')');
     if(Number(o.paperFee))accessory.push('Thay giấy: '+(o.paperText||'')+' ('+vnd(o.paperFee)+')');
     var out=[

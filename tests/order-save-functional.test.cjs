@@ -2,7 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-const src=fs.readFileSync('html','utf8');
+const src=fs.readFileSync('html','utf8');const baseCss=fs.readFileSync('assets/meehoa-v3.css','utf8');
 const save=src.slice(src.indexOf('async function saveOrder(e,id){'),src.indexOf('async function submitSettlement'));
 function harness(values={},options={}){
   const messages=[],requests=[],window={_orderRequestId:'request-1',_pasted:[],_editExistingUrls:[]};
@@ -50,7 +50,7 @@ test('form controls native validation and feedback layers sit above overlay',()=
   assert.match(src,/orderForm\\" novalidate/);
   const css=fs.readFileSync('assets/meehoa-core.css','utf8');
   assert.match(css,/#overlay\{position:relative;z-index:1000!important\}/);
-  assert.match(src,/\.toast\s*\{[^}]*z-index: 1100/s);assert.match(src,/\.loading\s*\{[^}]*z-index: 1090/s);
+  assert.match(baseCss,/\.toast\s*\{[^}]*z-index: 1100/s);assert.match(baseCss,/\.loading\s*\{[^}]*z-index: 1090/s);
 });
 
 test('retry recovers the original payload even if draft values change after a lost response',async()=>{

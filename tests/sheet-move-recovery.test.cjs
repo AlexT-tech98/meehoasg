@@ -36,8 +36,10 @@ test('final positions are recalculated after another move shifts rows in the sam
 });
 test('metadata exports card quantity and all Full Paid evidence without shifting original 17 columns',()=>{
  const h=harness();Object.assign(h.order,{card:true,card_qty:2,full_paid:true,full_paid_total:520000,full_paid_bill_urls:['supabase://settlement-bills/bill.jpg'],full_paid_by:'sale1',full_paid_at:'2026-10-08T00:00:00Z'});
- assert.equal(h.run().ok,true);const row=h.meta.rows[1];assert.equal(row.length,25);assert.equal(row[0],'A');assert.equal(row[17],2);assert.equal(row[18],true);assert.equal(row[19],520000);assert.equal(JSON.parse(row[20])[0],'supabase://settlement-bills/bill.jpg');
+ assert.equal(h.run().ok,true);const row=h.meta.rows[1];assert.equal(row.length,26);assert.equal(row[0],'A');assert.equal(row[17],2);assert.equal(row[18],true);assert.equal(row[19],520000);assert.equal(JSON.parse(row[20])[0],'supabase://settlement-bills/bill.jpg');
 });
 test('new month is added to an explicit sheet list so retry can rediscover it',()=>{
  const h=harness();h.props.setProperty('ORDER_SHEET_NAMES',h.old.name);h.order.order_date='2026-11-01';assert.equal(h.run().ok,true);assert.match(h.props.getProperty('ORDER_SHEET_NAMES'),/Tháng 11\/2026/);assert.equal(count(h,'A'),1);assert.equal(h.run().ok,true);assert.equal(count(h,'A'),1);
 });
+
+test('banner quantity extends metadata at column26 while preserving all existing columns',()=>{const h=harness();Object.assign(h.order,{banner:true,banner_qty:3,card:true,card_qty:2});assert.equal(h.run().ok,true);const row=h.meta.rows[1];assert.equal(row[6],true);assert.equal(row[17],2);assert.equal(row[25],3);assert.equal(h.meta.rows[0][25],'Số banner');h.order.banner_qty=1;assert.equal(h.run().ok,true);assert.equal(h.meta.rows[1][25],1);});
