@@ -55,7 +55,13 @@ jobs:
       - name: Generate exact commit release hashes
         run: node scripts/release-manifest.cjs
       - name: Build complete release and compatible fallback package
-        run: node scripts/build-release.cjs
+        run: |
+          node scripts/build-release.cjs
+          cp artifacts/release/*.tar.gz.sha256 "$RUNNER_TEMP/release.sha256"
+          umask 077
+          node scripts/build-release.cjs
+          cd artifacts/release
+          sha256sum --check "$RUNNER_TEMP/release.sha256"
       - name: Rehearse fixture backup and restore across release migrations
         run: node scripts/rollback-rehearsal.cjs
       - name: Upload release hashes
