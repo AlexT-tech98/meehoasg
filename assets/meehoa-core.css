@@ -1986,17 +1986,17 @@ body.mee-page-production .ops-tile .actions{margin-top:auto!important;padding-to
 }
 
 /* Approved layout: three actual dashboard sections, no duplicate progress/debt panel. */
-#content:has(.mee-approved-summary){background:#fbf8f4;padding:0 2px 24px;grid-template-rows:auto auto auto auto!important}
+#content:has(.mee-approved-summary){background:#fbf8f4;padding:0 2px 24px;grid-template-rows:auto auto auto!important}
 #content:has(.mee-approved-summary) .mee-approved-page-header{padding:7px 0 2px;margin-bottom:15px!important}
 #content:has(.mee-approved-summary) .mee-approved-page-header h1{font-size:23px!important;font-weight:750!important}
-#content:has(.mee-approved-summary) .mee-approved-attention{grid-column:1/-1!important;grid-row:4!important;display:block!important;margin-top:3px!important}
-#content:has(.mee-approved-summary) .mee-approved-attention .dashboard-left{width:100%!important;max-width:none!important}
-#content:has(.mee-approved-summary) .mee-approved-attention .dashboard-right{display:none!important}
-#content:has(.mee-approved-summary) .mee-approved-attention .table-wrap{border:1px solid var(--border)!important;border-radius:10px!important;box-shadow:none!important;background:#fff}
-#content:has(.mee-approved-summary) .mee-approved-attention .control-table{width:100%;border-collapse:collapse}
-#content:has(.mee-approved-summary) .mee-approved-attention .section-head h3{font-size:14px!important;letter-spacing:0!important;text-transform:none!important;font-weight:720!important}
-#content:has(.mee-approved-summary) .mee-approved-attention .section-head{margin-bottom:12px!important}
-#content:has(.mee-approved-summary) .mee-approved-attention .sheet-table th{background:#fafaf8!important;font-size:11px!important}
+
+
+
+
+
+
+
+
 #content:has(.mee-approved-summary) .mee-approved-kpi{border-radius:10px!important;background:#fff!important}
 #content:has(.mee-approved-summary) .mee-approved-panel{border-radius:10px!important;background:#fff!important}
 #content:has(.mee-approved-summary) .mee-approved-kpi.revenue{background:#fff!important}
@@ -2006,8 +2006,16 @@ body.mee-page-production .ops-tile .actions{margin-top:auto!important;padding-to
 #content:has(.mee-approved-summary) .mee-approved-page-header{order:0!important}
 #content:has(.mee-approved-summary) #meeHourlySingleV361{order:2!important;width:100%}
 #content:has(.mee-approved-summary) .mee-approved-analytics-sales{order:3!important;width:100%}
-#content:has(.mee-approved-summary) .mee-approved-attention{order:4!important;width:100%}
+
 }
+/* Monetary privacy controls stay local to the dashboard. */
+#content .mee-kpi-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+#content .mee-money-toggle{display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:40px;min-height:40px;padding:7px;border:0;border-radius:10px;background:transparent;color:var(--text-muted,#65756e);cursor:pointer;touch-action:manipulation}
+#content .mee-money-toggle:hover,#content .mee-money-toggle[aria-pressed="true"]{background:#edf3f8;color:var(--brand,#174b7e)}
+#content .mee-money-toggle:focus-visible{outline:2px solid #286b98;outline-offset:2px}
+#content .mee-approved-hour-chart{overflow-x:auto;padding-bottom:2px}
+#content .mee-approved-hour-item{min-width:30px}
+#content .mee-hour-unknown{font-size:12px;margin-top:12px;color:var(--text-secondary)}
 
 /* ===== meehoa-v362.css ===== */
 /* Canonical owner: materials AI diagnostics. */
@@ -2327,8 +2335,8 @@ body .sidebar .brand.mee-atelier-brand .brand-copy small{display:block!important
 /* Desktop and mobile dashboard parity: one source, all KPI + analytics + actionable orders. */
 #content:has(.mee-approved-summary)>.mee-approved-summary{width:100%!important;grid-column:1/-1!important}
 #content:has(.mee-approved-summary)>#meeHourlySingleV361,#content:has(.mee-approved-summary)>.mee-approved-analytics-sales{display:block!important;visibility:visible!important;min-width:0!important}
-#content:has(.mee-approved-summary)>.mee-approved-attention{display:block!important;visibility:visible!important;grid-column:1/-1!important;min-width:0!important}
+
 #content:has(.mee-approved-summary) .mee-approved-kpi{min-width:0!important;overflow:hidden!important}
 #content:has(.mee-approved-summary) .mee-approved-kpi-value{overflow-wrap:anywhere!important;white-space:normal!important}
-@media(min-width:761px){#content:has(.mee-approved-summary){grid-template-rows:auto auto auto auto!important}#content:has(.mee-approved-summary)>#meeHourlySingleV361,#content:has(.mee-approved-summary)>.mee-approved-analytics-sales{grid-row:3!important}#content:has(.mee-approved-summary)>.mee-approved-attention{grid-row:4!important}}
+@media(min-width:761px){#content:has(.mee-approved-summary){grid-template-rows:auto auto auto!important}#content:has(.mee-approved-summary)>#meeHourlySingleV361,#content:has(.mee-approved-summary)>.mee-approved-analytics-sales{grid-row:3!important}}
 @media(max-width:900px){body.mee-search-page .topbar-search{min-width:0!important;max-width:100%!important}}

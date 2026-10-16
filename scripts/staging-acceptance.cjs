@@ -36,7 +36,8 @@ async function main(){
    const r=await call('getDashboardSummary',{start:env.today,end:env.today});assert.equal(r.ok,true);
    const rows=(await db.query('select sale,count(*)::int as n,sum(flower_total)::float8 as revenue from orders where order_date=$1 group by sale',[env.today])).rows;
    assert.equal(r.summary.orders,rows.reduce((n,x)=>n+x.n,0));assert.equal(r.salesDaily.reduce((n,x)=>n+x.orders,0),r.summary.orders);
-   assert.equal(r.summary.grossRevenue,rows.reduce((n,x)=>n+x.revenue,0));return{orders:r.summary.orders,grossRevenue:r.summary.grossRevenue};
+   assert.equal(r.summary.grossRevenue,rows.reduce((n,x)=>n+x.revenue,0));assert.equal(r.hourlyScope,'SELECTED_RANGE');assert.equal(r.hourlyCounts.reduce((n,x)=>n+x.count,0)+r.hourlyUnknown,r.summary.orders);
+   const multi=await call('getDashboardSummary',{start:'2025-01-01',end:env.today});assert.equal(multi.summary.orders,240);assert.equal(multi.hourlyCounts.reduce((n,x)=>n+x.count,0)+multi.hourlyUnknown,240);return{orders:r.summary.orders,grossRevenue:r.summary.grossRevenue};
   });
   await check('new date blank rejected without row write',async()=>{const before=(await db.query('select count(*) from orders')).rows[0].count;const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),date:''}},'qa_sale');assert.equal(r.ok,false);assert.equal(r.code,'ORDER_INPUT_INVALID');assert.equal((await db.query('select count(*) from orders')).rows[0].count,before);});
   let order,thoOrder,zeroOrder;

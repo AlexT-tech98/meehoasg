@@ -13,7 +13,7 @@ test('global search is exposed consistently on Orders and Dashboard',()=>{
 test('both desktop and mobile show the full approved dashboard',()=>{
  assert.match(dashboard,/buildSummary\(r,el\);buildReport\(r,el\)/);
  assert.match(dashboard,/renderHourly\(el\)/);
- assert.match(dashboard,/mee-approved-attention/);
- assert.match(theme,/#content:has\(\.mee-approved-summary\)>\.mee-approved-attention\{display:block!important/);
+ assert.doesNotMatch(dashboard,/mee-approved-attention/);
+ assert.doesNotMatch(fs.readFileSync('html','utf8'),/Không có đơn cần xử lý gấp hôm nay/);
  assert.match(theme,/@media\(min-width:761px\)/);
 });
