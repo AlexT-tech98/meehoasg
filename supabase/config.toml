@@ -1,4 +1,5 @@
 [functions.meehoasg-api]
+entrypoint = "./functions/meehoasg-api/index.js"
 verify_jwt = true
 
 # Apps Script authenticates with a separate high-entropy INGEST_SECRET header.
@@ -7,6 +8,7 @@ verify_jwt = false
 
 # Browser core uses the public anon JWT and an independently validated app session.
 [functions.meehoasg-api-core]
+entrypoint = "./functions/meehoasg-api-core/index.js"
 verify_jwt = true
 
 # Order-actions validates the high-entropy app session in the request body.
