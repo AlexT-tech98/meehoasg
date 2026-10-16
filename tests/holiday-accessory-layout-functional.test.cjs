@@ -46,6 +46,7 @@ test('drawer separates customer note and card content from finance rows',()=>{
   const fn=functionSource('detail','function openShipFeeForm');
   const ctx={
     dateVN:v=>v,timeVN:v=>v,esc:v=>String(v??''),multiline:v=>String(v??'').replace(/\n/g,'<br>'),
+    paymentLabel:vm.runInNewContext('('+functionSource('paymentLabel','function debtBreakdown')+')'),
     vnd:v=>new Intl.NumberFormat('vi-VN').format(Number(v)||0)+' ₫'
   };
   const detail=vm.runInNewContext('('+fn+')',ctx);

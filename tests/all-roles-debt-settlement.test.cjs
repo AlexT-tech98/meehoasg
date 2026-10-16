@@ -2,7 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const api=fs.readFileSync('supabase/functions/meehoasg-api-core/index.js','utf8');
-const sql=fs.readFileSync('supabase/migrations/20261015_allow_active_users_settlement.sql','utf8');
+const sql=fs.readFileSync('supabase/migrations/20261016080720_allow_active_users_settlement.sql','utf8');
 const debt=api.slice(api.indexOf('async function fastDebt('),api.indexOf('async function fullPaidReport('));
 test('debt eligible for all active shop roles, not restricted to own sale',()=>{assert.ok(debt.includes("scope:'ALL_ACTIVE_USERS'"));assert.ok(!debt.includes("user.role==='ADMIN'"));assert.ok(!debt.includes("saleKey(user.username)"));assert.ok(debt.includes("o.status==='Đã giao'&&!o.paymentVerified&&o.debt>0"));});
 test('debt filters eligible orders before signed image URL calls',()=>{assert.ok(debt.indexOf('const eligible=')<debt.indexOf('displayUrls(o.imageUrls'));assert.ok(debt.includes('imageUrls:urls,driveUrls:urls'));});

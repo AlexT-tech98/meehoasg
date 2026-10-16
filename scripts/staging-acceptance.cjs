@@ -47,7 +47,7 @@ async function main(){
    const retry=await call('createOrder',p,'qa_sale');assert.equal(retry.orderId,r.orderId);assert.equal(retry.idempotent,true);
    assert.equal(Number((await db.query('select count(*) from operation_receipts where actor=$1 and request_id=$2',['qa_sale',p.requestId])).rows[0].count),1);return{total:order.totalDue};
   });
-  await check('flower-only payment preserves accessory debt',async()=>{const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),payment:'Đã thanh toán đủ tiền hoa (Full)'}},'qa_sale');assert.equal(r.ok,true,r.message);assert.equal(r.order.paid,500000);assert.equal(r.order.debt,125000);assert.equal(r.order.fullPaid,false);});
+  await check('flower-only payment preserves accessory debt',async()=>{const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),payment:'Đã thanh toán đủ tiền hoa (Full)'}},'qa_sale');assert.equal(r.ok,true,r.message);assert.equal(r.order.paid,500000);assert.equal(r.order.debt,125000);assert.equal(r.order.fullPaid,false);return {orderId:r.orderId,customer:r.order.customer};});
   await check('cross-Sale edit denied; explicit production status action only',async()=>{
    assert.ok(order,'create prerequisite');const denied=await call('updateOrder',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,order:{...base(),flower:'Changed'}},'qa_sale_other');assert.equal(denied.code,'NOT_OWNER');
    for(const status of ['Đã bó','Đã giao']){const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,status},'qa_tho');assert.equal(r.ok,true,r.message);assert.equal(r.order.status,status);order=r.order;}
@@ -67,9 +67,10 @@ async function main(){
    const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),fullPaidRequested:true,imageFiles:[png],fullPaidBillFiles:[png],payment:'Đã thanh toán toàn bộ đơn'}},'qa_sale');assert.equal(r.ok,true,r.message);assert.equal(r.order.fullPaid,true);assert.equal(r.order.debt,0);assert.equal(r.order.fullPaidTotal,625000);
    const d=await call('getDebtReview',{start:date,end:date});assert.ok(!d.items.some(o=>o.id===r.orderId));
    const edited=await call('updateOrder',{requestId:crypto.randomUUID(),orderId:r.orderId,expectedUpdatedAt:r.order.updatedAt,order:{...base(),bannerQty:4,payment:r.order.payment,fullPaidRequested:true,imageUrls:r.order.imageUrls}},'qa_sale');assert.equal(edited.ok,true,edited.message);assert.equal(edited.order.fullPaid,false);assert.equal(edited.order.paid,625000);assert.equal(edited.order.debt,35000);
+   const preview=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),customer:run+' Full Preview',fullPaidRequested:true,imageFiles:[png],fullPaidBillFiles:[png],payment:'Đã thanh toán toàn bộ đơn'}},'qa_sale');assert.equal(preview.ok,true,preview.message);return {orderId:preview.orderId,customer:preview.order.customer};
   });
  }finally{
-  await db.end();fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'api-results.json'),JSON.stringify({scope:'real local PostgreSQL17/PostgREST/Supabase Storage/Deno candidate APIs; not managed cloud or production Egress',results},null,2)+'\n');
+  await db.end();fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'api-results.json'),JSON.stringify({scope:'real local PostgreSQL17/PostgREST/Supabase Storage/Deno candidate APIs; not managed cloud or production Egress',fixtureSearch:run,results},null,2)+'\n');
  }
  if(results.some(r=>r.status==='FAIL'))process.exitCode=1;
 }

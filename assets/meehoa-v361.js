@@ -62,6 +62,8 @@
   async function loadHourly(el,force){
     if(!window.gas||!window.S||S.page!=='dashboard')return;
     var day=today();
+    var inline=S.data&&S.data.dashboard&&S.data.dashboard.hourlyCounts;
+    if(!force&&Array.isArray(inline)){var max=Math.max.apply(null,inline.map(function(x){return Number(x.count)||0}).concat([0]));hourlyState.day=day;hourlyState.rows=inline.map(function(x){return {hour:x.hour,label:hourLabel(x.hour),count:x.count,percent:max?x.count/max*100:0}});hourlyState.error='';renderHourly(el);return;}
     if(!force&&hourlyState.day===day&&hourlyState.rows){renderHourly(el);return}
     if(hourlyState.loading)return;
     hourlyState.loading=true;hourlyState.day=day;hourlyState.error='';renderHourly(el);
@@ -150,7 +152,7 @@
       }
     }
     if(pageHead)pageHead.classList.add('mee-approved-page-header');
-    if(hourlyState.dashboardRef!==r){hourlyState.dashboardRef=r;loadHourly(el,true)}else renderHourly(el);
+    if(hourlyState.dashboardRef!==r){hourlyState.dashboardRef=r;loadHourly(el,false)}else renderHourly(el);
   }
 
   if(window.__MEE_TEST_MODE__)window.__MEE_DASHBOARD_V361_TEST__={hourlyModel:hourlyModel,hourlyHtml:hourlyHtml,renderHourly:renderHourly,hourlyState:hourlyState};

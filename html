@@ -157,7 +157,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         token: storageGet('mee_token') || '', user: null, page: 'dashboard', view: 'kanban', selected: new Set(),
         options: { shipping: SHIPPING_DEFAULT.slice(), sales: [], statuses: ['Chờ bó', 'Đã bó', 'Đã giao'] }, optionsLoaded: false, optionsPromise: null,
         filters: {
-            dashboard: { start: today(), end: today() }, production: { date: today(), q: '' }, orders: { start: today(), end: today(), q: '', page: 1, pageSize: 80 },
+            dashboard: { start: today(), end: today() }, production: { date: today(), q: '' }, orders: { start: today(), end: today(), q: '', searchWithinRange: false, page: 1, pageSize: 80 },
             debt: { start: today(), end: today(), sale: '' }, payment: { start: today(), end: today(), status: 'PENDING' }, kpi: { month: today().slice(0, 7) }, flowers: { date: today(), start: today(), end: today() }
         },
         data: { dashboard: null, production: null, orders: null, debt: null, payment: null, kpi: {}, flowers: {}, admin: null },
@@ -451,7 +451,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                         f = S.filters.orders;
                         if (!append)
                             f.page = 1;
-                        args = { start: f.start, end: f.end, q: f.q, globalSearch: Boolean(String(f.q||'').trim()), page: f.page, pageSize: f.pageSize };
+                        args = { start: f.start, end: f.end, q: f.q, globalSearch: Boolean(String(f.q||'').trim()) && !f.searchWithinRange, page: f.page, pageSize: f.pageSize };
                         _a.label = 1;
                     case 1:
                         _a.trys.push([1, 3, , 4]);
@@ -1060,6 +1060,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function laneClass(st){return st==='Chờ bó'?'lane-wait':st==='Đã bó'?'lane-packed':'lane-delivered';}
     function nextStatusValue(st){return st==='Chờ bó'?'Đã bó':st==='Đã bó'?'Đã giao':'';}
     function previousStatusValue(st){return st==='Đã giao'?'Đã bó':st==='Đã bó'?'Chờ bó':'';}
+    function paymentLabel(o){if(o.fullPaid)return 'Đã thanh toán toàn bộ đơn (Full Paid)';if(o.settled)return 'Đã tất toán';var raw=String(o.payment||'');if(/full|đủ tiền hoa|du tien hoa/i.test(raw))return 'Đã thanh toán đủ tiền hoa';return raw||'Chưa thanh toán';}
     function debtBreakdown(o){var x=[];if(o.card){var q=Math.max(1,Number(o.cardQty||1)),fee=Number(o.cardFee)||q*10000;x.push('+'+vnd(fee)+' thiệp'+(q>1?' (×'+q+')':''));}if(o.banner){var bq=Math.max(1,Number(o.bannerQty||1));x.push('+'+vnd(bq*35000)+' banner'+(bq>1?' (×'+bq+')':''));}if(Number(o.charmFee))x.push('+'+vnd(o.charmFee)+' charm');if(Number(o.paperFee))x.push('+'+vnd(o.paperFee)+' thay giấy');if(Number(o.vat))x.push('+'+vnd(o.vat)+' VAT');if(isShop(o.shipping)&&o.shipConfirmed)x.push('+'+vnd(o.shipFee)+' phí ship');return x.length?'<div class="debt-breakdown">'+x.map(esc).join('<br>')+'</div>':'';}
     function multiline(s){return esc(s).replace(/\r?\n/g,'<br>');}
     function firstImage(o,size){var a=o&&o.imageUrls||[];return a.length?imageSrc(a[0],size||320):'';}
@@ -1093,7 +1094,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     (o.hasAccessories ? '<div class="badge gold" style="margin-top:6px;font-size:10.5px">CÓ PHỤ KIỆN</div>' : '') +
     '<div class="order-top" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">' +
       '<span class="money" style="font-weight:700;color:var(--text-primary)">' + vnd(o.flowerTotal) + '</span>' +
-      '<span class="sub" style="font-size:12px;color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + (o.debt ? 'Nợ ' + vnd(o.debt) : 'Đã tất toán') + '</span>' +
+      '<span class="sub" style="font-size:12px;color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + (o.debt ? 'Nợ ' + vnd(o.debt) : paymentLabel(o)) + '</span>' +
     '</div>' +
     '<div class="order-actions">' +
       '<button class="btn secondary" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'production\')">Chi tiết</button>' +
@@ -1110,7 +1111,7 @@ function opsTile(o) {
     '<div>' +
       '<div class="order-top"><b>' + esc(timeVN(o.time)) + ' · ' + esc(o.customer) + '</b><span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></div>' +
       '<div class="meta" style="margin:4px 0">' + dateVN(o.date) + ' · ' + esc(o.sale) + '</div>' +
-      '<div class="ops-lines"><span class="multiline">' + multiline(o.flower) + '</span><b>' + vnd(o.flowerTotal) + '</b><span>☎ ' + (esc(o.phone) || '—') + '</span><span style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + (o.debt ? 'Nợ ' + vnd(o.debt) : 'Đã tất toán') + '</span></div>' +
+      '<div class="ops-lines"><span class="multiline">' + multiline(o.flower) + '</span><b>' + vnd(o.flowerTotal) + '</b><span>☎ ' + (esc(o.phone) || '—') + '</span><span style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + (o.debt ? 'Nợ ' + vnd(o.debt) : paymentLabel(o)) + '</span></div>' +
       (o.hasAccessories ? '<span class="badge gold" style="font-size:10px;margin-top:4px">CÓ PHỤ KIỆN</span>' : '') +
     '</div>' +
     '<div class="order-actions">' +
@@ -1121,7 +1122,9 @@ function opsTile(o) {
   '</article>';
 }
     function dateLabel(key,mode){var f=S.filters[key]||{};if(mode==='single'){var d=f.date||today();return dateVN(d);}return dateVN(f.start)+' → '+dateVN(f.end);}
-    function rangeFilters(key){return '<div class="date-filter-bar"><button class="date-filter-btn" onclick="MEEOPS7.openDatePicker(\''+key+'\',\'range\')">▣ '+esc(dateLabel(key,'range'))+'　⌄</button></div>';}
+    function rangeFilters(key){var f=S.filters[key]||{},search=key==='orders'&&String(f.q||'').trim();return '<div class="date-filter-bar">'+(search?'<label class="search-date-scope"><input id="searchWithinRange" type="checkbox" '+(f.searchWithinRange?'checked':'')+' onchange="MEEOPS7.setSearchDateScope(this.checked)">Chỉ tìm trong khoảng ngày</label>':'')+'<button class="date-filter-btn" onclick="MEEOPS7.openDatePicker(\''+key+'\',\'range\')">▣ '+esc(dateLabel(key,'range'))+'　⌄</button>'+(search&&!f.searchWithinRange?'<span class="sub">Đang tìm tất cả ngày</span>':'')+'</div>';}
+    function setSearchDateScope(enabled){S.filters.orders.searchWithinRange=!!enabled;S.filters.orders.page=1;return loadOrdersPage(true);}
+
     function singleDateFilter(key){return '<div class="date-filter-bar"><button class="date-filter-btn" onclick="MEEOPS7.openDatePicker(\''+key+'\',\'single\')">▣ '+esc(dateLabel(key,'single'))+'　⌄</button></div>';}
     function openDatePicker(key,mode){mode=mode||'range';var f=S.filters[key]||{},base=mode==='single'?(f.date||today()):(f.start||today());window._meeDatePicker={key:key,mode:mode,start:mode==='single'?(f.date||today()):(f.start||today()),end:mode==='single'?(f.date||today()):(f.end||f.start||today()),month:String(base).slice(0,7)+'-01',awaitingEnd:false};renderDatePicker();}
     function addDaysIso(iso,n){var p=iso.split('-').map(Number),d=new Date(p[0],p[1]-1,p[2]);d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -1129,7 +1132,7 @@ function opsTile(o) {
     function datePickerSelect(iso){var x=window._meeDatePicker;if(!x)return;if(x.mode==='single'){x.start=x.end=iso;}else if(!x.awaitingEnd){x.start=iso;x.end='';x.awaitingEnd=true;}else{if(iso<x.start){x.start=iso;x.end='';x.awaitingEnd=true;}else{x.end=iso;x.awaitingEnd=false;}}renderDatePicker();}
     function datePickerShortcut(which){var x=window._meeDatePicker;if(!x)return;var d=which==='tomorrow'?addDaysIso(today(),1):today();x.start=x.end=d;x.awaitingEnd=false;x.month=d.slice(0,7)+'-01';renderDatePicker();}
     function renderDatePicker(){var x=window._meeDatePicker,ov=document.getElementById('overlay');if(!x||!ov)return;var p=x.month.split('-').map(Number),y=p[0],m=p[1]-1,first=new Date(y,m,1),offset=(first.getDay()+6)%7,days=new Date(y,m+1,0).getDate(),prevDays=new Date(y,m,0).getDate(),cells=[];for(var i=0;i<42;i++){var day=i-offset+1,dt,inside=true;if(day<1){dt=new Date(y,m-1,prevDays+day);inside=false;}else if(day>days){dt=new Date(y,m+1,day-days);inside=false;}else dt=new Date(y,m,day);var iso=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'),selected=iso===x.start||iso===x.end,inRange=x.start&&x.end&&iso>x.start&&iso<x.end,cls='calendar-day'+(inside?'':' out')+(selected?' selected':'')+(inRange?' in-range':'')+(iso===today()?' today':'');cells.push('<button type="button" class="'+cls+'" onclick="MEEOPS7.datePickerSelect(\''+iso+'\')">'+dt.getDate()+'</button>');}var title='Tháng '+(m+1)+'/'+y,rangeText=x.mode==='single'?dateVN(x.start):('Từ '+dateVN(x.start)+(x.end?' → '+dateVN(x.end):' → chọn ngày kết thúc'));ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><div class="modal calendar-modal"><div class="modal-head"><h3 style="margin:0">Chọn ngày</h3><button class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="calendar-shortcuts"><button class="btn" onclick="MEEOPS7.datePickerShortcut(\'today\')">Hôm nay</button><button class="btn" onclick="MEEOPS7.datePickerShortcut(\'tomorrow\')">Ngày mai</button></div><div class="calendar-head"><button class="calendar-nav" onclick="MEEOPS7.datePickerMove(-1)">‹</button><strong>'+title+'</strong><button class="calendar-nav" onclick="MEEOPS7.datePickerMove(1)">›</button></div><div class="calendar-grid">'+['T2','T3','T4','T5','T6','T7','CN'].map(function(d){return '<div class="calendar-dow">'+d+'</div>';}).join('')+cells.join('')+'</div><div class="calendar-selection"><span>'+rangeText+'</span><span class="sub">Chưa áp dụng</span></div><div class="calendar-actions"><button class="btn" onclick="MEEOPS7.closeOverlay()">Hủy</button><button class="btn primary" '+(!x.start?'disabled':'')+' onclick="MEEOPS7.datePickerApply()">✓ Áp dụng</button></div></div></div>';}
-    async function datePickerApply(){var x=window._meeDatePicker;if(!x||!x.start)return;if(x.mode==='range'){var end=x.end||x.start;S.filters[x.key].start=x.start;S.filters[x.key].end=end;if(x.key==='orders')S.filters.orders.page=1;}else S.filters[x.key].date=x.start;var key=x.key;closeOverlay();if(key==='production')await loadProduction(true);else if(key==='flowers')await loadFlowers(true);else await loadPage(key,true);}
+    async function datePickerApply(){var x=window._meeDatePicker;if(!x||!x.start)return;if(x.mode==='range'){var end=x.end||x.start;S.filters[x.key].start=x.start;S.filters[x.key].end=end;if(x.key==='orders'){S.filters.orders.page=1;if(String(S.filters.orders.q||'').trim())S.filters.orders.searchWithinRange=true;}}else S.filters[x.key].date=x.start;var key=x.key;closeOverlay();if(key==='production')await loadProduction(true);else if(key==='flowers')await loadFlowers(true);else await loadPage(key,true);}
     
     function onSearchInput(val) {
         val = String(val || '');
@@ -1458,7 +1461,7 @@ function opsTile(o) {
       '<td>' + esc(o.sale || '—') + '</td>' +
       '<td><span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></td>' +
       '<td><b>' + vnd(o.flowerTotal) + '</b></td>' +
-      '<td>' + esc(o.payment || '—') + '<br><span class="sub">Đã thu ' + vnd(o.paid) + '</span></td>' +
+      '<td>' + esc(paymentLabel(o)) + '<br><span class="sub">Đã thu ' + vnd(o.paid) + '</span></td>' +
       '<td><b style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + vnd(o.debt) + '</b>' + ordersDebtNotes(o) + '</td>' +
     '</tr>';
   }).join('');
@@ -1470,7 +1473,7 @@ function opsTile(o) {
         '<div class="order-card-mobile-thumb-empty">🌸</div>';
 
     var debtStyle = Number(o.debt) > 0 ? 'color:var(--danger);font-weight:700' : 'color:var(--text-muted)';
-    var debtText = Number(o.debt) > 0 ? 'Nợ: ' + vnd(o.debt) : 'Đã thu đủ tiền hoa';
+    var debtText = paymentLabel(o) + (Number(o.debt) > 0 ? ' · Nợ: ' + vnd(o.debt) : ' · Công nợ 0đ');
 
     return '<article class="order-card-mobile ' + (o.hasAccessories ? 'row-alert' : '') + '" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'orders\')">' +
       '<div class="order-card-mobile-top">' +
@@ -1639,7 +1642,7 @@ function opsTile(o) {
       '<div class="mee-finance-row"><span>Giá hoa</span><b>' + vnd(o.flowerTotal) + '</b></div>' +
       (accessoryRows.length?'<div class="mee-finance-accessories"><div class="mee-finance-accessory-title"><span>Phụ kiện ('+accessoryRows.length+')</span><b>'+vnd((Number(o.accessoryTotal)||0)+Number(o.vat||0))+'</b></div>'+accessoryRows.join('')+'</div>':'')+
       '<div class="mee-finance-row"><span>Phí ship</span><b>' + (o.shipFeePending ? '<span class="badge red">Chưa nhập</span>' : vnd(o.shipFee)) + '</b></div>' +
-      '<div class="mee-finance-row"><span>Đã thanh toán</span><b>' + vnd(o.paid) + '</b></div>' +
+      '<div class="mee-finance-row"><span>' + esc(paymentLabel(o)) + '</span><b>' + vnd(o.paid) + '</b></div>' +
       (o.fullPaid?'<div class="mee-full-paid-proof"><div><b>✓ FULL PAID · TỰ XÁC NHẬN</b><small>Không vào Payment Check · Công nợ 0đ</small></div>'+(o.fullPaidBillUrls&&o.fullPaidBillUrls.length?'<div class="mee-full-paid-proof-links">'+o.fullPaidBillUrls.map(function(u,i){return '<a href="'+attr(u)+'" target="_blank">Bill '+(i+1)+'</a>';}).join('')+'</div>':'')+'</div>':'')+
       '<div class="mee-finance-total"><span>Công nợ hiện tại</span><b style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + vnd(o.debt) + '</b></div>' +
     '</div>' +
@@ -1658,6 +1661,7 @@ function opsTile(o) {
     window.__MEE_BOOT_STAGE__ = 'api-export';
     window.MEEOPS7 = {
         onSearchInput: onSearchInput,
+        setSearchDateScope: setSearchDateScope,
         onSearchKey: onSearchKey,
         submitSearch: submitSearch,
         selectSearchResult: selectSearchResult,

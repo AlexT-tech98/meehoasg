@@ -1,46 +1,51 @@
-# PR #39 release evidence and remaining gates
+# PR #39 acceptance and release gates
 
-Status: **NO-GO — not READY TO DEPLOY**. Keep this single PR as draft. No production writes or deployment are authorized by this document.
+Status: **NO-GO pending live Apps Script provenance, production recovery readiness and exact-head CI**. This document does not authorize production writes or deployment. All work stays in PR #39. No paid cloud staging is required for the reproducible checks below.
 
-Issue #36 contains **13 technical checks for 12 operator reports**. A successful source test or synthetic browser response cannot mark the operational report PASS.
+Issue #36 has 13 technical checks for 12 reports. The local technical acceptance below is distinct from deployment approval and post-deployment verification.
 
-## Reproducible evidence
+## Technical acceptance ledger
 
-- `npm ci --ignore-scripts && npm run build`; generated files must produce zero `git diff`.
-- `npm test`: source/functional and isolated PostgreSQL WASM tests. CI separately runs the transactional suite on PostgreSQL 16 with independent sessions.
-- `node scripts/browser-acceptance.cjs`: actual shell and generated CSS/JS in Chromium, widths 1440/390, ADMIN/SALE/THO_OPS, synthetic API only. All external requests are intercepted. Produces screenshots, Playwright traces and request-name/check results in `artifacts/browser/`.
-- `node scripts/rollback-rehearsal.cjs`: migrates fresh PostgreSQL WASM fixtures, verifies legacy banner financial parity, 3-banner total, and exact row/total restore from both pre-release and post-release snapshots. Produces `artifacts/rollback/results.json`. This does not test managed database PITR, roles, Storage, or external writers.
-- `node scripts/release-manifest.cjs`: refuses a dirty tracked tree; records commit and SHA-256 of every tracked file in `artifacts/release/`. CI uploads all evidence under the exact validated head SHA. CI never changes the branch it validates.
-- [Read-only public static parity](validation/release-39-public-static-parity.json): live `index.html`, `html` and both core assets match the current `main` byte for byte. Candidate differences are expected before deployment. Edge Function and Apps Script parity remain unverified.
-- [Local real-service staging](release-39-local-staging.md): separate PostgreSQL17/PostgREST/Supabase Storage plus candidate Deno APIs and QA accounts; 12 API scenarios and 6 Chromium role/viewport combinations PASS locally. This exposed and fixed flower-only payment incorrectly clearing accessory debt. The CI staging job rebuilds this from empty volumes and uploads sanitized evidence only.
+Real isolated PostgreSQL17.6, PostgREST14.3, Storage1.35.3 and candidate Deno2.5.6 APIs serve Chromium at 1440/390 widths for ADMIN/SALE/THO_OPS. API responses are not mocked. All data/accounts/proofs are synthetic. CI rebuilds empty volumes and uploads only `artifacts/staging-evidence/`.
 
-Local Chromium can be selected with `MEEHOA_CHROMIUM=/usr/bin/chromium`. CI installs the pinned Playwright Chromium. Viewport emulation is not an iOS/Safari device test. Cold/warm durations in browser results measure local fixture UI only; they are not production API P50/P95 or Egress measurements.
-
-## Acceptance ledger
-
-| #36 check | Existing/added evidence | Required to mark operational PASS |
+| #36 | Technical result | Reproducible evidence |
 |---|---|---|
-| 1 Payment labels | Full Paid functional/source tests | Authenticated desktop/mobile comparison across payment modes |
-| 2 Desktop Dashboard parity | Browser confirms authorized Sale report visible at both widths | Staging role matrix and live API totals |
-| 3 Eligible debts and Tiên scope | Debt source checks, transactional role tests | Exact fixture reconciliation; approved operator scope; read-only production comparison if authorized |
-| 4 Cold/warm P50/P95 and calls | Browser records local durations and verifies fresh Orders revisit adds no call | Representative repeated staging cold/warm samples, API/network/Egress budgets and results |
-| 5 Canonical CSS | Ownership/build tests and zero generated diff | Visual regression across modules on staging |
-| 6 All-date bounded search | PostgreSQL normalization/pagination tests | Staging authenticated privacy, explicit optional date range and pagination scenarios |
-| 7 Selection only | Actual browser checkbox selects, preserves status, sends no mutation | Staging explicit action changes selected records only |
-| 8 Settlement permission | PostgreSQL THO_OPS/SALE submission and Admin-only approval tests | Policy approval record and authenticated staging proof/upload/denial cases |
-| 9 Multi-day flowers | Range source tests | API-backed multi-day distinct-order/variety fixture reconciliation |
-| 10 Per-Sale order counts | Browser renders 36 fixture orders per Sale | Staging DB/API/report reconciliation |
-| 11 Banner quantity | Browser drawer ×3, atomic finance tests, restore rehearsal | API-backed create/edit/backward compatibility and finance/security review |
-| 12 Sticky navigation | Actual scroll geometry at both widths/all roles | Safari/device and staging overlay/scroll checks |
-| 13 Blank new date | Browser new date blank/required, edit saved date retained | Staging invalid submit rejects; create/edit persists correct date |
+| 1 Payment labels | PASS local | API-created flower-only and Full Paid orders rendered in list/detail at both widths; flower-only 500,000 + accessories125,000 retains125,000 debt |
+| 2 Desktop Dashboard parity | PASS local | Authorized Sale report visible at both widths; SQL/API order and revenue reconciliation |
+| 3 Eligible debts and Tiên scope | PASS local | Delivered, unverified, debt>0 fixtures; active-role view/submit and inactive/anonymous denial; owner-approved all-shop scope |
+| 4 P50/P95 and calls | PASS local budgets | 30 samples each of5 APIs,20k scale search;10 fresh clients each of6 role/width combinations; one bootstrap, no Admin hourly order refetch, zero warm revisit calls |
+| 5 Canonical CSS | PASS local | Reproducible generated assets; screenshots across Dashboard/orders/debt/materials/production; canonical CSS ownership tests |
+| 6 Global and optional date search | PASS local | Vietnamese normalization,240 global vs40 date+keyword; actual calendar apply; bounded distinct pages; SQL anon denial;20k scale |
+| 7 Selection only | PASS local | Checkbox issues no mutation; explicit bulk action changes chosen seed only, then restores QA seed status |
+| 8 Settlement permissions | PASS local + owner approved | Cross-Sale submit allowed, edit/approval denied; THO_OPS submits actual uploaded bill; ADMIN approval only; see approved policy |
+| 9 Multi-day flowers | PASS local |240 distinct orders;120 per canonical variety; actual multiday Tulip drawer120 unique IDs |
+| 10 Per-Sale counts | PASS local | Dashboard/API per-Sale counts and gross revenue match SQL |
+| 11 Banner quantity | PASS local | Create/edit ×3, validation, legacy fallback1, financial guards, Full Paid invalidation, idempotency; feed/ingest quantity and Apps Script26th metadata column VM test |
+| 12 Sticky navigation | PASS local Chromium | Actual scroll geometry after drawers/overlays on six role/width combinations; device Safari remains unmeasured |
+| 13 Blank new date | PASS local | New date blank/required; rejected submission writes no order; edit retains persisted date |
 
-## Release blockers
+Commands: `npm test`, `npm run build`, `node scripts/staging-acceptance.cjs`, `node scripts/staging-browser.cjs`, `node scripts/staging-benchmark.cjs`. CI also runs independent PostgreSQL16 transaction tests and synthetic-browser regression. Local tests are not claims about production customer outcomes, internet latency, managed Edge runtime, Safari hardware or provider Egress billing.
 
-1. A local real-service QA environment and test accounts now exist; the cloud branch request was cancelled. Hosted staging and managed Supabase deployment parity remain unverified. Do not substitute production accounts/data for these remaining checks.
-2. Complete authenticated API-backed desktop/mobile E2E for all 13 checks, including financial mutations on disposable records; retain reconciliation, request IDs, traces and CI SHA.
-3. Confirm the business approval provenance for active-user debt/settlement scope introduced in #37; retain Admin-only approval. Do not infer approval from a green test.
-4. Review global search date filtering, privacy, scale and query plan; review banner migration and financially verified historical orders. Do not mark performance PASS from static assertions.
-5. Verify staging restore/PITR and Storage recovery, then record production backup availability and recovery owner without changing production data. Follow [rollback plan](release-39-rollback.md).
-6. Record release artifact/hash parity for Pages, deployed Edge Functions and Apps Script/writeback baseline. Post-deploy operational verification is a separate gate that can only be completed after an approved deployment.
+## Performance scope
 
-Release approval needs: exact commit, green CI links/artifact IDs, all 13 technical checks signed off against the 12 reports, staging reconciliation, finance/security review, recovery rehearsal evidence and approved deployment/rollback owner. Missing evidence means NO-GO.
+Local benchmark after stored normalized search key:20k global search P50 **96.55ms**, P95 **217.72ms**,30 samples. Date-filtered orders P95 **72.94ms**, Dashboard **97.11ms**, debt **33.26ms**, materials **31.13ms**. Budget: small APIs1s,20k search3s, cold client5s, warm module500ms. `benchmark.json` records all samples/groups, response sizes and request counts. Cold means fresh browser/session/cache; database and Deno stay warm. Deployment smoke must measure public-network latency separately.
+
+Search now makes one bounded RPC and signs returned-page media only, including date mode. A stored normalized key avoids repeatedly normalizing20k strings. New date/time/id index supports normal date pages; broad substring count still scans matches. No claim of constant-time search at arbitrary scale.
+
+## Release package and baseline
+
+`node scripts/release-manifest.cjs` and `node scripts/build-release.cjs` require a clean tracked tree. CI publishes exact-commit hashes, deterministic tar.gz, per-file manifest, five ordered additive migrations, deployment/rollback docs and compatible fallback. No passwords, runtime config, raw database backups or customer data belong in release artifacts.
+
+[Live backend baseline](validation/release-39-backend-baseline.json) records source hashes and read-only versions: core7, legacy API15, order-actions3, ingest10, writeback-feed4, settlement-ingest3. Shared operations differs, so order-actions must also be rebundled/deployed even if its entrypoint matches. Settlement-ingest matches. Frontend baseline matches main; candidate intentionally differs before deployment.
+
+Production's historical migration ledger differs from reconstructed repository history. Apply only the five reviewed deltas in `scripts/release-migrations.json`, recording receipts/version mapping. **Do not blindly replay all historical repository migrations with db push.** New versions were generated uniquely with Supabase CLI; previous duplicate short IDs were never applied in production.
+
+Apps Script repository source is v9.4 metadata-compatible, retaining v9.2 trigger handler names and first25 metadata columns, appending banner quantity26. Existing data flow stays website-first. The active Apps Script project/source/version/triggers remain **UNVERIFIED**: connected Drive search returned no script project; no Apps Script execution credentials are available. Repository VM tests cannot prove which script is active.
+
+## Recovery and remaining gates
+
+`staging-compatible-fallback.cjs` compares previous green core `52718b2` against upgraded QA schema and actual multi-banner/Full Paid fixtures. `staging-restore.cjs` restores real pg_dump plus independent Storage volume/API, comparing database hashes/finance totals and signed-image bytes. `rollback-rehearsal.cjs` also checks pre/post-release fixture snapshots. See [rollback](release-39-rollback.md).
+
+Before READY TO DEPLOY: retain final exact-head green CI/artifact links; obtain live Apps Script source/version/trigger inventory and approve its v9.4 update sequence; confirm production backup availability/recovery point and deployment/rollback owner. Production backup availability is distinct from a successful local restore. No paid staging is intrinsically required. Missing provenance/recovery readiness is not resolved by a green local test.
+
+After authorized deployment: record frontend/function/script hashes/versions, apply read-only reconciliation and approved isolated smoke checks, observe API failures and financial totals; reopen writers only after owner sign-off. No merge, production deployment or customer-data mutation has been performed by this validation.

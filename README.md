@@ -261,3 +261,7 @@ Coverage includes:
 - `docs/PRODUCTION_GO_LIVE_2026-10-01.md`: data-flow go-live record.
 - `docs/CONSOLIDATION_2026-10-03.md`: frontend/API consolidation record.
 - `tests/`: regression contracts.
+
+### PR #39 release validation
+
+The reviewed production sync source keeps its existing v9.2 filename/trigger handlers but contains the v9.4 metadata extension: first25 fields unchanged, banner quantity appended at26. See [acceptance and remaining gates](docs/release-39-readiness.md), [approved role policy](docs/release-39-permission-policy.md), [deployment](docs/release-39-deployment.md) and [compatible rollback](docs/release-39-rollback.md). Local QA and CI use only synthetic records; no paid cloud staging is required.

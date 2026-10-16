@@ -67,7 +67,7 @@
     if(!o)return'';
     var q=Math.max(1,Number(o.cardQty||1)),accessory=[];
     if(o.card)accessory.push('Thiệp: '+(o.cardText||'')+' ('+vnd(q*10000)+')');
-    if(o.banner)accessory.push('Banner: '+(o.bannerText||'')+' (35.000đ)');
+    if(o.banner){var bq=Math.max(1,Number(o.bannerQty||1));accessory.push('Banner ×'+bq+': '+(o.bannerText||'')+' ('+vnd(bq*35000)+')');}
     if(Number(o.charmFee))accessory.push('Charm: '+(o.charmText||'')+' ('+vnd(o.charmFee)+')');
     if(Number(o.paperFee))accessory.push('Thay giấy: '+(o.paperText||'')+' ('+vnd(o.paperFee)+')');
     var out=[

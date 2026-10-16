@@ -6,7 +6,7 @@ This is a procedure prepared for review, not permission to deploy, alter real re
 
 Record the candidate commit and CI `release-hashes-*` artifact, the currently deployed frontend and every API function version, migration ledger, Apps Script deployment/version and trigger configuration. Preserve the last known good complete artifact set. Confirm who can pause website mutations and every ingestion/writeback/queue writer, and verify the pause works on isolated staging first.
 
-Verify managed database backup/PITR retention and an isolated restore target. Rehearse recovery there using synthetic records, including orders, settlement requests, operation receipts, activity log, delete queues, users/session policy, and Storage proof/image objects and references. Store recovery timing, row counts and monetary reconciliation. The repository PGlite rehearsal covers a local snapshot round trip only.
+Verify managed database backup/PITR retention and an isolated restore target. Rehearse recovery there using synthetic records, including orders, settlement requests, operation receipts, activity log, delete queues, users/session policy, and Storage proof/image objects and references. Store recovery timing, row counts and monetary reconciliation. The PGlite rehearsal checks pre/post-release snapshots. The real local drill (`staging-restore.cjs`) additionally restores pg_dump into a fresh database and archived files into an independent Storage volume/API, comparing financial totals, row hashes and signed proof bytes. This establishes local recovery mechanics, not production PITR availability. No paid cloud staging is required for this rehearsal.
 
 Before changing the database, snapshot the actual live definitions of affected total/finance/mutation/search functions and triggers and the migration ledger. The repository's captured production baseline has historical gaps and is not a substitute for a verified live backup. Record payment/settlement/debt counts and sums using a read-only approved reconciliation process.
 
@@ -22,8 +22,14 @@ If the release schema has been applied, prefer a reviewed forward fix or a front
 
 Restoring the pre-release database backup would discard legitimate writes after the recovery point. It requires explicit incident authorization, a documented recovery point and preservation/replay/reconciliation of those writes and proof objects on a separate target. Never automatically run a production restore from this PR or CI.
 
-Never reactivate the legacy Sheet import or parallel Apps Script writer while website mutations remain active. Preserve the v9.2 production data flow unless an independently approved data-flow recovery procedure changes it.
+Never reactivate the legacy Sheet import or parallel Apps Script writer while website mutations remain active. Preserve the website-first v9.2 data flow; the reviewed v9.4 metadata writer appends banner quantity without changing handler names or existing column positions. Preserve that unless an independently approved data-flow recovery procedure changes it.
 
 ## Verification and reopening
 
 Verify restored artifact SHA-256 against its retained manifest and deployed file/function versions. Reconcile order/settlement/receipt/audit counts, banner totals, verified payment totals and debt sums. Validate role denials, idempotent retry, proof links, search and desktop/mobile smoke tests. Recovery owner records the evidence and authorizes reopening writers one at a time. Keep the incident log and both pre/post recovery snapshots.
+
+## Packaged compatible fallback
+
+The release archive includes `compatible-fallback/` from prior green commit `52718b2cd9311891297e4666dfeba4a72629b463`. Read-only Deno comparison against the upgraded QA database verifies multi-banner, Full Paid and flower-only financial response parity. This is a known older search/UI fallback, not a reversal of all fixes. Keep release database/functions, ingest/feed and v9.4 metadata writer; do not substitute an arbitrary old production writer. Apply fallback frontend and API core/legacy/shared files together, preserve the archive manifest, then reconcile before resuming writes. This drill does not authorize production use.
+
+Apply only the five delta migrations in `scripts/release-migrations.json`; do not replay reconstructed historical migrations against the live divergent ledger. Retain SQL execution receipts, actual pre-change definitions and the mapping to generated migration versions.

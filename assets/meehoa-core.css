@@ -4,6 +4,8 @@
  */
 /* ===== meehoa-v3.css ===== */
 /* Canonical base UI extracted from HTML to avoid dual stylesheet ownership. */
+.search-date-scope{display:inline-flex;align-items:center;gap:6px;margin:0;text-transform:none;letter-spacing:normal;white-space:normal}
+.search-date-scope input{width:16px;height:16px;padding:0;flex:none}
 /* ===== MEEHOASG BOTANICAL STUDIO DESIGN SYSTEM ===== */
 :root {
   /* Surfaces & Warm Atmosphere */
