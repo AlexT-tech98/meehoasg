@@ -1788,6 +1788,14 @@ body.mee-search-page .topbar-left{min-width:0!important}
   .mee-full-paid-proof-links{justify-content:flex-start}
 }
 
+/* Save is an action target on iOS; keep text selection available in order fields. */
+#orderForm #orderSubmit{
+  -webkit-user-select:none!important;
+  user-select:none!important;
+  -webkit-touch-callout:none!important;
+  touch-action:manipulation;
+}
+
 /* ===== meehoa-v35.css ===== */
 /* Canonical owner: production range picker, production layout, materials UI. */
 .page-status{display:none!important}

@@ -106,6 +106,20 @@ async function loginAndBootstrapCore(payload){const result=await loginCore(paylo
 async function currentBootstrapCore(payload){const user=await requireUser(payload);return {ok:true,user:publicUser(user),initial:await initialCore(user,payload.token)}}
 
 const mutationRoutes=new Set(['createOrder','updateOrder','saveShipFee','submitSettlement','saveShipAndSubmitSettlement','reviewSettlement','updateStatus']);
+// Bounded, authenticated failure metadata only. Does not write or read an order.
+async function logOrderSaveFailure(payload){
+  const user=await requireUser(payload);
+  const stages=new Set(['submit','validate','serialize','payment','files','request','render']);
+  const diagnosticId=String(payload.diagnosticId||'');
+  if(!/^save-[a-z0-9]{1,16}-[a-z0-9]{1,12}$/.test(diagnosticId)||!stages.has(payload.stage))return fail('Invalid diagnostic.','INVALID_DIAGNOSTIC');
+  const word=v=>String(v||'').replace(/[^a-zA-Z0-9_.-]/g,'').slice(0,64);
+  console.warn('meehoa_order_save_failure',JSON.stringify({diagnosticId,username:user.username,role:user.role,stage:payload.stage,
+    orderId:/^[a-zA-Z0-9_-]{1,64}$/.test(String(payload.orderId||''))?payload.orderId:'',
+    build:word(payload.build),errorName:word(payload.errorName),errorCode:word(payload.errorCode),
+    sourceLocation:/^(html|meehoa-core\.js):\d{1,6}:\d{1,6}$/.test(String(payload.sourceLocation||''))?payload.sourceLocation:'',
+    browser:['ios-webkit','firefox','chromium','other'].includes(payload.browser)?payload.browser:'other'}));
+  return {ok:true};
+}
 Deno.serve(async request=>{
   const origin=request.headers.get('origin')||'',allow=ALLOWED.includes(origin)?origin:ALLOWED[0];
   const cors={'Access-Control-Allow-Origin':allow,'Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'content-type, authorization, apikey','Content-Type':'application/json; charset=utf-8','Vary':'Origin'};
@@ -123,6 +137,7 @@ Deno.serve(async request=>{
     else if(name==='getDashboardSummary')result=await fastDashboard(payload);
     else if(name==='getKpi')result=await fastKpi(payload);
     else if(name==='getFlowerInventory')result=await flowerInventory(payload);
+    else if(name==='logOrderSaveFailure')result=await logOrderSaveFailure(payload);
     else if(name==='getOrder')result=await fastOrder(payload);
     else if(name==='getDebtReview')result=await fastDebt(payload);
     else if(name==='getFullPaidReport')result=await fullPaidReport(payload);
