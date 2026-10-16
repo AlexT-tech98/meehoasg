@@ -152,7 +152,7 @@ function decorate(row, user, settlement) {
     hasAccessories: accessory > 0, settlementStatus: status,
     settlementRequestId: settlement?.id || '', settlementReason: settlement?.rejection_reason || '',
     locked, canEdit, canShip: !locked, canOperate: !locked && ['ADMIN', 'THO_OPS'].includes(user.role),
-    canSubmitSettlement: !locked && !row.full_paid && row.status === 'Đã giao' && (user.role === 'ADMIN' || owner),
+    canSubmitSettlement: !locked && !row.full_paid && row.status === 'Đã giao' && owner,
     detailLoaded: true
   };
 }
@@ -214,7 +214,7 @@ async function getDebt(payload, user) {
   const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
   const sale = user.role === 'ADMIN' ? norm(payload.sale) : null;
   const items = (await decoratedRange(start, end, user)).filter(o => {
-    if (o.status !== 'Đã giao' || o.settled) return false;
+    if (o.status !== 'Đã giao' || o.paymentVerified || o.debt <= 0) return false;
     if (user.role === 'ADMIN') return !sale || norm(o.sale) === sale;
     return norm(o.sale) === norm(user.username) || norm(o.sale) === norm(user.display_name);
   });

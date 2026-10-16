@@ -39,7 +39,7 @@ async function main(){
    assert.equal(r.summary.grossRevenue,rows.reduce((n,x)=>n+x.revenue,0));return{orders:r.summary.orders,grossRevenue:r.summary.grossRevenue};
   });
   await check('new date blank rejected without row write',async()=>{const before=(await db.query('select count(*) from orders')).rows[0].count;const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),date:''}},'qa_sale');assert.equal(r.ok,false);assert.equal(r.code,'ORDER_INPUT_INVALID');assert.equal((await db.query('select count(*) from orders')).rows[0].count,before);});
-  let order;
+  let order,thoOrder;
   await check('create 3-banner order through real API; idempotent retry one SQL receipt',async()=>{
    const p={requestId:crypto.randomUUID(),order:{...base(),imageFiles:[png]}};const r=await call('createOrder',p,'qa_sale');assert.equal(r.ok,true,JSON.stringify({code:r.code,message:r.message}));order=r.order;
    assert.equal(order.bannerQty,3);assert.equal(order.totalDue,625000);assert.equal(order.debt,625000);
@@ -52,16 +52,22 @@ async function main(){
    assert.ok(order,'create prerequisite');const denied=await call('updateOrder',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,order:{...base(),flower:'Changed'}},'qa_sale_other');assert.equal(denied.code,'NOT_OWNER');
    for(const status of ['Đã bó','Đã giao']){const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,status},'qa_tho');assert.equal(r.ok,true,r.message);assert.equal(r.order.status,status);order=r.order;}
   });
-  await check('all active operator debt scopes reconcile exact IDs and totals',async()=>{
-   const expected=(await db.query("select id,mee_ops_total(o)::float8 as total from orders o where order_date=$1 and status='Đã giao' and not settled and not full_paid",[date])).rows;
-   const responses=[];for(const actor of ['qa_admin','qa_sale','qa_tho']){const r=await call('getDebtReview',{start:date,end:date},actor);assert.equal(r.ok,true);assert.deepEqual(r.items.map(o=>o.id).sort(),expected.map(o=>o.id).sort());responses.push(r.summary.debt);}
-   assert.equal(new Set(responses).size,1);return{eligible:expected.length,debt:responses[0]};
+  await check('owner debt scopes reconcile exact IDs; foreign Sale filter cannot widen scope',async()=>{
+   async function ownDelivered(actor,sale){const created=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),...(sale?{sale}:{})}},actor);assert.equal(created.ok,true,created.message);let o=created.order;for(const status of ['Đã bó','Đã giao']){const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status},'qa_tho');assert.equal(r.ok,true,r.message);o=r.order;}return o;}
+   thoOrder=await ownDelivered('qa_admin','QA Tiên');await ownDelivered('qa_sale_other');
+   const counts={};for(const actor of ['qa_admin','qa_sale','qa_tho','qa_sale_other']){
+    const expected=(await db.query("select o.id from orders o join app_users u on u.username=$2 where o.order_date=$1 and o.status='Đã giao' and not o.settled and not o.full_paid and (u.role='ADMIN' or mee_ops_owner(o.sale,u))",[date,actor])).rows;
+    const r=await call('getDebtReview',{start:date,end:date,...(actor==='qa_admin'?{}:{sale:'qa_admin'})},actor);assert.equal(r.ok,true);assert.equal(r.scope,actor==='qa_admin'?'ADMIN':'SELF');assert.deepEqual(r.items.map(o=>o.id).sort(),expected.map(o=>o.id).sort());for(const o of r.items)if(actor!=='qa_admin')assert.equal(o.saleUsername,actor);counts[actor]=r.items.length;
+   }return{counts};
   });
-  await check('THO_OPS submits real bill; SALE denied review; ADMIN approves atomically',async()=>{
-   assert.ok(order,'create prerequisite');const submitted=await call('submitSettlement',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,billFiles:[png]},'qa_tho');assert.equal(submitted.ok,true,submitted.message);
-   const denied=await call('reviewSettlement',{settlementId:submitted.requestId,mutationRequestId:crypto.randomUUID(),decision:'APPROVED'},'qa_sale');assert.equal(denied.code,'NOT_OWNER');
+  await check('only owner submits bill; cross-owner denied; ADMIN approves atomically',async()=>{
+   assert.ok(thoOrder,'owner fixture prerequisite');const before=(await db.query('select count(*) from storage.objects')).rows[0].count;
+   for(const actor of ['qa_tho','qa_sale_other','qa_admin']){const denied=await call('submitSettlement',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,billFiles:[png]},actor);assert.equal(denied.code,'NOT_OWNER');}
+   assert.equal((await db.query('select count(*) from storage.objects')).rows[0].count,before,'foreign requests must not upload proofs');
+   const submitted=await call('submitSettlement',{requestId:crypto.randomUUID(),orderId:thoOrder.id,expectedUpdatedAt:thoOrder.updatedAt,billFiles:[png]},'qa_tho');assert.equal(submitted.ok,true,submitted.message);
+   const denied=await call('reviewSettlement',{settlementId:submitted.requestId,mutationRequestId:crypto.randomUUID(),decision:'APPROVED'},'qa_tho');assert.equal(denied.code,'NOT_OWNER');
    const approved=await call('reviewSettlement',{settlementId:submitted.requestId,mutationRequestId:crypto.randomUUID(),decision:'APPROVED'},'qa_admin');assert.equal(approved.ok,true,approved.message);assert.equal(approved.order.settled,true);assert.equal(approved.order.debt,0);
-   const row=(await db.query('select o.settled,s.status,s.bill_urls from orders o join settlement_requests s on s.order_id=o.id where o.id=$1',[order.id])).rows[0];assert.equal(row.status,'APPROVED');assert.equal(row.settled,true);assert.ok(row.bill_urls.length);
+   const row=(await db.query('select o.settled,s.status,s.bill_urls from orders o join settlement_requests s on s.order_id=o.id where o.id=$1',[thoOrder.id])).rows[0];assert.equal(row.status,'APPROVED');assert.equal(row.settled,true);assert.ok(row.bill_urls.length);
   });
   await check('Full Paid uploads proof, excludes debt, financial increase invalidates',async()=>{
    const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),fullPaidRequested:true,imageFiles:[png],fullPaidBillFiles:[png],payment:'Đã thanh toán toàn bộ đơn'}},'qa_sale');assert.equal(r.ok,true,r.message);assert.equal(r.order.fullPaid,true);assert.equal(r.order.debt,0);assert.equal(r.order.fullPaidTotal,625000);

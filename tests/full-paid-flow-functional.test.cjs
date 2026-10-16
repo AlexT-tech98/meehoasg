@@ -37,7 +37,7 @@ test('order total includes flower, all accessories, VAT and confirmed shop shipp
 test('Full Paid is excluded from debt and included in KPI verification',()=>{
   assert.match(core,/o\.status==='Đã giao'&&!o\.paymentVerified&&o\.debt>0/);
   assert.match(core,/if\(!\(r\.settled\|\|r\.full_paid\)\)continue/);
-  assert.match(core,/canSubmitSettlement:!locked&&!fullPaid/);
+  assert.match(core,/canSubmitSettlement:owner&&!locked&&!fullPaid/);
   assert.match(core,/settlementStatus:ss/);
   assert.match(core,/AUTO_FULL_PAID/);
 });

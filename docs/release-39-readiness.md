@@ -51,3 +51,7 @@ Before READY TO DEPLOY: retain final exact-head green CI/artifact links; obtain 
 After authorized deployment: record frontend/function/script hashes/versions, apply read-only reconciliation and approved isolated smoke checks, observe API failures and financial totals; reopen writers only after owner sign-off. No merge, production deployment or customer-data mutation has been performed by this validation.
 
 Owner instruction on16 October2026: **“Bỏ qua phần trigger, xử lý sau.”** Trigger inventory/acceptance is explicitly deferred, not a failed test or a claim of verification. This deferral does not establish the live Apps Script source/version or authorize changing production triggers.
+
+## Post-deployment owner correction
+
+The owner's subsequent instruction restricts debt to the assigned Sale and settlement submission to that owner only, including THO_OPS accounts such as Tiên. This supersedes earlier all-shop eligibility statements in this ledger. ADMIN retains shop-wide review and approval, but cannot submit on another owner's behalf. Cross-account denial is covered through actual SQL mutations, pre-upload API rejection, core reader identity tests, and role/viewport E2E. See `20261016123513_settlement_owner_scope.sql` and the superseding policy record. No customer amounts or historical requests are rewritten.

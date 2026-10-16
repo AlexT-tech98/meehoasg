@@ -76,6 +76,8 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
     }else if(action==='saveShipFee'){
       try{input.shipFee=operationMoney(p.shipFee);}catch(e){return operationFailure(e.message,'SHIP_INVALID');}
     }else if(action==='submitSettlement'){
+      const current=await one('orders',{id:'eq.'+input.orderId});if(!current)return operationFailure('Không tìm thấy đơn.','NOT_FOUND');
+      if(![clean(user.username).toLowerCase(),clean(user.display_name).toLowerCase()].includes(clean(current.sale).toLowerCase()))return operationFailure('Chỉ người phụ trách đơn được gửi tất toán.','NOT_OWNER');
       if(Array.isArray(p.billUrls)&&p.billUrls.length)return operationFailure('Vui lòng tải ảnh bill lên từ thiết bị.','BILL_INVALID');
       if(!Array.isArray(p.billFiles)||!p.billFiles.length||p.billFiles.length>10)return operationFailure('Cần 1–10 ảnh bill.','BILL_REQUIRED');
       input.newBillUrls=await upload(p.billFiles,'settlement-bills');input.newSettlementId=newId('SET');input.note=clean(p.note);

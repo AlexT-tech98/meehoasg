@@ -11,3 +11,7 @@ This is a reviewable procedure, not authorization to run it. Keep all related fi
 7. Owner approves reopening writers one at a time. Any smoke mutation must use explicitly approved isolated test records, not real customer orders. Observe public-network P50/P95 and request counts, errors, totals and sync retries. Record deployed parity and acceptance evidence before declaring operational completion.
 
 If a gate fails, stop and follow `release-39-rollback.md`. Prefer compatible forward fix/fallback with new schema and banner-aware writers. Never drop banner quantity or restore an old financial function after multi-banner writes. Production database restore requires separate incident approval and reconciliation of writes after the restore point.
+
+## Owner-scope corrective deployment
+
+The owner's subsequent assignment-only policy supersedes all-shop debt/submission. For production already at `20261016121553_release39_reviewed_unified_delta`, apply **only** `20261016123513_settlement_owner_scope.sql`; do not replay the original five deltas. Deploy current core/legacy/order-actions with the updated shared write service, then frontend cache version `20261016-owner-scope-rc3`. Inactive and anonymous access stay denied. ADMIN reviews shop-wide and approves/rejects; new settlement submissions are owner-only for every role. Customer financial records are not updated by this migration. Keep the corrected backend/SQL during any frontend fallback.

@@ -3,5 +3,6 @@
   "20261016080719_global_paginated_order_search.sql",
   "20261016080720_allow_active_users_settlement.sql",
   "20261016080721_banner_quantity.sql",
-  "20261016080722_bounded_order_pages.sql"
+  "20261016080722_bounded_order_pages.sql",
+  "20261016123513_settlement_owner_scope.sql"
 ]

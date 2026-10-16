@@ -152,8 +152,8 @@ test('banner quantity validation rejects zero and non-integer counts',()=>{
  assert.throws(()=>api.normalizeOperationOrder({...base(),banner:true,bannerText:'Test',bannerQty:1.5},user));
 });
 
-test('THO_OPS can submit eligible settlement and cannot approve it',async()=>{
- const row=await delivered();
+test('THO_OPS owner can submit own eligible settlement and cannot approve it',async()=>{
+ let row=await delivered();await db.query("update orders set sale='Thợ' where id=$1",[row.id]);row=await current(row.id);
  const submitted=await rpc('submitSettlement',{orderId:row.id,expectedUpdatedAt:row.updated_at,newSettlementId:'THO-'+(++seq),newBillUrls:['supabase://settlement-bills/tho.jpg']},{actor:'tho'});
  assert.equal(submitted.ok,true,JSON.stringify(submitted));
  const denied=await rpc('reviewSettlement',{settlementId:submitted.requestId,decision:'APPROVED'},{actor:'tho'});
@@ -162,10 +162,9 @@ test('THO_OPS can submit eligible settlement and cannot approve it',async()=>{
  assert.equal(approved.ok,true,JSON.stringify(approved));
 });
 
-test('SALE may submit settlement on another sale order, but cannot edit or approve it',async()=>{
+test('SALE cannot submit another owner order and denial writes nothing',async()=>{
  const row=await delivered();
- const submitResult=await rpc('submitSettlement',{orderId:row.id,expectedUpdatedAt:row.updated_at,newSettlementId:'CROSS-'+(++seq),newBillUrls:['supabase://settlement-bills/cross-sale.jpg']},{actor:'sale2'});
- assert.equal(submitResult.ok,true,JSON.stringify(submitResult));
- const denyReview=await rpc('reviewSettlement',{settlementId:submitResult.requestId,decision:'APPROVED'},{actor:'sale2'});
- assert.equal(denyReview.code,'NOT_OWNER');
+ for(const actor of ['sale2','tho']){const submitResult=await rpc('submitSettlement',{orderId:row.id,expectedUpdatedAt:row.updated_at,newSettlementId:'CROSS-'+(++seq),newBillUrls:['supabase://settlement-bills/cross-sale.jpg']},{actor});assert.equal(submitResult.code,'NOT_OWNER');}assert.deepEqual(await current(row.id),row);assert.equal((await db.query('select count(*)::int as n from settlement_requests')).rows[0].n,0);
 });
+
+test('ADMIN cannot submit another owner order; only owner submits, ADMIN reviews',async()=>{const row=await delivered();const denied=await rpc('submitSettlement',{orderId:row.id,expectedUpdatedAt:row.updated_at,newSettlementId:'BAD-ADMIN',newBillUrls:['supabase://settlement-bills/bill.jpg']},{actor:'admin'});assert.equal(denied.code,'NOT_OWNER');const own=await submit(row);assert.equal(own.ok,true);const approved=await rpc('reviewSettlement',{settlementId:own.requestId,decision:'APPROVED'},{actor:'admin'});assert.equal(approved.ok,true);});

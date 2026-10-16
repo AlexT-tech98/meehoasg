@@ -33,3 +33,7 @@ Verify restored artifact SHA-256 against its retained manifest and deployed file
 The release archive includes `compatible-fallback/` from prior green commit `52718b2cd9311891297e4666dfeba4a72629b463`. Read-only Deno comparison against the upgraded QA database verifies multi-banner, Full Paid and flower-only financial response parity. This is a known older search/UI fallback, not a reversal of all fixes. Keep release database/functions, ingest/feed and v9.4 metadata writer; do not substitute an arbitrary old production writer. Apply fallback frontend and API core/legacy/shared files together, preserve the archive manifest, then reconcile before resuming writes. This drill does not authorize production use.
 
 Apply only the five delta migrations in `scripts/release-migrations.json`; do not replay reconstructed historical migrations against the live divergent ledger. Retain SQL execution receipts, actual pre-change definitions and the mapping to generated migration versions.
+
+## Owner-scope correction supersedes prior backend fallback
+
+After the owner-scope correction, **restore frontend only and retain the current owner-scoped core/legacy/order-actions/shared service and database function**. The earlier all-shop API core is not authorization-compatible and must not be restored. The historical-reader drill proves financial-read parity only, not permission-policy compatibility; the release archive now excludes backend files from the fallback directory. Existing customer financial records are not changed by the correction.
