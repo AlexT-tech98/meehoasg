@@ -23,3 +23,7 @@ For production already at the owner-scope correction, apply only `20261016130221
 ## All-unsettled debt membership correction
 
 Deploy current core/legacy API and `html`/`index.html` together (`20261016-unsettled-debt-rc4`). No database migration, stored payment edit or status backfill is needed. Debt membership is assigned-owner/date-range plus not settled/not Full Paid, independently of delivery stage or remaining amount. Submission gates stay unchanged. Verify the zero-balance and not-delivered notes and that Full Paid leaves the list after both full refresh and incremental updates. Retain current HTML and API membership checks during recovery; older HTML hides unfinished orders.
+
+## Create-order latency correction (2026-10-16)
+
+See [measured scope, limits, tests and rollback](validation/create-order-performance-2026-10-16.md). Backend-only correction for bounded concurrent image upload/signing and redundant post-create read. Deploy core, legacy API and order-actions together because all import shared storage. Preserve verify_jwt=true. No SQL, frontend, Apps Script or customer-data migration.

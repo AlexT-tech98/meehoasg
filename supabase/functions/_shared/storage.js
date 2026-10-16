@@ -17,11 +17,16 @@ export function createOperationStorage({url,key,fetcher=fetch,uuid=()=>crypto.ra
     });
     const urls=[];
     try{
-      for(const image of images){
-        // Record the known key BEFORE the request; an upload can succeed while its response is lost.
-        urls.push(`supabase://${bucket}/${image.path}`);
-        const r=await fetcher(`${url}/storage/v1/object/${bucket}/${image.path}`,{method:'POST',headers:{...headers,'Content-Type':image.type,'x-upsert':'false'},body:image.bytes});
-        if(!r.ok)throw Error('Không lưu được ảnh.');
+      // Settle every in-flight upload before cleanup; a late success must not leak.
+      // Three requests at a time keeps bandwidth and Storage load bounded.
+      for(let offset=0;offset<images.length;offset+=3){
+        const results=await Promise.allSettled(images.slice(offset,offset+3).map(async image=>{
+          urls.push(`supabase://${bucket}/${image.path}`);
+          const r=await fetcher(`${url}/storage/v1/object/${bucket}/${image.path}`,{method:'POST',headers:{...headers,'Content-Type':image.type,'x-upsert':'false'},body:image.bytes});
+          if(!r.ok)throw Error('Không lưu được ảnh.');
+        }));
+        const failed=results.find(r=>r.status==='rejected');
+        if(failed)throw failed.reason;
       }
       return urls;
     }catch(e){await discard(urls);throw e;}

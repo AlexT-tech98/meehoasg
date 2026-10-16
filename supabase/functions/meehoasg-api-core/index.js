@@ -47,7 +47,8 @@ function accessoryTotal(row){return cardQty(row)*10000+bannerQty(row)*35000+num(
 function orderTotal(row){const ship=norm(row?.shipping).includes('shop')&&row?.ship_confirmed?num(row.ship_fee):0;return num(row?.flower_total)+accessoryTotal(row)+num(row?.vat)+ship}
 function paidAmount(payment,base,settled){if(settled>0)return settled;const text=norm(payment);if(!text||/chua/.test(text))return 0;if(/full|da tt|da thanh toan (?:du|toan bo)|thanh toan du/.test(text))return base;const m=text.replace(/\s/g,'').match(/([0-9.,]+)(k|tr|trieu)?/);if(!m)return /da thanh toan/.test(text)?base:0;let a=num(m[1]);if(m[2]==='tr'||m[2]==='trieu')a*=1000000;else if(m[2]==='k'||(a>0&&a<=1000&&!/\d\s*(?:đ|d|vn[dđ])(?:$|[\s),.])/i.test(text)))a*=1000;return Math.max(0,a)}
 function contactFields(row){const contact=clean(row.address);const p=contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);return {phone:clean(row.phone)||(p?clean(p[1]):''),address:contact.replace(/(?:SĐT|SDT)\s*:\s*[^\n]+\n?/i,'').replace(/^Địa chỉ\s*:\s*/i,'').trim()}}
-async function displayUrls(urls){const out=[];for(const url of urls||[]){const m=String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);if(!m){out.push(url);continue}const r=await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${m[1]}/${m[2]}`,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});if(!r.ok)continue;const s=await r.json();out.push(`${SUPABASE_URL}/storage/v1${s.signedURL}`)}return out}
+async function displayUrls(urls){const out=[];const values=urls||[];for(let offset=0;offset<values.length;offset+=3){const batch=await Promise.all(values.slice(offset,offset+3).map(async url=>{const m=String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);if(!m)return url;const r=await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${m[1]}/${m[2]}`,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});if(!r.ok)return null;const s=await r.json();return `${SUPABASE_URL}/storage/v1${s.signedURL}`}));out.push(...batch.filter(u=>u!==null))}return out}
+
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
 const uploadEvidenceImages=operationStorage.uploadImages;
 async function settlementMap(ids){if(!ids.length)return {};const unique=[...new Set(ids)],parts=[];for(let i=0;i<unique.length;i+=30){const chunk=unique.slice(i,i+30);parts.push(all('settlement_requests',{order_id:'in.('+chunk.map(id=>'"'+String(id).replaceAll('"','')+'"').join(',')+')',order:'submitted_at.desc'}))}const rows=(await Promise.all(parts)).flat(),map={};for(const row of rows)if(!map[row.order_id])map[row.order_id]=row;return map}
@@ -59,8 +60,10 @@ async function operationResult(action,payload,user){
   const result=await operations.run(action,payload,user);
   if(!result?.ok)return result;
   const output={...result};delete output.row;
-  const row=await one('orders',{id:`eq.${result.orderId}`})||result.row;
-  if(row){const dir=await saleDirectory();output.order=await decoratedExisting(row,user,dir);}
+  // A fresh SQL result already contains the committed row. Retries must re-read
+  // because a durable receipt can precede later edits or settlement decisions.
+  const [row,dir]=await Promise.all([result.idempotent||!result.row?one('orders',{id:`eq.${result.orderId}`}):Promise.resolve(result.row),saleDirectory()]);
+  if(row)output.order=await decoratedExisting(row,user,dir);
   return output;
 }
 async function decoratedExisting(row,user,dir){
