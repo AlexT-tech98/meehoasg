@@ -1154,7 +1154,7 @@ function opsTile(o) {
         var drop = document.getElementById('searchDropdown');
         if (!drop) return;
         var q = norm(val || '').trim();
-        if (!q || q.length < 1) {
+        if (S.page === 'orders' || !q || q.length < 1) {
             drop.classList.add('hidden');
             drop.innerHTML = '';
             return;

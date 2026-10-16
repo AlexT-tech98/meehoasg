@@ -10,12 +10,12 @@ Real isolated PostgreSQL17.6, PostgREST14.3, Storage1.35.3 and candidate Deno2.5
 
 | #36 | Technical result | Reproducible evidence |
 |---|---|---|
-| 1 Payment labels | PASS local | API-created flower-only and Full Paid orders rendered in list/detail at both widths; flower-only 500,000 + accessories125,000 retains125,000 debt |
+| 1 Payment labels | PASS local | API-created flower-only and Full Paid orders rendered in list/detail at both widths; accessory badge geometry cannot cover finance; flower-only 500,000 + accessories125,000 retains125,000 debt |
 | 2 Desktop Dashboard parity | PASS local | Authorized Sale report visible at both widths; SQL/API order and revenue reconciliation |
 | 3 Eligible debts and Tiên scope | PASS local | Delivered, unverified, debt>0 fixtures; active-role view/submit and inactive/anonymous denial; owner-approved all-shop scope |
 | 4 P50/P95 and calls | PASS local budgets | 30 samples each of5 APIs,20k scale search;10 fresh clients each of6 role/width combinations; one bootstrap, no Admin hourly order refetch, zero warm revisit calls |
 | 5 Canonical CSS | PASS local | Reproducible generated assets; screenshots across Dashboard/orders/debt/materials/production; canonical CSS ownership tests |
-| 6 Global and optional date search | PASS local | Vietnamese normalization,240 global vs40 date+keyword; actual calendar apply; bounded distinct pages; SQL anon denial;20k scale |
+| 6 Global and optional date search | PASS local | Vietnamese normalization,240 global vs40 date+keyword; actual calendar apply; stale suggestion overlay hidden on Orders; bounded distinct pages; SQL anon denial;20k scale |
 | 7 Selection only | PASS local | Checkbox issues no mutation; explicit bulk action changes chosen seed only, then restores QA seed status |
 | 8 Settlement permissions | PASS local + owner approved | Cross-Sale submit allowed, edit/approval denied; THO_OPS submits actual uploaded bill; ADMIN approval only; see approved policy |
 | 9 Multi-day flowers | PASS local |240 distinct orders;120 per canonical variety; actual multiday Tulip drawer120 unique IDs |
