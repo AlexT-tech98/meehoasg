@@ -113,6 +113,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Create fresh local QA credentials (never uploaded)
         run: node scripts/staging-config.cjs
+      - name: Acquire content-verified QA images with official registry fallback
+        run: node scripts/staging-images.cjs
       - name: Start isolated PostgreSQL 17, PostgREST and Supabase Storage
         run: docker --host=unix:///var/run/docker.sock compose --env-file artifacts/staging/docker.local.env -f infra/staging.compose.yml up -d --wait --wait-timeout 180
       - name: Seed synthetic accounts, orders and environment marker
