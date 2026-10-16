@@ -3,23 +3,25 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const src=fs.readFileSync('html','utf8');const baseCss=fs.readFileSync('assets/meehoa-v3.css','utf8');
+const reporter=src.slice(src.indexOf('function reportOrderSaveFailure('),src.indexOf('function validateOrderForm('));
 const save=src.slice(src.indexOf('async function saveOrder(e,id){'),src.indexOf('async function submitSettlement'));
 function harness(values={},options={}){
-  const messages=[],requests=[],window={_orderRequestId:'request-1',_pasted:[],_editExistingUrls:[]};
+  const diagnostics=[],messages=[],requests=[],window={_orderRequestId:'request-1',_pasted:[],_editExistingUrls:[]};
   const btn={disabled:false,textContent:'Tạo đơn',dataset:{}};
   const form={dataset:{detailReady:'1'},isConnected:true};
   const fields={imageFiles:{files:options.samples||[]},fullPaidBillFiles:{files:options.bills||[]},orderSubmit:btn};
   const input={customer:'Khách',date:'2026-10-08',time:'16:00',flower:'Hoa tươi',flowerTotal:'700.000',paymentType:'unpaid',sale:'C Mụi',shipping:'Ghé lấy',...values};
   const context={window,document:{getElementById:k=>fields[k]},S:{user:{role:'ADMIN'},page:'orders',dirty:new Set()},
-    FormData:class{entries(){return Object.entries(input)}has(k){return k in input}},
-    validateOrderForm:()=>options.valid!==false,orderFormFeedback:(_,m)=>{messages.push(m);return false},toast:m=>messages.push(m),
+    UI_BUILD:'fixture',navigator:{userAgent:'iPhone'},sessionStorage:{getItem:()=>null,setItem(){}},console:{warn(){}},gasOnce:async(name,p)=>{diagnostics.push({name,p});if(options.diagnosticError)throw Error('offline');return {ok:true}},
+    FormData:class{constructor(){if(options.serializeError)throw Error('Form serialization failed');}entries(){return Object.entries(input)}has(k){return k in input}},
+    validateOrderForm:()=>{if(options.validationError)throw Error('Validation crashed');return options.valid!==false},orderFormFeedback:(_,m)=>{messages.push(m);return false},toast:m=>messages.push(m),
     moneyDigits:v=>Number(String(v).replace(/\D/g,'')),isShop:v=>/shop/i.test(v),safeUuid:()=> 'fallback-1',orderById:()=>({}),
     fileData:async f=>{if(options.fileError)throw Error('Không đọc được ảnh');return f},
     actionRun:fn=>fn(),gas:async(name,p)=>{requests.push({name,p});return options.response?options.response():{ok:true,orderId:'MEE-1',order:{id:'MEE-1'}}},
     orderMutationDirty(){},applyCanonicalOrder(){},refreshOrderEntity:async()=>{},closeOverlay(){},showCreatedOrderCopy(){if(options.displayError)throw Error('render failed');form.isConnected=false}
   };
-  vm.createContext(context);vm.runInContext(save,context);
-  return {input,run:id=>context.saveOrder({target:form,preventDefault(){}},id||''),form,btn,window,messages,requests};
+  vm.createContext(context);vm.runInContext(reporter+save,context);
+  return {input,run:id=>context.saveOrder({target:form,preventDefault(){}},id||''),form,btn,window,messages,requests,diagnostics};
 }
 test('invalid required fields never send an order',async()=>{const h=harness({}, {valid:false});await h.run();assert.equal(h.requests.length,0);});
 test('full payment without sample or bill is visible in form and sends nothing',async()=>{
@@ -58,4 +60,17 @@ test('retry recovers the original payload even if draft values change after a lo
  await h.run();h.input.flower='Changed draft';h.input.note='Changed note';await h.run();
  assert.equal(h.requests[1].p.order.flower,'Hoa tươi');assert.equal(h.requests[0].p.requestId,h.requests[1].p.requestId);
  assert.ok(h.messages.some(m=>/Nội dung vừa sửa chưa được gửi/.test(m)));
+});
+
+test('serialization failure is shown in the form, logged, and can be retried',async()=>{
+ const opts={serializeError:true},h=harness({},opts);await h.run('EDIT-1');
+ assert.equal(h.requests.length,0);assert.match(h.messages.at(-1),/Form serialization failed.*Mã lỗi:/);
+ assert.equal(h.btn.disabled,false);assert.equal(h.form.dataset.saving,'0');assert.equal(h.diagnostics[0].p.stage,'serialize');
+ assert.equal(h.diagnostics[0].p.orderId,'EDIT-1');assert.equal(h.diagnostics[0].name,'logOrderSaveFailure');
+ opts.serializeError=false;await h.run('EDIT-1');assert.equal(h.requests.length,1);
+});
+test('validator exception is visible even when diagnostics cannot reach the server',async()=>{
+ const h=harness({}, {validationError:true,diagnosticError:true});await h.run();
+ assert.match(h.messages.at(-1),/Validation crashed/);assert.equal(h.requests.length,0);
+ assert.equal(h.diagnostics[0].p.stage,'validate');assert.equal(h.btn.disabled,false);
 });
