@@ -9,7 +9,7 @@ const day='2026-10-15',build='2026.09.28-supabase-v3';
 const orders=Array.from({length:36},(_,i)=>({id:'FIXTURE-'+i,customer:'Khách giả '+i,phone:'0900000000',date:day,time:'10:00',flower:'Tulip',flowerTotal:500000,payment:'Chưa thanh toán',paid:0,debt:605000,totalDue:605000,sale:'Sale Fixture',saleUsername:'sale',status:'Chờ bó',shipping:'Ghé lấy',address:'',note:'Dữ liệu kiểm thử cô lập',imageUrls:[],driveUrls:[],card:false,banner:true,bannerQty:3,bannerText:'Fixture',accessoryTotal:105000,vat:0,shipFee:0,shipConfirmed:false,canEdit:true,canOperate:true,canShip:true,canSubmitSettlement:false,detailLoaded:true,updatedAt:'2026-10-15T00:00:00Z'}));
 const production={ok:true,date:day,orders};
 const listing={ok:true,items:orders,total:orders.length,page:1,pageSize:80,hasMore:false,range:{start:day,end:day}};
-const dashboard={ok:true,range:{start:day,end:day},summary:{orders:36,revenue:18000000,grossRevenue:18000000,settledRevenue:0,unsettledRevenue:18000000,debt:21780000,'Chờ bó':36,'Đã bó':0,'Đã giao':0},attention:[],attentionGroups:{nearUnpacked:[],packedOverdue:[]},salesDaily:[{date:day,sale:'Sale Fixture',saleUsername:'sale',orders:36,settledOrders:0,unsettledOrders:36,grossRevenue:18000000,settledRevenue:0,unsettledRevenue:18000000}]};
+const dashboard={ok:true,range:{start:day,end:day},hourlyScope:'SELECTED_RANGE',hourlyCounts:[{hour:10,count:36}],hourlyUnknown:0,summary:{orders:36,revenue:18000000,grossRevenue:18000000,settledRevenue:0,unsettledRevenue:18000000,debt:21780000,'Chờ bó':36,'Đã bó':0,'Đã giao':0},attention:[],attentionGroups:{nearUnpacked:[],packedOverdue:[]},salesDaily:[{date:day,sale:'Sale Fixture',saleUsername:'sale',orders:36,settledOrders:0,unsettledOrders:36,grossRevenue:18000000,settledRevenue:0,unsettledRevenue:18000000}]};
 const server=http.createServer((req,res)=>{try{let file=decodeURIComponent(new URL(req.url,'http://localhost').pathname);file=file==='/'?'/index.html':file;const full=path.resolve(root,'.'+file);if(!full.startsWith(root+path.sep))throw Error('path');const type=file.endsWith('.css')?'text/css':file.endsWith('.js')?'text/javascript':file.endsWith('.svg')?'image/svg+xml':'text/html';res.writeHead(200,{'Content-Type':type});res.end(fs.readFileSync(full));}catch{res.writeHead(404);res.end();}});
 async function main(){
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
@@ -31,7 +31,7 @@ async function main(){
     if(req.method()==='OPTIONS')return route.fulfill({status:204,headers:{'access-control-allow-origin':'*','access-control-allow-headers':'*'}});
     const {name,payload={}}=req.postDataJSON();calls.push({name,payload});
     let data;
-    if(name==='loginAndBootstrap'){const p=role==='ADMIN'?'dashboard':role==='THO_OPS'?'production':'orders';data={ok:true,token:'a'.repeat(64),user:{username:'fixture',name:'Fixture '+role,role,active:true},options:{sales:['Sale Fixture'],shipping:['Ghé lấy'],statuses:['Chờ bó','Đã bó','Đã giao']},initial:{page:p,data:p==='dashboard'?dashboard:p==='production'?production:listing,at:Date.now()}};}
+    if(name==='loginAndBootstrap'||name==='getCurrentUserAndBootstrap'){const p=role==='ADMIN'?'dashboard':role==='THO_OPS'?'production':'orders';data={ok:true,token:'a'.repeat(64),user:{username:'fixture',name:'Fixture '+role,role,active:true},options:{sales:['Sale Fixture'],shipping:['Ghé lấy'],statuses:['Chờ bó','Đã bó','Đã giao']},initial:{page:p,data:p==='dashboard'?dashboard:p==='production'?production:listing,at:Date.now()}};}
     else if(name==='getOrders')data=listing;
     else if(name==='getProductionOrders')data=production;
     else if(name==='getDashboardSummary')data=dashboard;
@@ -51,6 +51,17 @@ async function main(){
    await page.locator('.mee-approved-analytics-sales').waitFor();
    assert.equal(await page.locator('.mee-approved-analytics-sales').isVisible(),true,'authorized Sale report visible');
    assert.match(await page.locator('.mee-approved-analytics-sales').innerText(),/36 đơn/);
+   assert.equal(await page.locator('[data-dashboard-money]').count(),4);
+   assert.equal(await page.locator('.dashboard-grid').count(),0);
+   assert.equal(await page.locator('[data-hourly-total]').getAttribute('data-hourly-total'),'36');
+   for(const key of ['revenue','average','debt','staff'])await page.locator('[data-dashboard-money="'+key+'"]').click();
+   assert.equal(await page.locator('.mee-approved-kpi.revenue .mee-approved-kpi-value').innerText(),'••••••');
+   assert.doesNotMatch(await page.locator('#content').innerText(),/\d[\d.]*\s*đ(?:\s|$)/);
+   await page.reload();await page.locator('[data-dashboard-money="revenue"]').waitFor();
+   assert.equal(await page.locator('.mee-approved-kpi.revenue .mee-approved-kpi-value').innerText(),'••••••','privacy survives cached-shell reload');
+   for(const key of ['revenue','average','debt','staff'])await page.locator('[data-dashboard-money="'+key+'"]').click();
+   assert.match(await page.locator('.mee-approved-kpi.revenue').innerText(),/18.000.000/);
+
   }
   await page.evaluate(()=>MEEOPS7.go('orders'));await page.waitForFunction(()=>S.page==='orders'&&document.querySelector('#content').textContent.includes('Khách giả'));
   const beforeWarm=calls.filter(c=>c.name==='getOrders').length,warmStart=performance.now();
