@@ -144,7 +144,7 @@
   function delegatedEditTap(e){
     var edit=e.target&&e.target.closest?e.target.closest('#overlay [data-mee-order-action="edit"]'):null;
     if(!edit||!window.MEEOPS7||typeof MEEOPS7.openOrderForm!=='function')return;
-    var code=edit.getAttribute('onclick')||'',match=code.match(/openOrderForm\\(['"]([^'"]+)['"]\\)/);
+    var code=edit.getAttribute('onclick')||'',match=code.match(/openOrderForm\(['"]([^'"]+)['"]\)/);
     if(!match)return;
     e.preventDefault();e.stopImmediatePropagation();
     MEEOPS7.openOrderForm(match[1]);
