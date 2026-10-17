@@ -497,8 +497,9 @@ async function saveUser(payload, admin) {
 }
 
 async function logPerformanceBatch(payload, user) {
-  const items = Array.isArray(payload.items) ? payload.items.slice(0, 100) : [];
-  const rows = items.filter(x => clean(x.api)).map(x => ({
+  const allowedCreateMetrics = new Set(['createOrder', 'createOrder:upload', 'createOrder:prepareImages']);
+  const items = Array.isArray(payload.items) ? payload.items.slice(0, user.role === 'ADMIN' ? 100 : 3) : [];
+  const rows = items.filter(x => clean(x.api) && (user.role === 'ADMIN' || allowedCreateMetrics.has(clean(x.api)))).map(x => ({
     occurred_at: Number.isFinite(Date.parse(x.at)) ? x.at : new Date().toISOString(),
     api: clean(x.api).slice(0, 80), total_ms: Math.max(0, Math.min(120000, Math.round(num(x.totalMs)))),
     server_ms: Math.max(0, Math.min(120000, Math.round(num(x.serverMs)))),
@@ -540,7 +541,7 @@ const writeRoutes = {
 };
 const adminRoutes = new Set(['listUsers', 'getSettlementQueue', 'reviewSettlement',
   'reviewSettlementsBulk', 'saveKpiOperation', 'saveUser', 'getPerformanceReport',
-  'logPerformanceBatch', 'getDashboardSummary']);
+  'getDashboardSummary']);
 const opsRoutes = new Set(['updateStatus', 'updateStatusBulk', 'getFlowerInventory',
   'getProductionOrders']);
 
