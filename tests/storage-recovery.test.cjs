@@ -4,6 +4,21 @@ const user={username:'sale1',role:'SALE'},order={customer:'Test',date:'2026-10-0
 async function service(options={}){const {createOperationService}=await import('../supabase/functions/_shared/operations.js');let calls=[],deletions=[];const svc=createOperationService({one:async()=>null,sha256:async s=>hash(s),newId:()=> 'ONE',uploadImages:async(files,bucket)=>{calls.push(bucket);if(options.uploadFail&&bucket==='settlement-bills')throw Error('UPLOAD_FAIL');return files.map((f,i)=>`supabase://${bucket}/${i}.jpg`);},discardImages:async urls=>deletions.push(...urls),db:async(name)=>{if(name==='rpc/mee_ops_lookup')return null;if(options.unknown)throw Error('LOST_RESPONSE');return options.result||{ok:false,code:'TEST_REJECTED'};}});return {svc,calls,deletions};}
 test('SQL rejection removes uploaded evidence without committing an order',async()=>{const h=await service();await h.svc.run('createOrder',{requestId:'key',order},user);assert.deepEqual(h.deletions,['supabase://order-images/0.jpg','supabase://settlement-bills/0.jpg']);});
 test('failed bill batch also cleans the already uploaded sample batch',async()=>{const h=await service({uploadFail:true});await assert.rejects(()=>h.svc.run('createOrder',{requestId:'key',order},user),/UPLOAD_FAIL/);assert.deepEqual(h.deletions,['supabase://order-images/0.jpg']);});
+test('small Full Paid batches upload concurrently and settle before cleanup',async()=>{
+ const {createOperationService}=await import('../supabase/functions/_shared/operations.js');
+ let releaseSample,started=[],deletions=[],mutations=0;
+ const svc=createOperationService({one:async()=>null,sha256:async s=>hash(s),newId:()=> 'ONE',
+  uploadImages:async(files,bucket)=>{started.push(bucket);if(bucket==='order-images')return new Promise(resolve=>{releaseSample=()=>resolve(['supabase://order-images/sample.jpg']);});throw Error('BILL_FAILED');},
+  discardImages:async urls=>deletions.push(...urls),db:async name=>{if(name==='rpc/mee_ops_mutate')mutations++;return null;}});
+ const pending=svc.run('createOrder',{requestId:'parallel',order},user);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(started,['order-images','settlement-bills']);
+ assert.deepEqual(deletions,[]);
+ releaseSample();
+ await assert.rejects(pending,/BILL_FAILED/);
+ assert.deepEqual(deletions,['supabase://order-images/sample.jpg']);
+ assert.equal(mutations,0);
+});
 test('unknown SQL response retains evidence for committed receipt recovery',async()=>{const h=await service({unknown:true});await assert.rejects(()=>h.svc.run('createOrder',{requestId:'key',order},user),/LOST_RESPONSE/);assert.deepEqual(h.deletions,[]);});
 test('concurrent duplicate receipt cleans only this losing request uploads',async()=>{const h=await service({result:{ok:true,idempotent:true,row:{image_urls:['supabase://order-images/winner.jpg'],full_paid_bill_urls:['supabase://settlement-bills/winner.jpg']}}});await h.svc.run('createOrder',{requestId:'key',order},user);assert.equal(h.deletions.length,2);assert.ok(h.deletions.every(u=>!u.includes('winner')));});
 test('storage batch validates all files before uploading, compensates an ambiguous upload',async()=>{
