@@ -167,12 +167,32 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function gasOnce(name, p) {
         if (p === void 0) { p = {}; }
         var timeoutMs = name === 'getFlowerInventory' || name === 'createOrder' || name === 'updateOrder' ? 90000 : 30000;
+        var requestHeaders = { 'Content-Type': 'application/json',
+                'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp4bmZoc2huYXZibXZkdGhybXJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0OTc5MDksImV4cCI6MjEwNjA3MzkwOX0.YCi2HBT78iFI5aVJSTqIhesHR_5E6hji6jzpM9X74fU', 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp4bmZoc2huYXZibXZkdGhybXJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0OTc5MDksImV4cCI6MjEwNjA3MzkwOX0.YCi2HBT78iFI5aVJSTqIhesHR_5E6hji6jzpM9X74fU' };
+        var requestBody = JSON.stringify({ name: name, payload: Object.assign({ token: S.token }, p) });
+        if (name === 'createOrder' && typeof XMLHttpRequest !== 'undefined') return new Promise(function(resolve, reject) {
+            var xhr = new XMLHttpRequest(), started = perfClock(), finished = false;
+            xhr.open('POST', 'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api', true);
+            xhr.timeout = timeoutMs;
+            Object.keys(requestHeaders).forEach(function(key) { xhr.setRequestHeader(key, requestHeaders[key]); });
+            xhr.upload.addEventListener('load', function() {
+                if (!finished) recordClientPerf('createOrder:upload', null, perfClock() - started, false, true);
+            });
+            xhr.onload = function() {
+                finished = true;
+                if (xhr.status < 200 || xhr.status >= 300) return reject(new Error('Máy chủ phản hồi lỗi HTTP ' + xhr.status + '.'));
+                try { resolve(JSON.parse(xhr.responseText)); } catch (error) { reject(error); }
+            };
+            xhr.onerror = function() { finished = true; reject(new Error('Lỗi kết nối máy chủ.')); };
+            xhr.ontimeout = function() { finished = true; reject(new Error('Máy chủ phản hồi quá lâu.')); };
+            xhr.onabort = function() { finished = true; reject(new Error('Máy chủ phản hồi quá lâu.')); };
+            xhr.send(requestBody);
+        });
         var controller = new AbortController();
         var timer = setTimeout(function () { controller.abort(); }, timeoutMs);
         return fetch('https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api', {
-            method: 'POST', headers: { 'Content-Type': 'application/json',
-                'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp4bmZoc2huYXZibXZkdGhybXJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0OTc5MDksImV4cCI6MjEwNjA3MzkwOX0.YCi2HBT78iFI5aVJSTqIhesHR_5E6hji6jzpM9X74fU', 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp4bmZoc2huYXZibXZkdGhybXJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0OTc5MDksImV4cCI6MjEwNjA3MzkwOX0.YCi2HBT78iFI5aVJSTqIhesHR_5E6hji6jzpM9X74fU' },
-            body: JSON.stringify({ name: name, payload: Object.assign({ token: S.token }, p) }),
+            method: 'POST', headers: requestHeaders,
+            body: requestBody,
             signal: controller.signal
         }).then(function (response) {
             if (!response.ok) throw new Error('Máy chủ phản hồi lỗi HTTP ' + response.status + '.');
@@ -195,7 +215,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function recordClientPerf(name, r, totalMs, retried, ok) {
         if (!benchmarkEnabled() || name === 'logPerformanceBatch') return;
         S.perf.buffer.push({ at: new Date().toISOString(), api: name, totalMs: Math.max(0, Math.round(totalMs)), serverMs: Math.max(0, Math.round(r && r._perf && r._perf.serverMs || 0)), page: S.page || '', build: UI_BUILD, retried: !!retried, ok: ok !== false });
-        if (S.perf.buffer.length >= 15) flushPerfBuffer(); else schedulePerfFlush();
+        if (name === 'createOrder' || S.perf.buffer.length >= 15) flushPerfBuffer(); else schedulePerfFlush();
     }
     function flushPerfBuffer() {
         if (!benchmarkEnabled() || S.perf.flushing || !S.perf.buffer.length) return Promise.resolve();
@@ -875,14 +895,14 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         }else{order.payment='Chưa thanh toán (0 đ)';order.fullPaidRequested=false;}
         delete order.paymentType;delete order.depositAmount;['card','banner'].forEach(function(k){order[k]=fd.has(k);});}
         var requestId=id?(f.dataset.mutationRequestId||(f.dataset.mutationRequestId=safeUuid())):(window._orderRequestId||safeUuid());if(!id)window._orderRequestId=requestId;f.dataset.saving='1';orderFormFeedback(f,id?'Đang lưu thay đổi…':'Đang chuẩn bị ảnh và tạo đơn…',false);if(btn){btn.disabled=true;btn.dataset.oldText=btn.textContent;btn.textContent=id?'Đang lưu…':'Đang tạo đơn…';}
-        stage='files';if(!f._pendingOperation){order.imageFiles=await Promise.all(files.map(fileData));order.fullPaidBillFiles=await Promise.all(billFiles.map(fileData));if(id)order.imageUrls=window._editExistingUrls||[];f._pendingOperation={requestId:requestId,expectedUpdatedAt:id?f.dataset.orderVersion:'',orderId:id,sourceSheet:oldOrder&&oldOrder.sourceSheet||'',sourceRow:oldOrder&&oldOrder.sourceRow||0,order:JSON.parse(JSON.stringify(order))};}else{order=f._pendingOperation.order;orderFormFeedback(f,'Đang xác minh lần gửi trước. Nội dung vừa sửa chưa được gửi.',false);}stage='request';var r=await actionRun(function(){sent=true;return gas(id?'updateOrder':'createOrder',f._pendingOperation);},id?'Đang lưu thay đổi…':'Đang tạo đơn…');if(!r||!r.ok){sent=!!(r&&r.code==='SERVER_ERROR')||!r;var rejected=new Error(r&&r.message||'Không lưu được đơn.');rejected.code=r&&r.code||'';if(r&&r.code!=='SERVER_ERROR'&&!(wasPending&&['AUTH_REQUIRED','REQUEST_CHANGED'].includes(r.code))){delete f._pendingOperation;f.dataset.mutationRequestId='';if(!id)window._orderRequestId='';}throw rejected;}saved=true;stage='render';f.dataset.saved='1';
+        stage='files';if(!f._pendingOperation){var imageStart=perfClock(),prepared=await Promise.all([Promise.all(files.map(function(file){return fileData(file,'sample');})),Promise.all(billFiles.map(function(file){return fileData(file,'bill');}))]);order.imageFiles=prepared[0];order.fullPaidBillFiles=prepared[1];if(!id&&files.length+billFiles.length)recordClientPerf('createOrder:prepareImages',null,perfClock()-imageStart,false,true);if(id)order.imageUrls=window._editExistingUrls||[];f._pendingOperation={requestId:requestId,expectedUpdatedAt:id?f.dataset.orderVersion:'',orderId:id,sourceSheet:oldOrder&&oldOrder.sourceSheet||'',sourceRow:oldOrder&&oldOrder.sourceRow||0,order:JSON.parse(JSON.stringify(order))};}else{order=f._pendingOperation.order;orderFormFeedback(f,'Đang xác minh lần gửi trước. Nội dung vừa sửa chưa được gửi.',false);}stage='request';var r=await actionRun(function(){sent=true;return gas(id?'updateOrder':'createOrder',f._pendingOperation);},id?'Đang lưu thay đổi…':'Đang tạo đơn…');if(!r||!r.ok){sent=!!(r&&r.code==='SERVER_ERROR')||!r;var rejected=new Error(r&&r.message||'Không lưu được đơn.');rejected.code=r&&r.code||'';if(r&&r.code!=='SERVER_ERROR'&&!(wasPending&&['AUTH_REQUIRED','REQUEST_CHANGED'].includes(r.code))){delete f._pendingOperation;f.dataset.mutationRequestId='';if(!id)window._orderRequestId='';}throw rejected;}saved=true;stage='render';f.dataset.saved='1';
             orderMutationDirty();var canonical;if(r.order){applyCanonicalOrder(r.order,oldOrder);canonical=r.order;}else{canonical=Object.assign({},oldOrder||order,{id:r.orderId||id});refreshOrderEntity(r.orderId||id,r.sourceSheet||(oldOrder&&oldOrder.sourceSheet),r.sourceRow||(oldOrder&&oldOrder.sourceRow),oldOrder).catch(function(e){console.warn('Không tải lại được chi tiết đơn:',e);});}if(S.page==='dashboard')S.dirty.delete('getDashboardSummary');if(S.page==='production')S.dirty.delete('getProductionOrders');if(S.page==='orders')S.dirty.delete('getOrders');if(S.page==='debt')S.dirty.delete('getDebtReview');
             if(id){closeOverlay();toast(r.message||'Đã lưu thay đổi.');}else{window._orderRequestId='';showCreatedOrderCopy(canonical||order,r.orderId);toast(r.message||'Đã tạo đơn.');}
         }catch(err){var diagnosticId=reportOrderSaveFailure(id,stage,err);var message=err.code==='ORDER_CONFLICT'||err.code==='VERSION_REQUIRED'||err.code==='REQUEST_CHANGED'?String(err.message):saved?'Đơn đã được lưu nhưng chưa hiển thị được. Vui lòng kiểm tra danh sách đơn trước khi tạo tiếp.':sent?'Chưa xác nhận được kết quả lưu. Giữ form này và thử lại để kiểm tra cùng đơn, tránh tạo trùng.':String(err.message||'Không lưu được đơn.');message+=' Mã lỗi: '+diagnosticId;orderFormFeedback(f,message,true);toast(message,1);}finally{f.dataset.saving='0';if(btn&&f.isConnected){btn.disabled=saved;btn.textContent=saved?'Đã lưu — kiểm tra danh sách':(btn.dataset.oldText||(id?'Lưu thay đổi':'＋ Tạo đơn ngay'));}}
     }
         async function submitSettlement(e,id){
         e.preventDefault();var form=e.target,btn=document.getElementById('settlementSubmit');if(form.dataset.saving==='1')return;var o=orderById(id),fd=new FormData(form),p=Object.fromEntries(fd.entries());p.requestId=form.dataset.mutationRequestId||(form.dataset.mutationRequestId=safeUuid());p.expectedUpdatedAt=o.updatedAt;p.orderId=id;p.sourceSheet=o.sourceSheet;p.sourceRow=o.sourceRow;p.shipFee=moneyDigits(p.shipFee);var files=[...((document.getElementById('billFiles')||{}).files||[])];if(!files.length)return toast('Cần ít nhất một ảnh bill.',1);form.dataset.saving='1';if(btn){btn.disabled=true;btn.textContent='Đang gửi…';}
-        try{p.billFiles=await Promise.all(files.map(fileData));var r=await actionRun(function(){return gas('saveShipAndSubmitSettlement',p);},'Đang gửi tất toán…');if(!r.ok)throw new Error(r.message);orderMutationDirty();await refreshOrderEntity(id,o.sourceSheet,o.sourceRow,Object.assign({},o));closeOverlay();toast(r.message||'Đã gửi tất toán.');}catch(err){toast(err.message,1);form.dataset.saving='0';if(btn){btn.disabled=false;btn.textContent='Gửi tất toán';}}
+        try{p.billFiles=await Promise.all(files.map(function(file){return fileData(file,'bill');}));var r=await actionRun(function(){return gas('saveShipAndSubmitSettlement',p);},'Đang gửi tất toán…');if(!r.ok)throw new Error(r.message);orderMutationDirty();await refreshOrderEntity(id,o.sourceSheet,o.sourceRow,Object.assign({},o));closeOverlay();toast(r.message||'Đã gửi tất toán.');}catch(err){toast(err.message,1);form.dataset.saving='0';if(btn){btn.disabled=false;btn.textContent='Gửi tất toán';}}
     }
     async function changeStatus(id,target){var o=orderById(id);if(!o||!target)return;try{var r=await actionRun(function(){return gas('updateStatus',{orderId:id,sourceSheet:o.sourceSheet,sourceRow:o.sourceRow,status:target,requestId:safeUuid(),expectedUpdatedAt:o.updatedAt});},'Đang cập nhật trạng thái…');if(!r.ok)throw new Error(r.message);var patched=r.order||Object.assign({},o,{updatedAt:r.updatedAt||o.updatedAt,status:target,canSubmitSettlement:target==='Đã giao'&&norm(o.saleUsername||o.sale)===norm(S.user.username)});S.selected.delete(id);orderMutationDirty();applyCanonicalOrder(patched,o);if(S.page==='production')S.dirty.delete('getProductionOrders');if(S.page==='orders')S.dirty.delete('getOrders');toast('Đã chuyển sang '+target);}catch(e){toast(e.message,1);}}
     async function nextStatus(id){var o=orderById(id);if(o)await changeStatus(id,nextStatusValue(o.status));}
@@ -981,7 +1001,19 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         }
         catch (e) { }
     } return 'req-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10); }
-    function fileData(f) { return new Promise(function (res, rej) { if (!f || !f.type.startsWith('image/')) return rej(new Error('Vui lòng chọn file ảnh.')); var img=new Image(),url=URL.createObjectURL(f);img.onload=function(){try{var scale=Math.min(1,1800/Math.max(img.naturalWidth,img.naturalHeight)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);var data=canvas.toDataURL('image/jpeg',.82);URL.revokeObjectURL(url);res({data:data,mimeType:'image/jpeg',name:(f.name||'image').replace(/\.[^.]+$/,'')+'.jpg'});}catch(e){URL.revokeObjectURL(url);rej(e);}};img.onerror=function(){URL.revokeObjectURL(url);rej(new Error('Không đọc được ảnh '+(f.name||'')));};img.src=url;}); }
+    function fileData(f,kind) { return new Promise(function (res, rej) {
+        if (!f || !f.type.startsWith('image/')) return rej(new Error('Vui lòng chọn file ảnh.'));
+        var img=new Image(),url=URL.createObjectURL(f),bill=kind==='bill';
+        img.onload=function(){try{
+            var limit=bill?1600:1280,scale=Math.min(1,limit/Math.max(img.naturalWidth,img.naturalHeight)),canvas=document.createElement('canvas');
+            canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
+            canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+            var data=canvas.toDataURL('image/jpeg',bill ? 0.82 : 0.74);
+            URL.revokeObjectURL(url);
+            res({data:data,mimeType:'image/jpeg',name:(f.name||'image').replace(/\.[^.]+$/,'')+'.jpg'});
+        }catch(e){URL.revokeObjectURL(url);rej(e);}};
+        img.onerror=function(){URL.revokeObjectURL(url);rej(new Error('Không đọc được ảnh '+(f.name||'')));};img.src=url;
+    }); }
     function setProductionDate(v) { S.filters.production.date = v; loadProduction(true); }
     function setProductionView(v) { S.view = v === 'grid' ? 'grid' : 'kanban'; renderProduction(); }
     function setDebtFilter(k, v) { if (['start', 'end', 'sale'].includes(k))
