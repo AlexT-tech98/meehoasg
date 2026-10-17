@@ -210,10 +210,10 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         return /HTTP\s*0|NetworkError|network|lỗi kết nối/i.test(m);
     }
     function perfClock() { return (window.performance && performance.now) ? performance.now() : Date.now(); }
-    function benchmarkEnabled() { return !!(S.user && S.user.role === 'ADMIN'); }
+    function benchmarkEnabled() { return !!S.user; }
     function schedulePerfFlush() { if (!benchmarkEnabled() || S.perf.flushTimer || S.perf.flushing || !S.perf.buffer.length) return; S.perf.flushTimer = setTimeout(function () { S.perf.flushTimer = null; flushPerfBuffer(); }, 30000); }
     function recordClientPerf(name, r, totalMs, retried, ok) {
-        if (!benchmarkEnabled() || name === 'logPerformanceBatch') return;
+        if (!benchmarkEnabled() || name === 'logPerformanceBatch' || (S.user.role !== 'ADMIN' && name.indexOf('createOrder') !== 0)) return;
         S.perf.buffer.push({ at: new Date().toISOString(), api: name, totalMs: Math.max(0, Math.round(totalMs)), serverMs: Math.max(0, Math.round(r && r._perf && r._perf.serverMs || 0)), page: S.page || '', build: UI_BUILD, retried: !!retried, ok: ok !== false });
         if (name === 'createOrder' || S.perf.buffer.length >= 15) flushPerfBuffer(); else schedulePerfFlush();
     }

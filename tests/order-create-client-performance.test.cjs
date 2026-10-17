@@ -39,3 +39,15 @@ test('sample photos use fewer pixels while bills retain higher resolution',async
   assert.equal(revoked,2);
   assert.equal(bill.name,'bill.jpg');
 });
+
+test('sale telemetry contains only bounded create-order timings',async()=>{
+  const source=fs.readFileSync('supabase/functions/meehoasg-api/index.js','utf8');
+  const fn=source.slice(source.indexOf('async function logPerformanceBatch('),source.indexOf('async function performanceReport('));
+  const writes=[];
+  const context={db:async(_table,_query,_method,rows)=>writes.push(...rows),clean:v=>String(v||'').trim(),num:v=>Number(v)||0,Date,Math,Array,Set};
+  vm.createContext(context);vm.runInContext(fn,context);
+  const items=[{api:'getOrders',totalMs:1},{api:'createOrder:upload',totalMs:200},{api:'createOrder',totalMs:300},{api:'getPerformanceReport',totalMs:1}];
+  const result=await context.logPerformanceBatch({items},{username:'sale',role:'SALE'});
+  assert.equal(result.count,2);
+  assert.deepEqual(writes.map(x=>x.api),['createOrder:upload','createOrder']);
+});
