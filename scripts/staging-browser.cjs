@@ -44,7 +44,7 @@ async function main(){
    const changedNote='QA FULL PAID EDIT '+width;
    await page.locator('#orderForm textarea[name="note"]').fill(changedNote);
    await page.locator('#orderSubmit').click();
-   await page.waitForFunction(({id,note})=>!document.querySelector('#orderForm')&&S.orders.get(id)?.note===note,{id:full.orderId,note});
+   await page.waitForFunction(({id,note})=>!document.querySelector('#orderForm')&&S.orders.get(id)?.note===note,{id:full.orderId,note:changedNote});
    await page.evaluate(id=>MEEOPS7.openOrderForm(id),full.orderId);
    await page.locator('#orderForm textarea[name="note"]').waitFor();
    assert.equal(await page.locator('#orderForm textarea[name="note"]').inputValue(),changedNote);
