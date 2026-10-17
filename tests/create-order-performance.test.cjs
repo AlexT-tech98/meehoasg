@@ -20,3 +20,14 @@ test('signed image requests overlap, retain order, and preserve existing URLs',a
  const c=core();let active=0,peak=0;c.fetch=async url=>{peak=Math.max(peak,++active);await tick();active--;return {ok:true,json:async()=>({signedURL:'/signed/'+url.split('/').pop()})}};
  c.urls=['supabase://order-images/a','https://existing/b','supabase://order-images/c','supabase://order-images/d'];const urls=await vm.runInContext('displayUrls(urls)',c);assert.equal(peak,2);assert.deepEqual(Array.from(urls),['/storage/v1/signed/a','https://existing/b','/storage/v1/signed/c','/storage/v1/signed/d']);
 });
+test('image previews reuse a signed URL only within its safe lifetime',()=>{
+ const source=fs.readFileSync('html','utf8'),start=source.indexOf('var signedImageCache = new Map();'),end=source.indexOf('function imageFallback',start);
+ assert.ok(start>=0&&end>start);let now=0;const context={URL,Map,Date:{now:()=>now}};vm.createContext(context);vm.runInContext(source.slice(start,end),context);
+ const old='https://qa.supabase.co/storage/v1/object/sign/order-images/sample.jpg?token=old',fresh=old.replace('old','fresh');
+ context.old=old;context.fresh=fresh;
+ assert.equal(vm.runInContext('imageSrc(old,320)',context),old);
+ assert.equal(vm.runInContext('imageSrc(fresh,320)',context),old);
+ now=46*60*1000;
+ assert.equal(vm.runInContext('imageSrc(fresh,320)',context),fresh);
+ assert.equal(vm.runInContext("imageSrc('https://example.com/plain.jpg',320)",context),'https://example.com/plain.jpg');
+});
