@@ -71,7 +71,16 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
       if(input.fullPaidRequested&&(!retained.length&&!imageFiles.length))return operationFailure('Full Paid cần ảnh mẫu hoa.','FULL_PAID_EVIDENCE_REQUIRED');
       if(input.fullPaidRequested&&(!current.full_paid&&!billFiles.length))return operationFailure('Full Paid cần ảnh bill mới.','FULL_PAID_EVIDENCE_REQUIRED');
       if(input.fullPaidRequested&&input.order.shipping==='Shop book ship'&&!input.order.ship_confirmed)return operationFailure('Full Paid cần phí ship đã xác nhận.','FULL_PAID_EVIDENCE_REQUIRED');
-      input.newImageUrls=await upload(imageFiles,'order-images');input.newBillUrls=await upload(billFiles,'settlement-bills');
+      if(imageFiles.length&&billFiles.length&&imageFiles.length+billFiles.length<=3){
+        // Small Full Paid batches can share the existing three-upload limit.
+        // Settle both sides before cleanup so a late success cannot leak.
+        const uploads=await Promise.allSettled([upload(imageFiles,'order-images'),upload(billFiles,'settlement-bills')]);
+        const failed=uploads.find(result=>result.status==='rejected');
+        if(failed)throw failed.reason;
+        input.newImageUrls=uploads[0].value;input.newBillUrls=uploads[1].value;
+      }else{
+        input.newImageUrls=await upload(imageFiles,'order-images');input.newBillUrls=await upload(billFiles,'settlement-bills');
+      }
       input.order.image_urls=[...new Set([...retained.map(u=>currentIds.get(privateImageIdentity(u))),...input.newImageUrls])];
     }else if(action==='saveShipFee'){
       try{input.shipFee=operationMoney(p.shipFee);}catch(e){return operationFailure(e.message,'SHIP_INVALID');}
