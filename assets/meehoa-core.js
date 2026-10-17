@@ -846,6 +846,15 @@
     });
   }
   function patchCopyActions(){patchCreatedCopy();wrapCopy();bindCopyTargets()}
+  // An edit tap has one owner. Consume it before any copy handlers can run.
+  function delegatedEditTap(e){
+    var edit=e.target&&e.target.closest?e.target.closest('#overlay [data-mee-order-action="edit"]'):null;
+    if(!edit||!window.MEEOPS7||typeof MEEOPS7.openOrderForm!=='function')return;
+    var code=edit.getAttribute('onclick')||'',match=code.match(/openOrderForm\(['"]([^'"]+)['"]\)/);
+    if(!match)return;
+    e.preventDefault();e.stopImmediatePropagation();
+    MEEOPS7.openOrderForm(match[1]);
+  }
   function delegatedCopyTap(e){
     var target=e.target&&e.target.closest?e.target.closest('#copyCreated,[onclick*="copyOrderById"],[onclick*="copyOrderField"]'):null;if(!target)return;
     if(target.id==='copyCreated'){e.preventDefault();e.stopImmediatePropagation();var pre=qs('#overlay pre');return copyNow(pre?pre.textContent||pre.innerText||'':'','thông tin đơn hàng')}
@@ -888,7 +897,7 @@
   }
   function init(){
     wrapOpenForm();patch();
-    if(!document.documentElement.dataset.meeCopyDelegate365){document.documentElement.dataset.meeCopyDelegate365='1';document.addEventListener('click',delegatedCopyTap,true)}
+    if(!document.documentElement.dataset.meeCopyDelegate365){document.documentElement.dataset.meeCopyDelegate365='1';document.addEventListener('click',delegatedEditTap,true);document.addEventListener('click',delegatedCopyTap,true)}
     var tries=0,bindTimer=setInterval(function(){wrapOpenForm();patchCopyActions();tries++;if((window.MEEOPS7&&MEEOPS7._meeCopy365)||tries>80)clearInterval(bindTimer)},50);
     var root=qs('#content');if(root)new MutationObserver(function(){setTimeout(patch,20)}).observe(root,{childList:true,subtree:true});
     var ov=qs('#overlay');if(ov)new MutationObserver(function(){setTimeout(function(){patchOrderForm();patchCopyActions();patchDelete()},0)}).observe(ov,{childList:true,subtree:true});
