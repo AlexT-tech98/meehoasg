@@ -6,7 +6,7 @@ const src=fs.readFileSync('html','utf8');const baseCss=fs.readFileSync('assets/m
 const reporter=src.slice(src.indexOf('function reportOrderSaveFailure('),src.indexOf('function validateOrderForm('));
 const save=src.slice(src.indexOf('async function saveOrder(e,id){'),src.indexOf('async function submitSettlement'));
 function harness(values={},options={}){
-  const diagnostics=[],messages=[],requests=[],window={_orderRequestId:'request-1',_pasted:[],_editExistingUrls:[]};
+  const diagnostics=[],messages=[],requests=[],metrics=[],window={_orderRequestId:'request-1',_pasted:[],_editExistingUrls:[]};
   const btn={disabled:false,textContent:'Tạo đơn',dataset:{}};
   const form={dataset:{detailReady:'1'},isConnected:true};
   const fields={imageFiles:{files:options.samples||[]},fullPaidBillFiles:{files:options.bills||[]},orderSubmit:btn};
@@ -16,12 +16,12 @@ function harness(values={},options={}){
     FormData:class{constructor(){if(options.serializeError)throw Error('Form serialization failed');}entries(){return Object.entries(input)}has(k){return k in input}},
     validateOrderForm:()=>{if(options.validationError)throw Error('Validation crashed');return options.valid!==false},orderFormFeedback:(_,m)=>{messages.push(m);return false},toast:m=>messages.push(m),
     moneyDigits:v=>Number(String(v).replace(/\D/g,'')),isShop:v=>/shop/i.test(v),safeUuid:()=> 'fallback-1',orderById:()=>({}),
-    fileData:async f=>{if(options.fileError)throw Error('Không đọc được ảnh');return f},
+    fileData:async f=>{if(options.fileError)throw Error('Không đọc được ảnh');return f},perfClock:()=>Date.now(),recordClientPerf:(...args)=>metrics.push(args),
     actionRun:fn=>fn(),gas:async(name,p)=>{requests.push({name,p});return options.response?options.response():{ok:true,orderId:'MEE-1',order:{id:'MEE-1'}}},
     orderMutationDirty(){},applyCanonicalOrder(){},refreshOrderEntity:async()=>{},closeOverlay(){},showCreatedOrderCopy(){if(options.displayError)throw Error('render failed');form.isConnected=false}
   };
   vm.createContext(context);vm.runInContext(reporter+save,context);
-  return {input,run:id=>context.saveOrder({target:form,preventDefault(){}},id||''),form,btn,window,messages,requests,diagnostics};
+  return {input,run:id=>context.saveOrder({target:form,preventDefault(){}},id||''),form,btn,window,messages,requests,diagnostics,metrics};
 }
 test('invalid required fields never send an order',async()=>{const h=harness({}, {valid:false});await h.run();assert.equal(h.requests.length,0);});
 test('full payment without sample or bill is visible in form and sends nothing',async()=>{
