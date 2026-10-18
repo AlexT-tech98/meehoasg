@@ -15,15 +15,13 @@ test('customer note and card text remain semantic, conditional attention blocks'
   assert.match(html,/String\(o\.cardText\|\|''\)\.trim\(\)/);
 });
 
-test('important order instructions have strong visual hierarchy without changing other detail cards',()=>{
-  assert.match(css,/\.mee-detail-note,\.mee-detail-card\{/);
-  assert.match(css,/box-shadow:inset 4px 0 0 #d89b2b/);
-  assert.match(css,/box-shadow:inset 4px 0 0 #d45472/);
-  assert.match(css,/\.mee-detail-note \.mee-detail-text,\s*\.mee-detail-card \.mee-detail-text\{/);
-  assert.match(css,/font-size:15px!important/);
-  assert.match(css,/font-weight:760!important/);
-  assert.match(css,/content:"!"!important/);
-  assert.match(css,/content:"✉"!important/);
+test('customer notes and card instructions use scoped readable attention sections',()=>{
+  assert.match(css,/\.mee-detail-note\{border-left:3px solid/);
+  assert.match(css,/\.mee-detail-card\{border-left:3px solid/);
+  assert.match(css,/\.mee-detail-text\{/);
+  assert.match(css,/overflow-wrap:anywhere/);
+  assert.doesNotMatch(css,/\.mee-detail-note\{[^}]*linear-gradient/);
+  assert.doesNotMatch(css,/\.mee-detail-card\{[^}]*linear-gradient/);
 });
 
 test('highlight release has a fresh production cache token',()=>{
