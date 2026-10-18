@@ -47,7 +47,7 @@
       orders.sort(function(a,b){return (String(a.date||'')+' '+String(a.time||'')).localeCompare(String(b.date||'')+' '+String(b.time||''))});
       S.data.production=Object.assign({},base||{ok:true},{orders:orders,rangeStart:start,rangeEnd:end});
       if(window.rememberOrders)rememberOrders(orders);
-      renderProduction();patchProductionRangeButton();
+      renderProduction();
     }catch(e){if(window.toast)toast(e&&e.message?e.message:'Không tải được khoảng ngày sản xuất.',1)}
   }
 
@@ -86,17 +86,6 @@
     return true;
   }
 
-  function patchProductionRangeButton(){
-    if(!window.S)return;var btn=qs('.production-filter .date-filter-btn');if(!btn)return;
-    var f=S.filters.production||{},start=f.start||f.date,end=f.end||f.date||start;
-    btn.setAttribute('onclick',"MEEOPS7.openDatePicker('production','range')");btn.textContent='▣ '+dateVN2(start)+' → '+dateVN2(end)+'　⌄';
-  }
-
-  function patchPaidCopy(root){
-    root=root||document;var walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),node;
-    while((node=walker.nextNode()))if(node.nodeValue&&node.nodeValue.indexOf('Đã thu đủ')>=0&&node.nodeValue.indexOf('Đã thu đủ tiền hoa')<0)node.nodeValue=node.nodeValue.replace(/Đã thu đủ/g,'Đã thu đủ tiền hoa');
-  }
-
   function materialSig(r,d){return d+'|'+(r.reviewCount||0)+'|'+(r.items||[]).map(function(x){return x.name+':'+x.orders}).join(',')}
   function renderMaterials(){
     if(!window.S||S.page!=='flowers')return;
@@ -119,9 +108,11 @@
     qsa('[data-open-order]',ov).forEach(function(btn){btn.addEventListener('click',function(){var id=btn.dataset.openOrder;if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();setTimeout(function(){if(window.MEEOPS7&&MEEOPS7.openDrawer)MEEOPS7.openDrawer(id,'production')},0)})});
   }
 
-  function removeLoadingCopy(){document.querySelectorAll('.page-status').forEach(function(el){el.remove()});var pill=qs('.loading-pill');if(pill){Array.from(pill.childNodes).forEach(function(n){if(n.nodeType===3)n.textContent=''});pill.querySelectorAll(':scope > span:not(.spinner)').forEach(function(el){el.style.display='none'})}}
-  function patch(){installRangePicker();patchProductionRangeButton();patchPaidCopy(qs('#content')||document);patchPaidCopy(qs('#overlay')||document);renderMaterials();removeLoadingCopy()}
-  var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patch,50)}
-  function init(){window.MEE_MATERIALS_RENDER=renderMaterials;if(window.MEEOPS7)MEEOPS7.openMaterialDrawer=openMaterialDrawer;patch();var content=qs('#content'),overlay=qs('#overlay');if(content)new MutationObserver(schedule).observe(content,{childList:true,subtree:true});if(overlay)new MutationObserver(schedule).observe(overlay,{childList:true,subtree:true})}
+  function init(){
+    window.MEE_MATERIALS_RENDER=renderMaterials;
+    if(window.MEEOPS7)MEEOPS7.openMaterialDrawer=openMaterialDrawer;
+    installRangePicker();
+    if(window.S&&S.page==='flowers')renderMaterials();
+  }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
