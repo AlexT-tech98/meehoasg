@@ -228,6 +228,16 @@ label {
   color: var(--success);
   border-color: var(--mint-leaf-border);
 }
+.badge.status-shipping {
+  background: #eaf0fc;
+  color: #24548c;
+  border-color: #c6d8f2;
+}
+.badge.status-pickup {
+  background: #eff2f8;
+  color: #374e70;
+  border-color: #d5deeb;
+}
 
 /* App Shell */
 .app {
