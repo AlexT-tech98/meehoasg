@@ -89,6 +89,6 @@ test('generated core includes the corrected action handler and the mobile boot c
   const chunk = between(core, '/* ===== meehoa-v366.js ===== */\n', '\n/* ===== meehoa-order-actions.js ===== */\n');
   assert.equal(chunk.slice('/* ===== meehoa-v366.js ===== */\n'.length).trim(), runtime.trim(), 'compiled core matches its source owner');
   assert.match(index, /var RELEASE='20261018-ui-v2-rc1'/);
-  assert.match(index, /meehoa-core\.js\?v=20261018-order-edit-rc1/);
+  assert.match(index, /meehoa-core\.js\?v=20261018-ui-v2-rc1/);
   assert.match(html, /if\(f\.dataset\.saving==='1'\)\{orderFormFeedback/);
 });
