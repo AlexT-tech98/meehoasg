@@ -62,3 +62,8 @@ test('UI V2 migration is packaged as an independent deployable delta with hashed
  assert.match(build,/sha256:sha\(uiV2Delta\)/);
  assert.match(migration,/CREATE OR REPLACE FUNCTION public\.mee_ops_mutate/);
 });
+
+test('dashboard has explicit counters for both five-stage readiness queues',()=>{
+ assert.match(core,/'Chờ bó':0,'Đã bó':0,'Chờ giao':0,'Chờ lấy':0,'Đã giao':0,unsettled:0/);
+ assert.match(core,/summary\[o\.status\]=\(summary\[o\.status\]\|\|0\)\+1/);
+});
