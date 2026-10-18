@@ -23,7 +23,7 @@ test('normal pages have one vertical scroll owner', () => {
 
 test('tables do not create a second vertical scrollbar', () => {
   assert.match(base, /\.table-wrap\s*\{[\s\S]*overflow:\s*auto;/, 'base table wrapper should be the legacy nested-scroll source');
-  assert.match(css, /\.table-wrap,\.mee-v361-table-wrap\{[\s\S]*overflow-x:auto!important;[\s\S]*overflow-y:visible!important/);
+  assert.match(css, /\.table-wrap\{[\s\S]*overflow-x:auto!important;[\s\S]*overflow-y:visible!important/);
 });
 
 test('intentional local surfaces keep local scrolling and page locks still work', () => {
