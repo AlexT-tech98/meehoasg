@@ -14,7 +14,8 @@ test('legacy observer entry points are bounded; new UI components must render di
 });
 test('the remaining ops patch owner must stay explicit until safely migrated',()=>{
  const source=read('meehoa-v366.js');
- assert.match(source,/function patchDelete\(/);
+ assert.doesNotMatch(source,/function patchDelete\(/);
+ assert.match(source,/data-mee-delete-order/);
  assert.match(source,/function wrapOpenForm\(/);
  assert.match(source,/function delegatedEditTap\(/);
  assert.match(source,/function delegatedCopyTap\(/);
