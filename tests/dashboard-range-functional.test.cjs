@@ -8,10 +8,28 @@ test('dashboard hours cover the same complete range as summary, including unclas
  assert.equal(r.hourlyCounts.reduce((n,x)=>n+x.count,0)+r.hourlyUnknown,r.summary.orders);
  assert.deepEqual(Array.from(r.hourlyCounts,x=>x.hour),[0,23]);assert.equal(r.hourlyCounts.reduce((n,x)=>n+x.count,0),261);
 });
-test('incremental dashboard edit moves a bucket without losing unknown-hour orders',()=>{
- const html=fs.readFileSync('html','utf8'),start=html.indexOf('function patchDashboardOrder('),end=html.indexOf('function patchOrdersOrder(',start);
- const c={S:{data:{dashboard:{summary:{orders:2},hourlyScope:'SELECTED_RANGE',hourlyCounts:[{hour:9,count:1}],hourlyUnknown:1}},filters:{dashboard:{start:'2025-01-01',end:'2025-01-02'}}},isoInRange:(d,a,b)=>d>=a&&d<=b,dashboardApplyStats:(s,o,n)=>s.orders+=n};vm.createContext(c);vm.runInContext(html.slice(start,end),c);
- vm.runInContext("patchDashboardOrder({date:'2025-01-02',time:'23:30'},{date:'2025-01-01',time:'09:15'})",c);
- let r=c.S.data.dashboard;assert.deepEqual(Array.from(r.hourlyCounts,x=>({hour:x.hour,count:x.count})),[{hour:23,count:1}]);assert.equal(r.hourlyUnknown,1);assert.equal(r.summary.orders,2);
- vm.runInContext("patchDashboardOrder({date:'2025-01-03',time:''},{date:'2025-01-01',time:''})",c);assert.equal(r.hourlyUnknown,0);assert.equal(r.summary.orders,1);
+test('after an order time/date edit the authoritative Dashboard retains correct hourly unknown bucket',async()=>{
+ const c=fixture();
+ c.fixtures=[
+  {id:'QA-A',date:'2025-01-01',time:'09:15',flowerTotal:100,paymentVerified:false,debt:100,sale:'QA',saleUsername:'qa',status:'Chờ bó'},
+  {id:'QA-B',date:'2025-01-02',time:'invalid',flowerTotal:100,paymentVerified:false,debt:100,sale:'QA',saleUsername:'qa',status:'Chờ bó'}
+ ];
+ const initial=await vm.runInContext("fastDashboard({start:'2025-01-01',end:'2025-01-02'})",c);
+ assert.equal(initial.summary.orders,2);assert.equal(initial.hourlyUnknown,1);
+ assert.deepEqual(Array.from(initial.hourlyCounts,x=>x.hour),[9]);
+
+ // An edit must invalidate the complete server-owned Dashboard, not change
+ // only a local time bucket while retaining stale financial/Sale aggregates.
+ const html=fs.readFileSync('html','utf8');
+ assert.match(html,/S\\.dirty\\.add\\('getDashboardSummary'\\)/);
+ assert.doesNotMatch(html,/function patchDashboardOrder\\(/);
+
+ c.fixtures[0]={...c.fixtures[0],date:'2025-01-02',time:'23:30'};
+ const moved=await vm.runInContext("fastDashboard({start:'2025-01-01',end:'2025-01-02'})",c);
+ assert.equal(moved.summary.orders,2);assert.equal(moved.hourlyUnknown,1);
+ assert.deepEqual(Array.from(moved.hourlyCounts,x=>x.hour),[23]);
+ c.fixtures[1]={...c.fixtures[1],date:'2025-01-03',time:''};
+ const outside=await vm.runInContext("fastDashboard({start:'2025-01-01',end:'2025-01-02'})",c);
+ assert.equal(outside.summary.orders,1);assert.equal(outside.hourlyUnknown,0);
+ assert.deepEqual(Array.from(outside.hourlyCounts,x=>x.hour),[23]);
 });
