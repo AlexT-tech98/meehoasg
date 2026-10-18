@@ -81,7 +81,7 @@
       return '<div class="mee-dv2-hour"><span>'+x.count+'</span><div class="mee-dv2-hour-track"><div style="height:'+height.toFixed(1)+'%"></div></div><small>'+x.label+'</small></div>';
     }).join('')+'</div>':'<div class="mee-dv2-empty">Chưa có đơn có giờ nhận trong kỳ.</div>';
     if(unknown)body+='<div class="mee-dv2-note">Chưa rõ giờ nhận: '+unknown+' đơn</div>';
-    return '<section class="mee-dv2-panel mee-dv2-hourly"><div class="mee-dv2-panel-head"><h3>Đơn theo khung giờ</h3><span>'+total+' đơn</span></div>'+body+'</section>';
+    return '<section class="mee-dv2-panel mee-dv2-hourly" data-hourly-total="'+(rows.reduce(function(sum,x){return sum+x.count;},0)+unknown)+'"><div class="mee-dv2-panel-head"><h3>Đơn theo khung giờ</h3><span>'+total+' đơn</span></div>'+body+'</section>';
   }
   function salesReport(r){
     var map=new Map();
@@ -94,7 +94,7 @@
       map.set(key,item);
     });
     var rows=Array.from(map.values()).sort(function(a,b){return b.gross-a.gross;});
-    return '<section class="mee-dv2-panel mee-dv2-sales"><div class="mee-dv2-panel-head"><div><h3>Doanh thu theo Sale</h3><p>Trong khoảng ngày đã chọn</p></div>'+privacyButton('staff','Doanh thu theo Sale')+'</div>'+
+    return '<section class="mee-dv2-panel mee-dv2-sales"><div class="mee-dv2-panel-head"><div><h3>Doanh thu theo Sale</h3><p>Trong khoảng ngày đã chọn · '+rows.reduce(function(sum,x){return sum+x.orders;},0)+' đơn</p></div>'+privacyButton('staff','Doanh thu theo Sale')+'</div>'+
       '<div class="mee-dv2-sales-scroll"><table class="mee-dv2-sales-table"><thead><tr><th>Sale</th><th>Đơn</th><th>Đã xác nhận</th><th>Chưa xác nhận</th><th>Tổng tiền hoa</th><th>Doanh thu xác nhận</th></tr></thead><tbody>'+
       (rows.length?rows.map(function(x){return '<tr><td><b>'+esc(x.label)+'</b></td><td>'+x.orders+'</td><td>'+x.settledOrders+'</td><td>'+x.unsettledOrders+'</td><td>'+visibleMoney(x.gross,'staff')+'</td><td>'+visibleMoney(x.settled,'staff')+'</td></tr>';}).join(''):'<tr><td colspan="6">Không có dữ liệu trong kỳ.</td></tr>')+
       '</tbody></table></div></section>';
