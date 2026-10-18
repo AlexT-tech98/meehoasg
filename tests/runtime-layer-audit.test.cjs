@@ -45,9 +45,9 @@ test('retired fix/hotfix compatibility files are physically removed',()=>{
 test('dashboard owns summary, report and hourly tracking without duplicate ops ownership',()=>{
   assert.doesNotMatch(v3,/addDashboardCharts|parseStatusCounts/);
   assert.doesNotMatch(v35,/function patchDashboard|Doanh thu theo nhân viên \/ ngày/);
-  assert.match(v361,/function patchDashboard/);
-  assert.match(v361,/function hourlyModel/);
-  assert.match(v361,/meeHourlySingleV361/);
+  assert.match(v361,/function render\(\)/); assert.match(v361,/window\.MEE_DASHBOARD_RENDER=render/);
+  assert.match(v361,/function hourlyData/);
+  assert.match(v361,/mee-dv2-hourly/);
   assert.doesNotMatch(v361,/injectStyles|patchFit|mee-v361-charts/);
   assert.doesNotMatch(v366,/renderHourly|cleanupHourly|meeHourlySingleV365|hourlyBusy|hourlyLastAt/);
 });
