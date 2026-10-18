@@ -28,7 +28,6 @@
   function qs(s,r){return (r||document).querySelector(s)}
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
 
-  function retireLegacyMobileNav(){var legacy=qs('#mobileNav');if(legacy)legacy.remove()}
 
   function forceSidebarState(side,open){
     if(!side)return;
@@ -41,7 +40,7 @@
   }
 
   function ensureMenu(){
-    var top=qs('.topbar');if(!top)return;retireLegacyMobileNav();
+    var top=qs('.topbar');if(!top)return;
     var btn=qs('.mee-menu-btn',top);
     if(!btn){btn=document.createElement('button');btn.className='mee-menu-btn';btn.type='button';btn.title='Mở menu';btn.setAttribute('aria-label','Mở menu');btn.setAttribute('aria-expanded','false');btn.innerHTML='<span></span>';var left=qs('.topbar-left',top);top.insertBefore(btn,left||top.firstChild)}
     var back=qs('.mee-menu-backdrop');
@@ -385,8 +384,10 @@
   function progress(r){
     var s=r.summary||{},total=n(s.orders),delivered=n(s['Đã giao']),packed=n(s['Đã bó']),waiting=n(s['Chờ bó']);
     var pct=function(value){return total?Math.max(0,Math.min(100,value/total*100)):0;};
-    var other=Math.max(0,total-delivered-packed-waiting);
+    var shipping=n(s['Chờ giao']),pickup=n(s['Chờ lấy']),other=Math.max(0,total-delivered-packed-waiting-shipping-pickup);
     var segments=[{title:'Đã giao',value:delivered,cls:'done'},{title:'Đã bó',value:packed,cls:'packed'},{title:'Chờ bó',value:waiting,cls:'wait'}];
+    if(shipping)segments.push({title:'Chờ giao',value:shipping,cls:'other'});
+    if(pickup)segments.push({title:'Chờ lấy',value:pickup,cls:'other'});
     if(other)segments.push({title:'Trạng thái khác',value:other,cls:'other'});
     return '<section class="mee-dv2-panel mee-dv2-progress"><div class="mee-dv2-panel-head"><h3>Tiến độ trong ngày</h3><span>'+total+' đơn</span></div>'+
       '<div class="mee-dv2-progress-total">'+(total?Math.round(delivered/total*100):0)+'<small>% hoàn thành</small></div>'+
