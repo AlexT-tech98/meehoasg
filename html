@@ -1558,19 +1558,21 @@ function opsTile(o) {
   var actions = shipFeeAction(o) + (isDebt ? settlementAction(o) : ((o.canEdit ? '<button type="button" class="btn primary" data-mee-order-action="edit" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settlementAction(o)));
 
   ov.innerHTML = '<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()">' +
-    '<aside class="drawer">' +
-      '<div class="drawer-head">' +
+    '<aside class="drawer mee-order-drawer-v2" aria-label="Chi tiết đơn hàng">' +
+      '<header class="drawer-head mee-order-drawer-head">' +
         '<div>' +
           '<h3 style="margin:0;font-size:18px;font-weight:700;color:var(--text-primary)">' + esc(o.customer) + '</h3>' +
           '<div class="sub" style="font-size:12px;margin-top:2px">' + esc(o.id) + ' · <span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></div>' +
         '</div>' +
         '<button class="close" onclick="MEEOPS7.closeOverlay()">×</button>' +
-      '</div>' +
+      '</header>' +
+      '<div class="mee-order-drawer-body">' +
       (o.hasAccessories ? '<div class="notice" style="background:var(--warning-bg);color:var(--warning);border-color:var(--warning-border);font-weight:600">ĐƠN CÓ PHỤ KIỆN ĐẶC BIỆT</div>' : '') +
       settlementStateHtml(o) +
       (loadingDetail ? '<div class="order-detail-loading" style="padding:20px 0"><span class="mini-spinner"></span> Đang tải ảnh và chi tiết…</div>' : (imgs ? '<div class="thumbs" style="margin-bottom:14px">' + imgs + '</div>' : '')) +
       detail(o, !isDebt) +
-      '<div class="order-actions" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">' + actions + '</div>' +
+      '</div>' +
+      '<footer class="order-actions mee-order-drawer-footer">' + actions + '</footer>' +
     '</aside>' +
   '</div>';
 }
