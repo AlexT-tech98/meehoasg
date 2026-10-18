@@ -233,6 +233,16 @@ label {
   color: var(--success);
   border-color: var(--mint-leaf-border);
 }
+.badge.status-shipping {
+  background: #eaf0fc;
+  color: #24548c;
+  border-color: #c6d8f2;
+}
+.badge.status-pickup {
+  background: #eff2f8;
+  color: #374e70;
+  border-color: #d5deeb;
+}
 
 /* App Shell */
 .app {
@@ -1744,8 +1754,6 @@ body.mee-search-page .topbar-left{min-width:0!important}
 .mee-production-empty{font-size:11px;text-align:center;padding:16px 5px;color:var(--text-muted)}
 .mee-production-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:10px;min-width:0}
 .mee-production-grid .ops-tile{min-width:0;border:1px solid var(--border);background:var(--bg-surface);border-radius:8px;box-shadow:none}
-.mee-production-v2 .status-pickup{background:#ebf3ff;color:#285994}
-.mee-production-v2 .status-shipping{background:#e9f1ff;color:#245187}
 @media(max-width:1150px){
  .mee-production-kanban{grid-template-columns:repeat(5,minmax(215px,1fr))}
 }
