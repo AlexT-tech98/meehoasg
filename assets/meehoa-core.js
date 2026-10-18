@@ -93,7 +93,7 @@
     })
   }
 
-  function patchShell(){retireLegacyMobileNav();ensureMenu();ensureBranding();updateSearchVisibility();cleanKpiCopy();decorateShippingIcons()}
+  function patchShell(){ensureMenu();ensureBranding();updateSearchVisibility();cleanKpiCopy();decorateShippingIcons()}
   var timer=null,mo=new MutationObserver(function(ms){
     var relevant=ms.some(function(m){return m.type==='childList'&&(m.addedNodes.length||m.removedNodes.length)});if(!relevant)return;
     clearTimeout(timer);timer=setTimeout(patchShell,80)
