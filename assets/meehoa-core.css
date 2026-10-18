@@ -1234,6 +1234,16 @@ body:not(.mee-search-page) .topbar-left{max-width:none!important}
 body.mee-search-page .topbar-search{display:flex!important;visibility:visible!important;min-width:0!important}
 body.mee-search-page .topbar-left{min-width:0!important}
 
+/* Shell owner: branding and shipping presentation formerly in Production CSS. */
+.mee-brand-mark{background:#f7f5ef!important;overflow:hidden!important;padding:0!important;box-shadow:0 7px 20px rgba(20,54,79,.12)!important}
+.mee-brand-mark img{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important}
+.sidebar .brand-copy{min-width:0!important;flex:1!important}
+.mee-brand-wordmark{display:block!important;width:132px!important;max-width:100%!important;height:auto!important;object-fit:contain!important}
+.login-card .mee-brand-mark{width:78px!important;height:78px!important;border-radius:22px!important;margin-inline:auto!important}
+.login-card .mee-brand-mark img{object-fit:cover!important}
+.mee-shipping-icon{display:inline-grid!important;place-items:center!important;width:22px!important;height:22px!important;margin-right:5px!important;border-radius:7px!important;background:#f2f8f5!important;font-size:13px!important;vertical-align:middle!important}
+@media(max-width:900px){.mee-brand-wordmark{width:142px!important}}
+
 /* ===== meehoa-v34.css ===== */
 /* MEEHOA V3.4 — order form personality + drawer image visibility */
 
@@ -1717,13 +1727,6 @@ body.mee-search-page .topbar-left{min-width:0!important}
 .calendar-actions .btn.primary:disabled{opacity:.42!important;cursor:not-allowed!important;box-shadow:none!important}
 .production-filter .date-filter-btn{min-width:220px!important;justify-content:space-between!important}
 
-.mee-brand-mark{background:#f7f5ef!important;overflow:hidden!important;padding:0!important;box-shadow:0 7px 20px rgba(20,54,79,.12)!important}
-.mee-brand-mark img{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important}
-.sidebar .brand-copy{min-width:0!important;flex:1!important}
-.mee-brand-wordmark{display:block!important;width:132px!important;max-width:100%!important;height:auto!important;object-fit:contain!important}
-.login-card .mee-brand-mark{width:78px!important;height:78px!important;border-radius:22px!important;margin-inline:auto!important}
-.login-card .mee-brand-mark img{object-fit:cover!important}
-.mee-shipping-icon{display:inline-grid!important;place-items:center!important;width:22px!important;height:22px!important;margin-right:5px!important;border-radius:7px!important;background:#f2f8f5!important;font-size:13px!important;vertical-align:middle!important}
 
 /* Canonical Production V2. No decorative pseudo-elements or UI override stacks. */
 .mee-production-v2{display:grid;gap:15px;min-width:0;color:var(--text-primary)}
@@ -1807,7 +1810,6 @@ body.mee-search-page .topbar-left{min-width:0!important}
 
 @media(max-width:900px){
   .production-filter .date-filter-btn{width:100%!important;min-width:0!important}
-  .mee-brand-wordmark{width:142px!important}
   .calendar-modal{width:min(430px,calc(100vw - 20px))!important;padding:15px!important;border-radius:22px!important}
   .calendar-shortcuts{overflow-x:auto!important;flex-wrap:nowrap!important;padding-bottom:2px!important}
   .calendar-shortcuts .btn{flex:0 0 auto!important}

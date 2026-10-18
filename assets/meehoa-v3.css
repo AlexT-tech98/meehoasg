@@ -1228,3 +1228,13 @@ body:not(.mee-search-page) .topbar-left{max-width:none!important}
 /* Responsive parity: global search is offered from Dashboard and Orders on both screen sizes. */
 body.mee-search-page .topbar-search{display:flex!important;visibility:visible!important;min-width:0!important}
 body.mee-search-page .topbar-left{min-width:0!important}
+
+/* Shell owner: branding and shipping presentation formerly in Production CSS. */
+.mee-brand-mark{background:#f7f5ef!important;overflow:hidden!important;padding:0!important;box-shadow:0 7px 20px rgba(20,54,79,.12)!important}
+.mee-brand-mark img{width:100%!important;height:100%!important;object-fit:cover!important;display:block!important}
+.sidebar .brand-copy{min-width:0!important;flex:1!important}
+.mee-brand-wordmark{display:block!important;width:132px!important;max-width:100%!important;height:auto!important;object-fit:contain!important}
+.login-card .mee-brand-mark{width:78px!important;height:78px!important;border-radius:22px!important;margin-inline:auto!important}
+.login-card .mee-brand-mark img{object-fit:cover!important}
+.mee-shipping-icon{display:inline-grid!important;place-items:center!important;width:22px!important;height:22px!important;margin-right:5px!important;border-radius:7px!important;background:#f2f8f5!important;font-size:13px!important;vertical-align:middle!important}
+@media(max-width:900px){.mee-brand-wordmark{width:142px!important}}
