@@ -428,6 +428,22 @@
       (rows.length?rows.map(function(x){return '<tr><td><b>'+esc(x.label)+'</b></td><td>'+x.orders+'</td><td>'+x.settledOrders+'</td><td>'+x.unsettledOrders+'</td><td>'+visibleMoney(x.gross,'staff')+'</td><td>'+visibleMoney(x.settled,'staff')+'</td></tr>';}).join(''):'<tr><td colspan="6">Không có dữ liệu trong kỳ.</td></tr>')+
       '</tbody></table></div></section>';
   }
+  var hourlyRequested=new Set();
+  function hydrateHourly(r){
+    if(r.hourlyScope==='SELECTED_RANGE'&&Array.isArray(r.hourlyCounts))return;
+    if(typeof window.gas!=='function')return;
+    var f=S.filters.dashboard||{},start=f.start||today(),end=f.end||start,key=start+'|'+end;
+    if(hourlyRequested.has(key))return;
+    hourlyRequested.add(key);
+    window.gas('getDashboardSummary',{start:start,end:end}).then(function(data){
+      var current=S.filters.dashboard||{};
+      if(S.page!=='dashboard'||(current.start||today())+'|'+(current.end||current.start||today())!==key)return;
+      if(data&&data.ok&&data.hourlyScope==='SELECTED_RANGE'&&Array.isArray(data.hourlyCounts)){
+        S.data.dashboard=data;
+        render();
+      }
+    }).catch(function(){/* Summary remains available when optional hourly data fails. */});
+  }
   function render(){
     if(!window.S||S.page!=='dashboard')return;
     var el=document.getElementById('content'),r=S.data&&S.data.dashboard;
@@ -440,6 +456,7 @@
       renderMetrics(r)+
       '<div class="mee-dv2-primary"><section class="mee-dv2-panel mee-dv2-attention"><div class="mee-dv2-panel-head"><h3>Cần xử lý</h3><span>Ưu tiên theo thời gian</span></div>'+orderRows(r)+'</section>'+progress(r)+'</div>'+
       '<div class="mee-dv2-secondary">'+renderHourly(r)+salesReport(r)+'</div></div>';
+    hydrateHourly(r);
   }
   document.addEventListener('click',function(event){
     var target=event.target.closest&&event.target.closest('#meeDashboardV2 [data-money-key],#meeDashboardV2 [data-dashboard-order]');
