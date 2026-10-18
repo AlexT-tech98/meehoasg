@@ -881,14 +881,7 @@
       if(window.loadPage&&S.page)window.loadPage(S.page,true);
     }catch(e){if(window.toast)window.toast(e.message||'Không xóa được đơn.',1);btn.disabled=false;btn.textContent=old}
   }
-  function patchDelete(){
-    if(!window.S||!S.user||S.user.role!=='ADMIN')return;
-    var ov=qs('#overlay'),actions=ov&&qs('.order-actions',ov);if(!actions||qs('.mee-delete-order',actions))return;
-    var id=drawerOrderId();if(!id)return;
-    var b=document.createElement('button');b.type='button';b.className='btn danger full mee-delete-order';b.textContent='Xóa đơn';b.addEventListener('click',function(){requestDelete(id,b)});actions.appendChild(b);
-  }
-
-  function patch(){patchOrderForm();patchCopyActions();patchDelete()}
+  function patch(){patchOrderForm();patchCopyActions()}
   function wrapOpenForm(){
     if(!window.MEEOPS7||!MEEOPS7.openOrderForm||MEEOPS7.openOrderForm._mee365)return;
     var orig=MEEOPS7.openOrderForm;
@@ -896,10 +889,11 @@
   }
   function init(){
     wrapOpenForm();patch();
+    if(!document.documentElement.dataset.meeDeleteDelegateV2){document.documentElement.dataset.meeDeleteDelegateV2='1';document.addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-mee-delete-order]');if(!button)return;if(!window.S||!S.user||S.user.role!=='ADMIN')return;event.preventDefault();requestDelete(button.dataset.meeDeleteOrder,button);});}
     if(!document.documentElement.dataset.meeCopyDelegate365){document.documentElement.dataset.meeCopyDelegate365='1';document.addEventListener('click',delegatedEditTap,true);document.addEventListener('click',delegatedCopyTap,true)}
     var tries=0,bindTimer=setInterval(function(){wrapOpenForm();patchCopyActions();tries++;if((window.MEEOPS7&&MEEOPS7._meeCopy365)||tries>80)clearInterval(bindTimer)},50);
     var root=qs('#content');if(root)new MutationObserver(function(){setTimeout(patch,20)}).observe(root,{childList:true,subtree:true});
-    var ov=qs('#overlay');if(ov)new MutationObserver(function(){setTimeout(function(){patchOrderForm();patchCopyActions();patchDelete()},0)}).observe(ov,{childList:true,subtree:true});
+    var ov=qs('#overlay');if(ov)new MutationObserver(function(){setTimeout(function(){patchOrderForm();patchCopyActions()},0)}).observe(ov,{childList:true,subtree:true});
     document.addEventListener('visibilitychange',function(){if(!document.hidden)patch()});
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
