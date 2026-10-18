@@ -48,19 +48,19 @@ async function main(){
   await page.waitForFunction(()=>window.S?.user&&document.querySelector('#content')?.textContent.length>30);
   const coldMs=Math.round(performance.now()-started);
   if(role==='ADMIN'){
-   await page.locator('.mee-approved-analytics-sales').waitFor();
-   assert.equal(await page.locator('.mee-approved-analytics-sales').isVisible(),true,'authorized Sale report visible');
-   assert.match(await page.locator('.mee-approved-analytics-sales').innerText(),/36 đơn/);
-   assert.equal(await page.locator('[data-dashboard-money]').count(),4);
+   await page.locator('.mee-dv2-sales').waitFor();
+   assert.equal(await page.locator('.mee-dv2-sales').isVisible(),true,'authorized Sale report visible');
+   assert.match(await page.locator('.mee-dv2-sales').innerText(),/36 đơn/);
+   assert.equal(await page.locator('[data-money-key]').count(),4);
    assert.equal(await page.locator('.dashboard-grid').count(),0);
    assert.equal(await page.locator('[data-hourly-total]').getAttribute('data-hourly-total'),'36');
    for(const key of ['revenue','average','debt','staff'])await page.locator('[data-dashboard-money="'+key+'"]').click();
-   assert.equal(await page.locator('.mee-approved-kpi.revenue .mee-approved-kpi-value').innerText(),'••••••');
+   assert.equal(await page.locator('.mee-dv2-metric:nth-child(2) .mee-dv2-metric-value').innerText(),'••••••');
    assert.doesNotMatch(await page.locator('#content').innerText(),/\d[\d.]*\s*đ(?:\s|$)/);
    await page.reload();await page.locator('[data-dashboard-money="revenue"]').waitFor();
-   assert.equal(await page.locator('.mee-approved-kpi.revenue .mee-approved-kpi-value').innerText(),'••••••','privacy survives cached-shell reload');
+   assert.equal(await page.locator('.mee-dv2-metric:nth-child(2) .mee-dv2-metric-value').innerText(),'••••••','privacy survives cached-shell reload');
    for(const key of ['revenue','average','debt','staff'])await page.locator('[data-dashboard-money="'+key+'"]').click();
-   assert.match(await page.locator('.mee-approved-kpi.revenue').innerText(),/18.000.000/);
+   assert.match(await page.locator('.mee-dv2-metric:nth-child(2)').innerText(),/18.000.000/);
 
   }
   await page.evaluate(()=>MEEOPS7.go('orders'));await page.waitForFunction(()=>S.page==='orders'&&document.querySelector('#content').textContent.includes('Khách giả'));
