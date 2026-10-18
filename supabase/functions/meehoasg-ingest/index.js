@@ -1,6 +1,6 @@
 // Server-to-server Sheet shadow import. Apps Script authenticates with
 // INGEST_SECRET; deploy with verify_jwt=false because it has no Supabase JWT.
-const BUILD = '2026.10.09-sheet-ack-gated3';
+const BUILD = '2026.10.18-sheet-ack-five-state';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const INGEST_SECRET = Deno.env.get('INGEST_SECRET');
@@ -70,7 +70,7 @@ function mapOrder(raw) {
     shipping: clean(raw.shipping), address: clean(raw.address),
     flower_total: num(raw.flower_total), payment: clean(raw.payment),
     sale: saleName(raw.sale),
-    status: ['Chờ bó', 'Đã bó', 'Đã giao'].includes(status) ? status : 'Chờ bó',
+    status: ['Chờ bó', 'Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao'].includes(status) ? status : 'Chờ bó',
     settled: bool(raw.settled), ship_fee: num(raw.ship_fee),
     ship_confirmed: bool(raw.ship_confirmed),
     card: bool(raw.card), card_text: clean(raw.card_text),
