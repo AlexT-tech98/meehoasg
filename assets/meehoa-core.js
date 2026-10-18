@@ -175,24 +175,7 @@
     if(shipping){shipping.addEventListener('change',syncAddress);syncAddress();}
   }
 
-  var timer=null;
-  var mo=new MutationObserver(function(mutations){
-    var relevant=mutations.some(function(m){
-      if(m.type!=='childList'||!m.addedNodes.length) return false;
-      return Array.from(m.addedNodes).some(function(n){
-        return n.nodeType===1 && (n.id==='orderForm'||(n.querySelector&&n.querySelector('#orderForm')));
-      });
-    });
-    if(!relevant) return;
-    clearTimeout(timer);
-    timer=setTimeout(enhanceOrderForm,0);
-  });
-
-  function init(){
-    enhanceOrderForm();
-    var ov=qs('#overlay');
-    if(ov) mo.observe(ov,{childList:true,subtree:true});
-  }
+  function init(){window.MEE_ORDER_FORM_LAYOUT=enhanceOrderForm;enhanceOrderForm();}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
 
