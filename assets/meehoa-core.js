@@ -285,7 +285,7 @@
     return true;
   }
 
-  function materialSig(r,d){return d+'|'+(r.reviewCount||0)+'|'+(r.items||[]).map(function(x){return x.name+':'+x.orders}).join(',')}
+  function materialSig(r,d){return d+'|'+(r.reviewCount||0)+'|'+(r.status||'')+'|'+(r.aiModel||'')+'|'+(r.aiMessage||'')+'|'+(r.items||[]).map(function(x){return x.name+':'+x.orders}).join(',')}
   function renderMaterials(){
     if(!window.S||S.page!=='flowers')return;
     var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],el=qs('#content');if(!d||!r||!el)return;
@@ -297,6 +297,7 @@
     el.dataset.meeMaterialsSig=sig;
     qsa('[data-material]',el).forEach(function(btn){btn.addEventListener('click',function(){openMaterialDrawer(btn.dataset.material)})});
     qsa('[data-review-order]',el).forEach(function(btn){btn.addEventListener('click',function(){var id=btn.dataset.reviewOrder;if(id&&window.MEEOPS7&&MEEOPS7.openDrawer)MEEOPS7.openDrawer(id,'production')})});
+    if(window.MEE_MATERIALS_STATUS_RENDER)window.MEE_MATERIALS_STATUS_RENDER();
   }
 
   function openMaterialDrawer(name){
@@ -475,7 +476,7 @@
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 
-  function patchMaterialsStatus(){
+  function renderMaterialsStatus(){
     if(!window.S||S.page!=='flowers')return;
     var ff=S.filters&&S.filters.flowers||{};var d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date);
     var r=d&&S.data&&S.data.flowers&&S.data.flowers[d];
@@ -498,8 +499,7 @@
     if(hero)hero.insertAdjacentElement('afterend',box);else el.prepend(box);
   }
 
-  var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patchMaterialsStatus,60)}
-  function init(){patchMaterialsStatus();var content=qs('#content');if(content)new MutationObserver(function(m){if(m.some(function(x){return x.type==='childList'&&(x.addedNodes.length||x.removedNodes.length)}))schedule()}).observe(content,{childList:true,subtree:true})}
+  function init(){window.MEE_MATERIALS_STATUS_RENDER=renderMaterialsStatus;if(window.S&&S.page==='flowers')renderMaterialsStatus()}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
 
