@@ -499,7 +499,7 @@ function _p91OrderRow(o, id) {
     o.flower || '',
     images[0] || '',
     o.note || '',
-    o.status === 'Đã bó' || o.status === 'Đã giao',
+    ['Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao'].includes(o.status),
     o.status === 'Đã giao',
     o.shipping || 'Shop book ship',
     _p91Contact(o.phone, o.address),
