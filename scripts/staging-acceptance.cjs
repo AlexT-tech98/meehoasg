@@ -72,6 +72,25 @@ async function main(){
    assert.equal(invalid.code,'STATUS_INVALID');
    return{shipping:'Shop book ship',tested:['Chờ bó','Đã bó','Chờ giao','Đã giao']};
   });
+  await check('ready-for-pickup shipping edit requires explicit status rollback',async()=>{
+   const created=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),customer:run+' Shipping Guard'}},'qa_sale');
+   assert.equal(created.ok,true,created.message);let o=created.order;
+   for(const status of ['Đã bó','Chờ lấy']){
+    const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status},'qa_tho');
+    assert.equal(r.ok,true,r.message);o=r.order;
+   }
+   const denied=await call('updateOrder',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,order:{...base(),customer:o.customer,shipping:'Shop book ship'}},'qa_sale');
+   assert.equal(denied.code,'SHIPPING_STATUS_CONFLICT','must never silently turn pickup-ready into delivery-ready');
+   const stored=(await db.query('select status,shipping from orders where id=$1',[o.id])).rows[0];
+   assert.equal(stored.status,'Chờ lấy');assert.equal(stored.shipping,'Ghé lấy');
+   const rollback=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:'Đã bó'},'qa_tho');
+   assert.equal(rollback.ok,true,rollback.message);o=rollback.order;
+   const edited=await call('updateOrder',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,order:{...base(),customer:o.customer,shipping:'Shop book ship'}},'qa_sale');
+   assert.equal(edited.ok,true,edited.message);o=edited.order;
+   const forwarded=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:'Chờ giao'},'qa_tho');
+   assert.equal(forwarded.ok,true,forwarded.message);
+   return{orderId:o.id,guard:'SHIPPING_STATUS_CONFLICT',finalStatus:forwarded.order.status};
+  });
   await check('production V2 bulk update uses authenticated atomic per-order transactions',async()=>{
    const ids=[];
    for(let i=0;i<2;i++){const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),customer:run+' Bulk '+i}},'qa_sale');assert.equal(r.ok,true);ids.push(r.order);}
