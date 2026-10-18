@@ -42,3 +42,12 @@ test('bulk production preserves per-order audit receipts and requires privileged
  assert.match(migration,/u.role not in \('ADMIN','THO_OPS'\)/);
  assert.doesNotMatch(frontend,/onclick="MEEOPS7.changeStatus\('.*','Đã giao'\)"/);
 });
+
+test('both deployed API entrypoints expose readiness statuses and overdue attention',()=>{
+ const legacy=read('supabase/functions/meehoasg-api/index.js');
+ const states="statuses: ['Chờ bó', 'Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao']";
+ assert.equal(legacy.split(states).length-1,2,'login and options must include both queues');
+ assert.match(legacy,/\['Đã bó', 'Chờ giao', 'Chờ lấy'\]\.includes\(o\.status\)/);
+ assert.match(legacy,/'Chờ giao': 0, 'Chờ lấy': 0/);
+ assert.match(core,/statuses:\['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'\]/);
+});
