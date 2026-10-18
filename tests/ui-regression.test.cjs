@@ -50,7 +50,7 @@ test('production/materials module renders directly without DOM observers or dash
 test('global search is shown only on Orders until production search has a real implementation', () => {
   assert.match(v3Js, /var show=page==='orders'/);
   assert.doesNotMatch(v3Js, /page==='orders'\|\|page==='production'/);
-  const visibilityFn = v3Js.slice(v3Js.indexOf('function updateSearchVisibility'), v3Js.indexOf('function cleanKpiCopy'));
+  const visibilityFn = v3Js.slice(v3Js.indexOf('function updateSearchVisibility'), v3Js.indexOf('function shippingIcon'));
   assert.doesNotMatch(visibilityFn, /pageTitle/);
 });
 
