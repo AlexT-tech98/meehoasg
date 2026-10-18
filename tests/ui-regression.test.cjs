@@ -38,10 +38,11 @@ test('order form enhancement preserves original field nodes and entered address'
   assert.match(v34Js, /Keep original field nodes intact/);
 });
 
-test('production/materials module observes only app surfaces and owns no dashboard patch', () => {
+test('production/materials module renders directly without DOM observers or dashboard patches', () => {
   assert.doesNotMatch(v35Js, /observe\(document\.body/);
-  assert.match(v35Js, /observe\(content/);
-  assert.match(v35Js, /observe\(overlay/);
+  assert.doesNotMatch(v35Js, /MutationObserver|observe\(content|observe\(overlay/);
+  assert.match(v35Js, /MEE_MATERIALS_RENDER=renderMaterials/);
+  assert.match(read('html'), /MEE_MATERIALS_RENDER\(\)/);
   assert.doesNotMatch(v35Js, /function patchDashboard/);
   assert.doesNotMatch(v35Js, /injectV36Styles/);
 });
