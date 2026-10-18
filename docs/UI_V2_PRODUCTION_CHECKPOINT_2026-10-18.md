@@ -34,7 +34,13 @@ Log baseline, 17:45–18:40 UTC: gateway 894 requests; function gateway 60 reque
 - An absolute duplicate accessory pseudo-label covered Production status buttons. Remove it from Kanban/Grid owners while retaining the explicit accessory badge and Orders mobile styling.
 - Long Full Paid text overflowed narrow five-lane cards. Allow wrapping inside the Production financial row; browser assertions inspect text glyph bounds and both view modes.
 
-The original `301cf981fff8040ef54a4d11a16aae22d82d1888` five-state fallback frontend is byte-identical to the original e844aff frontend and inherits these visual defects. It must not be presented as a tested recovery for them. Use a corrected exact-green frontend recovery artifact; retain upgraded five-state SQL/API and never overwrite legitimate writes.
+The original `301cf981fff8040ef54a4d11a16aae22d82d1888` five-state fallback frontend is byte-identical to the original e844aff frontend and inherits these visual defects. The strict browser/SQL rehearsal correctly rejects its clipped Full Paid text. Recovery is now pinned to corrected implementation `4bb73ffb594118e5b14463772d423ec5320973bc`, whose [CI run 39155728940](https://github.com/AlexT-tech98/meehoasg/actions/runs/39155728940) passed test/browser/staging. Retain upgraded five-state SQL/API and never overwrite legitimate writes. Reinstalling these verified frontend files is a compatible recovery option, not a claim that a different previous UI cures every possible incident.
+
+`scripts/five-state-fallback-rehearsal.cjs` loads the actual packaged recovery frontend after a candidate-page reload and runs canonical SQL mutations in isolated PGlite. It checks all statuses, pickup/delivery forward and backward transitions, selection-no-mutation, mixed bulk guards, money/Full Paid/KPI and proof-identity invariants, owner-only settlement and SALE status denial at 1440px/390px across ADMIN/SALE/THO_OPS. Authentication/transport and proof bytes are synthetic; it is not a managed-production restore. The browser CI job runs this rehearsal and uploads its evidence.
+
+Additional retained live source now covers all 15 deployed Edge Functions, including historical wrappers, deletion/recovery and settlement ingest. A local public-business-table write-guard proof passed, but it does not stop pre-RPC Storage uploads or certify a drained live pipeline; it remains a review artifact, not a production change.
+
+The automatic approval reviewer rejected provisioning four dedicated production QA accounts, including an ADMIN, because the general testing request did not explicitly authorize that security scope. No QA account was inserted; explicit owner approval is pending. No employee sessions are reused or forged.
 
 ## Outstanding operational acceptance
 
