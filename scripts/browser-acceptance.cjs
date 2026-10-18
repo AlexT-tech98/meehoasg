@@ -70,10 +70,12 @@ async function main(){
   const warmMs=Math.round(performance.now()-warmStart);
   assert.equal(calls.filter(c=>c.name==='getOrders').length,beforeWarm,'fresh revisit reuses Orders data');
   await page.evaluate(()=>MEEOPS7.openOrderForm());await page.locator('#orderForm input[name=date]').waitFor();
+  assert.equal(await page.locator('#orderForm .mee-order-image-manager-v364').count(),1,'new order image manager is mounted during form render');
   assert.equal(await page.locator('#orderForm input[name=date]').inputValue(),'','new date must be blank');
   assert.equal(await page.locator('#orderForm input[name=date]').getAttribute('required'),'');
   await page.evaluate(()=>MEEOPS7.closeOverlay());
   await page.evaluate(()=>MEEOPS7.openOrderForm('FIXTURE-0'));await page.locator('#orderForm input[name=date]').waitFor();
+  assert.equal(await page.locator('#orderForm .mee-order-image-manager-v364').count(),1,'edit order image manager mounts on replacement form');
   assert.equal(await page.locator('#orderForm input[name=date]').inputValue(),day,'edit keeps date');
   await page.evaluate(()=>MEEOPS7.closeOverlay());
   await page.evaluate(()=>MEEOPS7.openDrawer('FIXTURE-0'));await page.locator('#overlay').getByText('Banner ×3',{exact:true}).waitFor();
@@ -91,7 +93,7 @@ async function main(){
   }
   await page.screenshot({path:path.join(out,`${width}-${role}.png`),fullPage:true});
   assert.deepEqual(errors,[],'no browser exceptions');
-  results.push({width,role,coldMs,warmMs,checks:['new-date-blank-required','edit-date-retained','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation']:[])],calls:calls.map(c=>c.name)});
+  results.push({width,role,coldMs,warmMs,checks:['new-date-blank-required','edit-date-retained','image-manager-on-new-and-edit','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation']:[])],calls:calls.map(c=>c.name)});
   await context.tracing.stop({path:path.join(out,`${width}-${role}.zip`)});await context.close();activeContext=null;activePage=null;
  }}finally{if(activeContext){await activePage.screenshot({path:path.join(out,activeLabel+'-failure.png'),fullPage:true}).catch(()=>{});await activeContext.tracing.stop({path:path.join(out,activeLabel+'-failure.zip')}).catch(()=>{});}await browser.close();server.close();fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:'isolated UI integration; synthetic API; NOT staging E2E',complete:results.length===6,results},null,2)+'\n');}
  console.log(JSON.stringify(results,null,2));
