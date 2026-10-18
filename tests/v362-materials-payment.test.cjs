@@ -37,7 +37,7 @@ test('materials no longer turns an AI outage into every order needing review', (
 });
 
 test('v362 owns materials diagnostics only and no longer patches payment', () => {
-  assert.match(materials, /patchMaterialsStatus/);
+  assert.match(materials, /renderMaterialsStatus/);
   assert.doesNotMatch(materials, /patchSettlement/);
   assert.doesNotMatch(materials, /S\.page!=='settlement'/);
 });
