@@ -42,6 +42,8 @@ test('admin delete remains canonical and early creation confirmation is removed'
   assert.doesNotMatch(ops, /meehoasg-create-status|mee_pending_create|MEEOPS7\.saveOrder=/);
   assert.match(ops, /meehoasg-delete-order/);
   assert.match(ops, /S\.user\.role!==['"]ADMIN['"]/);
-  assert.match(ops, /className='btn danger full mee-delete-order'/);
+  assert.match(entry, /meehoa-core\\.js/);
+  assert.match(ops, /data-mee-delete-order/);
+  assert.match(require('node:fs').readFileSync('html','utf8'), /class=\\"btn danger full mee-delete-order\\"/);
   assert.match(ops, /window\.confirm/);
 });
