@@ -51,14 +51,42 @@ async function main(){
   await check('flower-only payment preserves accessory debt',async()=>{const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),payment:'Đã thanh toán đủ tiền hoa (Full)'}},'qa_sale');assert.equal(r.ok,true,r.message);assert.equal(r.order.paid,500000);assert.equal(r.order.debt,125000);assert.equal(r.order.fullPaid,false);return {orderId:r.orderId,customer:r.order.customer};});
   await check('cross-Sale edit denied; explicit production status action only',async()=>{
    assert.ok(order,'create prerequisite');const denied=await call('updateOrder',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,order:{...base(),flower:'Changed'}},'qa_sale_other');assert.equal(denied.code,'NOT_OWNER');
-   for(const status of ['Đã bó','Đã giao']){const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,status},'qa_tho');assert.equal(r.ok,true,r.message);assert.equal(r.order.status,status);order=r.order;}
+   for(const status of ['Đã bó','Chờ lấy','Đã giao']){const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,status},'qa_tho');assert.equal(r.ok,true,r.message);assert.equal(r.order.status,status);order=r.order;}
+  });
+  await check('production V2 routing: pickup vs delivery, strict order and no skip',async()=>{
+   const created=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),shipping:'Shop book ship',customer:run+' Delivery'}},'qa_sale');
+   assert.equal(created.ok,true,created.message);let o=created.order;
+   const premature=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:'Đã giao'},'qa_tho');
+   assert.equal(premature.code,'STATUS_INVALID');
+   for(const stage of ['Đã bó','Chờ giao','Đã giao']){
+    const changed=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:stage},'qa_tho');
+    assert.equal(changed.ok,true,changed.message);assert.equal(changed.order.status,stage);o=changed.order;
+   }
+   for(const stage of ['Chờ giao','Đã bó','Chờ bó']){
+    const changed=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:stage},'qa_tho');
+    assert.equal(changed.ok,true,changed.message);o=changed.order;
+   }
+   assert.equal(o.status,'Chờ bó');
+   const ready=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:'Đã bó'},'qa_tho');assert.equal(ready.ok,true);
+   const invalid=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:ready.order.updatedAt,status:'Chờ lấy'},'qa_tho');
+   assert.equal(invalid.code,'STATUS_INVALID');
+   return{shipping:'Shop book ship',tested:['Chờ bó','Đã bó','Chờ giao','Đã giao']};
+  });
+  await check('production V2 bulk update uses authenticated atomic per-order transactions',async()=>{
+   const ids=[];
+   for(let i=0;i<2;i++){const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),customer:run+' Bulk '+i}},'qa_sale');assert.equal(r.ok,true);ids.push(r.order);}
+   const r=await call('updateStatusBulk',{mutationRequestId:crypto.randomUUID(),status:'Đã bó',items:ids.map(o=>({orderId:o.id,expectedUpdatedAt:o.updatedAt}))},'qa_tho');
+   assert.equal(r.ok,true,JSON.stringify(r));assert.equal(r.processed,2);
+   const rows=(await db.query('select id,status from orders where id=any($1)',[ids.map(o=>o.id)])).rows;
+   assert.equal(rows.length,2);assert.ok(rows.every(o=>o.status==='Đã bó'));
+   return {updated:r.processed};
   });
   await check('zero-balance unverified order remains in debt until settlement, Full Paid excluded',async()=>{
-   const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),customer:run+' Zero Balance',payment:'Đã thanh toán 625000 đ'}},'qa_sale');assert.equal(r.ok,true,r.message);zeroOrder=r.order;for(const status of ['Đã bó','Đã giao']){const changed=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:zeroOrder.id,expectedUpdatedAt:zeroOrder.updatedAt,status},'qa_tho');assert.equal(changed.ok,true,changed.message);zeroOrder=changed.order;}
+   const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),customer:run+' Zero Balance',payment:'Đã thanh toán 625000 đ'}},'qa_sale');assert.equal(r.ok,true,r.message);zeroOrder=r.order;for(const status of ['Đã bó','Chờ lấy','Đã giao']){const changed=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:zeroOrder.id,expectedUpdatedAt:zeroOrder.updatedAt,status},'qa_tho');assert.equal(changed.ok,true,changed.message);zeroOrder=changed.order;}
    assert.equal(zeroOrder.debt,0);assert.equal(zeroOrder.fullPaid,false);assert.equal(zeroOrder.settled,false);const d=await call('getDebtReview',{start:date,end:date},'qa_sale');const seen=d.items.find(o=>o.id===zeroOrder.id);assert.ok(seen,'zero-debt order must not disappear');assert.equal(seen.canSubmitSettlement,true);assert.ok(d.items.some(o=>o.status!=='Đã giao'),'not-delivered unsettled orders also visible');return{orderId:zeroOrder.id};
   });
   await check('owner debt scopes reconcile exact IDs; foreign Sale filter cannot widen scope',async()=>{
-   async function ownDelivered(actor,sale){const created=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),...(sale?{sale}:{})}},actor);assert.equal(created.ok,true,created.message);let o=created.order;for(const status of ['Đã bó','Đã giao']){const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status},'qa_tho');assert.equal(r.ok,true,r.message);o=r.order;}return o;}
+   async function ownDelivered(actor,sale){const created=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),...(sale?{sale}:{})}},actor);assert.equal(created.ok,true,created.message);let o=created.order;for(const status of ['Đã bó','Chờ lấy','Đã giao']){const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status},'qa_tho');assert.equal(r.ok,true,r.message);o=r.order;}return o;}
    thoOrder=await ownDelivered('qa_admin','QA Tiên');await ownDelivered('qa_sale_other');
    const counts={};for(const actor of ['qa_admin','qa_sale','qa_tho','qa_sale_other']){
     const expected=(await db.query("select o.id from orders o join app_users u on u.username=$2 where o.order_date=$1 and not o.settled and not o.full_paid and (u.role='ADMIN' or mee_ops_owner(o.sale,u))",[date,actor])).rows;
