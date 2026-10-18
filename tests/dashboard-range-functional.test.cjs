@@ -21,8 +21,8 @@ test('after an order time/date edit the authoritative Dashboard retains correct 
  // An edit must invalidate the complete server-owned Dashboard, not change
  // only a local time bucket while retaining stale financial/Sale aggregates.
  const html=fs.readFileSync('html','utf8');
- assert.match(html,/S\\.dirty\\.add\\('getDashboardSummary'\\)/);
- assert.doesNotMatch(html,/function patchDashboardOrder\\(/);
+ assert.match(html,/S\.dirty\.add\('getDashboardSummary'\)/);
+ assert.doesNotMatch(html,/function patchDashboardOrder\(/);
 
  c.fixtures[0]={...c.fixtures[0],date:'2025-01-02',time:'23:30'};
  const moved=await vm.runInContext("fastDashboard({start:'2025-01-01',end:'2025-01-02'})",c);
