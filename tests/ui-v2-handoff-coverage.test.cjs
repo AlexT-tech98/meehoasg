@@ -63,3 +63,12 @@ test('production forward/back transitions respect pickup versus delivery',()=>{
    assert.equal(transition.nextStatusValue(make('Đã giao')),'');
  }
 });
+
+test('obsolete dashboard chart and injected KPI CSS have been retired from the build',()=>{
+ const compiled=read('assets/meehoa-core.css');
+ for(const name of ['mee-approved-summary','mee-approved-kpi','mee-atelier-dashboard-header','mee-chart-grid']){
+   assert.ok(!compiled.includes(name),'legacy compiled selector: '+name);
+ }
+ assert.match(compiled,/\.mee-dv2-metrics/);
+ assert.match(compiled,/\.mee-production-v2/);
+});
