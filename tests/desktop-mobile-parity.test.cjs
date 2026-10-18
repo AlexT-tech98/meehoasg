@@ -11,9 +11,9 @@ test('global search is exposed consistently on Orders and Dashboard',()=>{
  assert.match(navCss,/body\.mee-search-page \.topbar-search\{display:flex!important/);
 });
 test('both desktop and mobile show the full approved dashboard',()=>{
- assert.match(dashboard,/buildSummary\(r,el\);buildReport\(r,el\)/);
- assert.match(dashboard,/renderHourly\(el\)/);
+ assert.match(dashboard,/renderMetrics\(r\)/); assert.match(dashboard,/salesReport\(r\)/); assert.match(dashboard,/orderRows\(r\)/);
+ assert.match(dashboard,/renderHourly\(r\)/);
  assert.doesNotMatch(dashboard,/mee-approved-attention/);
  assert.doesNotMatch(fs.readFileSync('html','utf8'),/Không có đơn cần xử lý gấp hôm nay/);
- assert.match(theme,/@media\(min-width:761px\)/);
+ assert.match(fs.readFileSync('assets/meehoa-v361.css','utf8'),/@media\(max-width:760px\)/);
 });
