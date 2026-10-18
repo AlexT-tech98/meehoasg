@@ -7,9 +7,9 @@ The frontend CSS build still composes 7 source owners. `!important` declarations
 
 | Owner | Baseline declarations |
 | --- | ---: |
-| meehoa-v3.css | 269 |
+| meehoa-v3.css | 285 |
 | meehoa-v34.css | 169 |
-| meehoa-v35.css | 50 |
+| meehoa-v35.css | 34 |
 | meehoa-v361.css (Dashboard V2) | 0 |
 | meehoa-v362.css | 3 |
 | meehoa-v364.css | 139 |
@@ -17,7 +17,7 @@ The frontend CSS build still composes 7 source owners. `!important` declarations
 | **Total** | **1,135** |
 
 These are measurable override debt, not proof that all declarations conflict. A limit is enforced by `tests/ui-v2-css-debt.test.cjs`, so future commits cannot increase the baseline without explicit review.
-Thirty branding and shipping declarations were moved from the Production stylesheet to the Shell owner without increasing the total. The owner ceilings and total ceiling now record this transfer.
+Forty-six branding, shipping, loading and page-status declarations were moved from the Production stylesheet to the Shell owner without increasing the total. The owner ceilings and total ceiling now record this transfer.
 
 ## Release-blocking evidence to collect
 1. Determine the unique owner for each shell/navigation/topbar, Orders/list/drawer, Production, KPI, Debt, Payment and Materials selector and corresponding JS handler. Verify historical implementations are not executed or injected.

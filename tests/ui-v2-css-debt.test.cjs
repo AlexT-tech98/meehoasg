@@ -7,7 +7,7 @@ const root=path.resolve(__dirname,'..');
 const sources=['meehoa-v3.css','meehoa-v34.css','meehoa-v35.css','meehoa-v361.css','meehoa-v362.css','meehoa-v364.css','meehoa-v365.css'];
 const read=file=>fs.readFileSync(path.join(root,'assets',file),'utf8');
 const limits={
-  'meehoa-v3.css':269,'meehoa-v34.css':169,'meehoa-v35.css':50,
+  'meehoa-v3.css':285,'meehoa-v34.css':169,'meehoa-v35.css':34,
   'meehoa-v361.css':0,'meehoa-v362.css':3,'meehoa-v364.css':139,'meehoa-v365.css':505
 };
 
@@ -33,5 +33,5 @@ test('production CSS bundle is deterministic and does not load retired Dashboard
 test('shell branding and shipping presentation belong to the shell owner',()=>{
  assert.match(read('meehoa-v3.css'),/\.mee-brand-mark\{/);
  assert.match(read('meehoa-v3.css'),/\.mee-shipping-icon\{/);
- assert.doesNotMatch(read('meehoa-v35.css'),/\.mee-brand-mark|\.mee-brand-wordmark|\.mee-shipping-icon|\.sidebar \.brand-copy/);
+ assert.doesNotMatch(read('meehoa-v35.css'),/\.mee-brand-mark|\.mee-brand-wordmark|\.mee-shipping-icon|\.sidebar \.brand-copy|\.loading-pill|\.page-status/);
 });
