@@ -1108,42 +1108,21 @@ tbody tr:last-child td { border-bottom: 0; }
   .orders-mobile-list { display: block !important; }
 
   .mobile-nav {
-    display: grid !important;
-    grid-template-columns: repeat(var(--mobile-count, 5), minmax(0, 1fr)) !important;
-    position: fixed;
-    z-index: 32;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    width: 100%;
-    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
-    background: rgba(255, 255, 255, 0.94);
-    backdrop-filter: blur(12px);
-    border-top: 1px solid var(--border);
-    box-shadow: 0 -3px 12px rgba(28, 43, 36, 0.06);
+    display:grid;
+    grid-template-columns:repeat(var(--mobile-count,6),minmax(0,1fr));
+    position:fixed;z-index:60;bottom:0;left:0;right:0;width:100%;
+    padding:5px max(4px,env(safe-area-inset-right)) calc(5px + env(safe-area-inset-bottom)) max(4px,env(safe-area-inset-left));
+    background:#050b17;border-top:1px solid #24334d;box-shadow:0 -5px 20px rgba(4,9,21,.12)
   }
   .mobile-nav button {
-    border: 0;
-    background: transparent;
-    font-size: 10px;
-    line-height: 1.2;
-    color: var(--text-muted);
-    padding: 4px 2px;
-    text-align: center;
+    border:0;background:transparent;font-size:9px;line-height:1.25;color:#b0bcd0;
+    padding:5px 2px;text-align:center;min-width:0;min-height:45px;cursor:pointer
   }
-  .mobile-nav button > div {
-    font-size: 18px !important;
-    line-height: 1.1;
-    margin-bottom: 2px;
-  }
-  .mobile-nav button.active {
-    color: var(--brand-green);
-    font-weight: 700;
-  }
-  .fab {
-    bottom: calc(72px + env(safe-area-inset-bottom));
-    right: max(16px, env(safe-area-inset-right));
-  }
+  .mobile-nav button > div{font-size:18px;line-height:1.15;margin-bottom:3px}
+  .mobile-nav button.active{color:#fff;font-weight:700}
+  .mobile-nav .mee-mobile-create{font-weight:700;color:#fff}
+  .mobile-nav .mee-mobile-create>div{display:grid;place-items:center;background:#234e86;border:1px solid #446a9c;border-radius:50%;width:33px;height:33px;margin:-8px auto 3px;font-size:24px}
+  .fab{display:none}
   .kanban {
     display: flex !important;
     grid-template-columns: none !important;
