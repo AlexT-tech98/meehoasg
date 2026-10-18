@@ -388,8 +388,8 @@
 #orderForm .hidden{display:none!important}
 
 /* Canonical order detail: native responsive drawer. One style owner. */
-.mee-order-drawer-v2{display:flex;flex-direction:column;gap:0;background:var(--bg-surface,#fff);box-shadow:-10px 0 36px rgba(8,20,39,.10);padding:0}
-.mee-order-drawer-head{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:19px 21px;border-bottom:1px solid var(--border);background:var(--bg-surface,#fff)}
+ .mee-order-drawer-v2{display:flex;flex-direction:column;gap:0;overflow:hidden;background:var(--bg-surface,#fff);box-shadow:-10px 0 36px rgba(8,20,39,.10);padding:0}
+ .mee-order-drawer-head{flex:none;position:static;top:auto;margin:0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:19px 21px;border-bottom:1px solid var(--border);background:var(--bg-surface,#fff)}
 .mee-order-drawer-head h3{letter-spacing:-.025em}
 .mee-order-drawer-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:18px 21px}
 .mee-order-drawer-footer{flex:none;display:flex;gap:8px;flex-wrap:wrap;margin:0;padding:14px 21px max(14px,env(safe-area-inset-bottom));border-top:1px solid var(--border);background:var(--bg-surface,#fff)}
