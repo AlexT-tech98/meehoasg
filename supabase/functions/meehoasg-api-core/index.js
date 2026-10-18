@@ -102,7 +102,7 @@ function localFlowers(text){const n=norm(text),out=[];const add=x=>{if(x&&!out.i
 async function flowerInventory(payload){const user=await requireUser(payload,['ADMIN','THO_OPS']),date=clean(payload.date)||dateToday(),start=clean(payload.start)||date,end=clean(payload.end)||start,orders=await all('orders',{select:'id,customer,order_date,order_time,flower',and:`(order_date.gte.${start},order_date.lte.${end})`,order:'order_date.asc,order_time.asc'});if(!orders.length)return{ok:true,range:{start,end},status:'empty',totalOrders:0,analyzedOrders:0,reviewCount:0,items:[],reviewOrders:[],aiModel:null};const unique=new Map();for(const o of orders){const key=flowerKey(o.flower);if(key&&!unique.has(key))unique.set(key,clean(o.flower).slice(0,700))}const keyed=await Promise.all([...unique].map(async([key,content])=>({key,content,fingerprint:await sha256(`core6|${key}`)}))),cacheRows=await all('flower_cache',{select:'fingerprint,content,flowers,needs_review,updated_at',order:'updated_at.desc'}),cache=new Map(cacheRows.map(r=>[r.fingerprint,r])),pending=keyed.filter(x=>payload.forceRefresh||!cache.has(x.fingerprint));let aiModel=null,aiStatus='CACHE';for(let i=0;i<pending.length;i+=35){const batch=pending.slice(i,i+35).map(x=>({fingerprint:x.fingerprint,note:x.content})),classified=await classifyIngredients(batch);let rows;if(classified.ok){aiModel=classified.model||aiModel;aiStatus='READY';const by=new Map((classified.results||[]).filter(x=>x?.fingerprint).map(x=>[x.fingerprint,x]));rows=batch.map(item=>{const r=by.get(item.fingerprint)||{},flowers=canonicalIngredients(r.flowers);return{fingerprint:item.fingerprint,content:item.note,flowers,needs_review:!!r.needs_review||!flowers.length,updated_at:new Date().toISOString()}})}else{aiStatus=classified.code||'LOCAL_FALLBACK';rows=batch.map(item=>{const flowers=localFlowers(item.note);return{fingerprint:item.fingerprint,content:item.note,flowers,needs_review:!flowers.length,updated_at:new Date().toISOString()}})}if(rows.length){await db('flower_cache',{on_conflict:'fingerprint'},'POST',rows);rows.forEach(r=>cache.set(r.fingerprint,r))}}const fpByKey=new Map(keyed.map(x=>[x.key,x.fingerprint])),groups=new Map(),reviewOrders=[];let analyzedOrders=0;for(const o of orders){const entry=cache.get(fpByKey.get(flowerKey(o.flower))),names=canonicalIngredients(entry?.flowers);if(entry)analyzedOrders++;if(!entry||entry.needs_review||!names.length)reviewOrders.push({id:o.id,customer:o.customer,flower:o.flower,date:o.order_date,time:cleanTime(o.order_time)});for(const name of names){const k=flowerKey(name),g=groups.get(k)||{name,orders:0,orderList:[]};if(!g.orderList.some(x=>x.id===o.id)){g.orders++;g.orderList.push({id:o.id,customer:o.customer,flower:o.flower,time:cleanTime(o.order_time),date:o.order_date})}groups.set(k,g)}}return{ok:true,range:{start,end},status:reviewOrders.length?'needs_review':'ready',totalOrders:orders.length,analyzedOrders,reviewCount:reviewOrders.length,items:[...groups.values()].sort((a,b)=>b.orders-a.orders||a.name.localeCompare(b.name,'vi')),reviewOrders:reviewOrders.slice(0,100),aiModel,aiStatus,classifierVersion:'core6'}}
 
 async function initialCore(user,token){const day=dateToday();if(user.role==='ADMIN')return {page:'dashboard',data:await fastDashboard({token,start:day,end:day}),at:Date.now()};if(user.role==='THO_OPS')return {page:'production',data:await fastProduction({token,date:day}),at:Date.now()};return {page:'orders',data:await fastOrders({token,start:day,end:day,page:1,pageSize:80}),at:Date.now()}}
-async function loginAndBootstrapCore(payload){const result=await loginCore(payload);if(!result.ok)return result;return {...result,options:{shipping:['Shop book ship','Khách tự book','Ghé lấy'],statuses:['Chờ bó','Đã bó','Đã giao']},initial:await initialCore(result.user,result.token)}}
+async function loginAndBootstrapCore(payload){const result=await loginCore(payload);if(!result.ok)return result;return {...result,options:{shipping:['Shop book ship','Khách tự book','Ghé lấy'],statuses:['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao']},initial:await initialCore(result.user,result.token)}}
 async function currentBootstrapCore(payload){const user=await requireUser(payload);return {ok:true,user:publicUser(user),initial:await initialCore(user,payload.token)}}
 
 const mutationRoutes=new Set(['createOrder','updateOrder','saveShipFee','submitSettlement','saveShipAndSubmitSettlement','reviewSettlement','updateStatus']);
@@ -141,7 +141,30 @@ Deno.serve(async request=>{
     else if(name==='getOrder')result=await fastOrder(payload);
     else if(name==='getDebtReview')result=await fastDebt(payload);
     else if(name==='getFullPaidReport')result=await fullPaidReport(payload);
-    else if(mutationRoutes.has(name)){
+    else if(name==='updateStatusBulk'){
+      const user=await requireUser(payload);
+      const items=Array.isArray(payload.items)?payload.items:[];
+      const statusValue=clean(payload.status);
+      const bulkId=clean(payload.mutationRequestId||payload.requestId);
+      if(!items.length||items.length>100||!bulkId||bulkId.length>96||!['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'].includes(statusValue)){
+        result=fail('Yêu cầu chuyển trạng thái hàng loạt không hợp lệ.','STATUS_BULK_INVALID');
+      }else{
+        const results=[];
+        for(let i=0;i<items.length;i++){
+          const item=items[i]||{};
+          try{
+            const saved=await operationResult('updateStatus',{
+              orderId:clean(item.orderId), expectedUpdatedAt:item.expectedUpdatedAt,
+              status:statusValue, requestId:bulkId+'-'+i
+            },user);
+            results.push({orderId:clean(item.orderId),ok:!!saved?.ok,updatedAt:saved?.order?.updatedAt||saved?.row?.updated_at||'',code:saved?.code||'',message:saved?.message||''});
+          }catch(err){
+            results.push({orderId:clean(item.orderId),ok:false,code:'STATUS_FAILED',message:String(err?.message||'Có lỗi xảy ra.')});
+          }
+        }
+        result={ok:results.some(x=>x.ok),results,processed:results.filter(x=>x.ok).length,total:results.length};
+      }
+    }else if(mutationRoutes.has(name)){
       const user=await requireUser(payload);
       const action=name==='saveShipAndSubmitSettlement'?'submitSettlement':name;
       const normalized=action==='reviewSettlement'?{...payload,settlementId:payload.settlementId||payload.requestId,requestId:payload.mutationRequestId||payload.requestId}:payload;
