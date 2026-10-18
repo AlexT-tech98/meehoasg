@@ -768,13 +768,6 @@
   }
   function patchOrderForm(){var form=qs('#orderForm');if(!form)return;patchMultiline(form);patchMoney(form)}
 
-  function patchCreateButtons(){
-    qsa('.topbar .actions button').forEach(function(b){var c=b.getAttribute('onclick')||'';if(c.indexOf('openOrderForm')>=0)b.dataset.meeHideCreateV365='1'});
-    document.body.classList.toggle('mee-page-dashboard-v365',!!(window.S&&S.page==='dashboard'));
-    if(window.S&&S.page==='dashboard')qsa('#content button').forEach(function(b){var c=b.getAttribute('onclick')||'';if(c.indexOf('openOrderForm')>=0)b.dataset.meeHideCreateV365='1'});
-  }
-  function patchBodyPage(){document.body.classList.toggle('mee-page-dashboard-v365',!!(window.S&&S.page==='dashboard'))}
-
   function buildCopyText(o){
     if(!o)return'';
     var q=Math.max(1,Number(o.cardQty||1)),accessory=[];
@@ -895,7 +888,7 @@
     var b=document.createElement('button');b.type='button';b.className='btn danger full mee-delete-order';b.textContent='Xóa đơn';b.addEventListener('click',function(){requestDelete(id,b)});actions.appendChild(b);
   }
 
-  function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();patchCopyActions();patchDelete()}
+  function patch(){patchOrderForm();patchCopyActions();patchDelete()}
   function wrapOpenForm(){
     if(!window.MEEOPS7||!MEEOPS7.openOrderForm||MEEOPS7.openOrderForm._mee365)return;
     var orig=MEEOPS7.openOrderForm;
