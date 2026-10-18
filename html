@@ -1560,7 +1560,7 @@ function opsTile(o) {
   var imgs = (o.imageUrls || []).map(function(u, i) {
     return '<a href="' + attr((o.driveUrls || [])[i] || u) + '" target="_blank" title="Xem ảnh gốc"><img src="' + attr(imageSrc(u, 1000)) + '" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)"></a>';
   }).join('');
-  var actions = shipFeeAction(o) + (isDebt ? settlementAction(o) : ((o.canEdit ? '<button type="button" class="btn primary" data-mee-order-action="edit" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settlementAction(o)));
+  var actions = shipFeeAction(o) + (isDebt ? settlementAction(o) : ((o.canEdit ? '<button type="button" class="btn primary" data-mee-order-action="edit" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settlementAction(o))) + (S.user&&S.user.role==='ADMIN'?'<button type="button" class="btn danger full mee-delete-order" data-mee-delete-order="'+attr(o.id)+'">Xóa đơn</button>':'');
 
   ov.innerHTML = '<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()">' +
     '<aside class="drawer mee-order-drawer-v2" aria-label="Chi tiết đơn hàng">' +
