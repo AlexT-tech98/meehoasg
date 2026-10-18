@@ -1384,7 +1384,7 @@ function opsTile(o) {
   if (!el) return;
 
   var curTab = S.filters.orders.statusTab || 'Tất cả';
-  if (['Tất cả', 'Chờ bó', 'Đã bó', 'Đã giao', 'Còn nợ'].indexOf(curTab) === -1) {
+  if (['Tất cả', 'Chờ bó', 'Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao', 'Còn nợ'].indexOf(curTab) === -1) {
     curTab = 'Tất cả';
     S.filters.orders.statusTab = curTab;
   }
@@ -1393,6 +1393,8 @@ function opsTile(o) {
     'Tất cả': list.length,
     'Chờ bó': 0,
     'Đã bó': 0,
+    'Chờ giao': 0,
+    'Chờ lấy': 0,
     'Đã giao': 0,
     'Còn nợ': 0
   };
@@ -1400,6 +1402,8 @@ function opsTile(o) {
   list.forEach(function(o) {
     if (o.status === 'Chờ bó') counts['Chờ bó']++;
     else if (o.status === 'Đã bó') counts['Đã bó']++;
+    else if (o.status === 'Chờ giao') counts['Chờ giao']++;
+    else if (o.status === 'Chờ lấy') counts['Chờ lấy']++;
     else if (o.status === 'Đã giao') counts['Đã giao']++;
     if (Number(o.debt) > 0) counts['Còn nợ']++;
   });
