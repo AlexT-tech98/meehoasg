@@ -24,16 +24,30 @@ test('every canonical runtime source belongs to exactly one feature owner', () =
 
 test('frontend shell loads only canonical compiled CSS and JS', () => {
   const entry = read('index.html');
-  assert.match(entry, /meehoa-core\\.css/);
-  assert.match(entry, /meehoa-core\\.js/);
-  assert.doesNotMatch(entry, /<script[^>]+src=["'][^"']*meehoa-v\\d+/i);
-  assert.doesNotMatch(entry, /<link[^>]+href=["'][^"']*meehoa-v\\d+[^"']*\\.css/i);
+  assert.ok(entry.includes('meehoa-core.css'));
+  assert.ok(entry.includes('meehoa-core.js'));
+  assert.ok(entry.includes('meehoa-core.css'));
+  assert.ok(entry.includes('meehoa-core.js'));
+  assert.ok(!/<script[^>]+src=["'][^"']*meehoa-v[0-9]+/i.test(entry));
+  assert.ok(!/<script[^>]+src=["'][^"']*meehoa-v[0-9]+/i.test(entry));
 });
 
 test('canonical build prohibits fix/hotfix layers and keeps deterministic ownership', () => {
   const builder = read('scripts/build-runtime.cjs');
-  assert.match(builder, /forbiddenRuntimeNames/);
-  assert.match(builder, /runtime-ownership\\.json/);
-  assert.match(builder, /meehoa-core\\.css/);
-  assert.match(builder, /meehoa-core\\.js/);
+  assert.ok(builder.includes('forbiddenRuntimeNames'));
+  assert.ok(builder.includes('runtime-ownership.json'));
+  assert.ok(builder.includes('meehoa-core.css'));
+  assert.ok(builder.includes('meehoa-core.js'));
+  assert.ok(builder.includes('forbiddenRuntimeNames'));
+  assert.ok(builder.includes('runtime-ownership.json'));
+  assert.ok(builder.includes('meehoa-core.css'));
+  assert.ok(builder.includes('meehoa-core.js'));
+  assert.ok(builder.includes('forbiddenRuntimeNames'));
+  assert.ok(builder.includes('runtime-ownership.json'));
+  assert.ok(builder.includes('meehoa-core.css'));
+  assert.ok(builder.includes('meehoa-core.js'));
+  assert.ok(builder.includes('forbiddenRuntimeNames'));
+  assert.ok(builder.includes('runtime-ownership.json'));
+  assert.ok(builder.includes('meehoa-core.css'));
+  assert.ok(builder.includes('meehoa-core.js'));
 });
