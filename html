@@ -1359,7 +1359,7 @@ function opsTile(o) {
   var pending=all.filter(function(o){return o.status!=='Đã giao';}).length;
   el.innerHTML='<section class="mee-production-v2">'+
     '<header class="mee-production-head"><div><h2>Sản xuất</h2><p>'+all.length+' đơn trong kỳ · '+pending+' chưa hoàn tất</p></div>'+
-    '<div class="mee-production-toolbar">'+singleDateFilter('production')+
+    '<div class="mee-production-toolbar"><div class="date-filter-bar"><button type="button" class="date-filter-btn" onclick="MEEOPS7.openDatePicker(\'production\',\'range\')">▣ '+esc(dateVN(S.filters.production.start||S.filters.production.date))+' → '+esc(dateVN(S.filters.production.end||S.filters.production.date))+'　⌄</button></div>'+
       '<div class="mee-production-view" role="group" aria-label="Chế độ hiển thị">'+
       '<button type="button" class="btn '+(S.view==='kanban'?'primary':'secondary')+'" onclick="MEEOPS7.setProductionView(\'kanban\')">Kanban</button>'+
       '<button type="button" class="btn '+(S.view==='grid'?'primary':'secondary')+'" onclick="MEEOPS7.setProductionView(\'grid\')">Grid</button></div></div></header>'+
