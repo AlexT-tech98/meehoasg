@@ -100,10 +100,6 @@
 @media(max-width:900px){
   .production-filter .date-filter-btn{width:100%!important;min-width:0!important}
   .mee-brand-wordmark{width:142px!important}
-  body.mee-page-production #content{border-radius:22px!important;padding-top:14px!important}
-  body.mee-page-production #content:before{font-size:58px!important;top:82px!important;right:-5px!important}
-  body.mee-page-production #content:after{font-size:52px!important;left:-4px!important}
-  body.mee-page-production .ops-grid{grid-template-columns:minmax(0,1fr)!important}
   .calendar-modal{width:min(430px,calc(100vw - 20px))!important;padding:15px!important;border-radius:22px!important}
   .calendar-shortcuts{overflow-x:auto!important;flex-wrap:nowrap!important;padding-bottom:2px!important}
   .calendar-shortcuts .btn{flex:0 0 auto!important}
@@ -112,9 +108,5 @@
   .mee-material-card{padding:13px!important;min-height:108px!important}
 }
 @media(max-width:560px){
-  body.mee-page-production .ops-tile{grid-template-columns:72px minmax(0,1fr)!important;padding:12px!important}
-  body.mee-page-production .ops-thumb-wrap{width:72px!important;height:72px!important;min-width:72px!important;min-height:72px!important}
-  body.mee-page-production .ops-lines{grid-template-columns:minmax(0,1fr)!important;gap:4px!important}
-  body.mee-page-production .ops-lines>b{font-size:14px!important}
   .mee-materials-grid,.mee-review-grid{grid-template-columns:minmax(0,1fr)!important}
 }
