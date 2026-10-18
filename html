@@ -1343,12 +1343,12 @@ function opsTile(o) {
     });
 
     function renderDashboard() {
-        var el=document.getElementById('content');if(!el)return;
-        el.innerHTML='<div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">'+
-            '<div><h1>Một ngày ở Meehoasg.</h1></div><div style="display:flex;gap:8px;align-items:center">'+rangeFilters('dashboard')+
-            '<button class="btn primary" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button></div></div>'+
-            '<div class="stat-grid-5"><div class="page-status">Đang tải tổng quan…</div></div>';
-        if(window.MEE_DASHBOARD_V361_RENDER)window.MEE_DASHBOARD_V361_RENDER();
+      var el=document.getElementById('content');if(!el)return;
+      el.innerHTML='<header class="mee-dv2-header">'+
+        '<div><h1>Tổng quan</h1><p>Tình hình vận hành của Meehoa</p></div>'+
+        '<div class="mee-dv2-filters">'+rangeFilters('dashboard')+'</div>'+
+        '</header><section id="meeDashboardV2" aria-label="Tổng quan vận hành"></section>';
+      if(window.MEE_DASHBOARD_RENDER)window.MEE_DASHBOARD_RENDER();
     }
     function renderProduction() {
   var f = S.filters.production, r = S.data.production || {}, all = r.orders || [], el = document.getElementById('content');
