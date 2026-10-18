@@ -1044,6 +1044,10 @@ tbody tr:last-child td { border-bottom: 0; }
   to { opacity: 1; transform: translateY(0); }
 }
 .toast.err { background: var(--danger); }
+/* Shell owns mobile toast positioning. Notifications must not cover navigation. */
+@media (max-width:900px) {
+  .toast { left:12px;right:12px;bottom:calc(68px + env(safe-area-inset-bottom));max-width:none;pointer-events:none; }
+}
 .loading {
   position: fixed;
   inset: 0;
