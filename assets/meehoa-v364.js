@@ -147,7 +147,7 @@
         incoming.forEach(function(f){var k=fileKey(f);if(!seen.has(k)){seen.add(k);state.newFiles.push(f)}});
         rebuildFileInput(input,state);box.dataset.signature='';renderOrderImageManager(form,input,state);
       });
-      var ov=qs('#overlay');if(ov&&!ov.dataset.meePastePreview){ov.dataset.meePastePreview='1';ov.addEventListener('paste',function(){setTimeout(function(){box.dataset.signature='';renderOrderImageManager(form,input,state)},0)})}
+      var ov=qs('#overlay');if(ov&&!ov.dataset.meePastePreview){ov.dataset.meePastePreview='1';ov.addEventListener('paste',function(){setTimeout(function(){var liveForm=qs('#orderForm',ov);if(!liveForm)return;var liveInput=qs('#imageFiles',liveForm);var liveState=liveForm._meeImageStateV364;var liveBox=qs('.mee-order-image-manager-v364',liveForm);if(liveInput&&liveState&&liveBox){liveBox.dataset.signature='';renderOrderImageManager(liveForm,liveInput,liveState)}},0)})}
     }
     renderOrderImageManager(form,input,state);
   }
@@ -176,10 +176,12 @@
   }
 
   function contentSync(){patchPayment();patchPaidCopy();patchMaterialsLabel()}
+  function overlaySync(){patchOrderImageUploader();ensureOverlayControls()}
   function patch(){contentSync();patchOrderImageUploader();ensureOverlayControls()}
   var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patch,45)}
   function init(){
     window.MEE_V364_CONTENT_SYNC=contentSync;
+    window.MEE_V364_OVERLAY_SYNC=overlaySync;
     patch();
     var ov=qs('#overlay');if(ov){
       new MutationObserver(schedule).observe(ov,{childList:true,subtree:true});

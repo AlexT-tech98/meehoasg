@@ -844,7 +844,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         window._pasted = []; window._editExistingUrls = o.driveUrls || o.imageUrls || []; window._orderRequestId = id ? '' : (window._orderRequestId || safeUuid()); ov.onpaste = function (e) { var _a; var items = __spreadArray([], __read((((_a = e.clipboardData) === null || _a === void 0 ? void 0 : _a.items) || [])), false).filter(function (x) { return x.type.startsWith('image/'); }); if (items.length) {
         items.forEach(function (x) { return window._pasted.push(x.getAsFile()); });
         toast('Đã nhận ảnh từ clipboard.');
-    } }; }
+    } }; if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC(); }
     function orderFormFeedback(form,message,error,field){
         var box=form.querySelector('[data-order-feedback]');
         if(!box){box=document.createElement('div');box.setAttribute('data-order-feedback','');box.setAttribute('role','status');box.setAttribute('aria-live','polite');var submit=form.querySelector('#orderSubmit');form.insertBefore(box,submit);}
@@ -1583,7 +1583,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
     '</aside>' +
   '</div>';
   if(window.MEE_COPY_ACTIONS_SYNC)window.MEE_COPY_ACTIONS_SYNC();
-if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();}
+if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();}
     function detail(o, allowFullCopy) {
   if (allowFullCopy === void 0) allowFullCopy = true;
   var cardQty=Math.max(1,Number(o.cardQty||1)),cardFee=Number(o.cardFee)||cardQty*10000,accessoryRows=[],contentBlocks=[];

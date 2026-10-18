@@ -17,6 +17,8 @@ test('legacy observer entry points are bounded; new UI components must render di
   assert.doesNotMatch(read('meehoa-v3.js'),/MutationObserver|patchShell|cleanKpiCopy/);
   assert.match(read('meehoa-v3.js'),/MEE_SHELL_CONTENT_SYNC=decorateShippingIcons/);
   assert.match(read('meehoa-v364.js'),/MEE_V364_CONTENT_SYNC=contentSync/);
+  assert.match(read('meehoa-v364.js'),/MEE_V364_OVERLAY_SYNC=overlaySync/);
+  assert.match(require('node:fs').readFileSync('html','utf8'),/ov\.onpaste = function[\s\S]*?MEE_V364_OVERLAY_SYNC\(\)/);
   assert.doesNotMatch(read('meehoa-v364.js'),/observe\(root/);
   assert.match(read('meehoa-v34.js'),/MEE_ORDER_FORM_LAYOUT=enhanceOrderForm/);
   assert.match(read('meehoa-v362.js'),/MEE_MATERIALS_STATUS_RENDER=renderMaterialsStatus/);
