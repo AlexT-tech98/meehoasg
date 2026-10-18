@@ -25,9 +25,8 @@ test('generated core preserves each declared canonical source exactly once',()=>
   for(const file of metrics.jsFiles)assert.equal((coreJs.match(new RegExp(`===== ${file.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&')} =====`,'g'))||[]).length,1);
 });
 
-test('consolidated JS multiplexes canonical observers through one native MutationObserver',()=>{
-  assert.ok(metrics.sourceMutationObservers>=2);
-  assert.equal(metrics.nativeMutationObserversAfter,1);
-  assert.match(coreJs,/MEEHOA shared MutationObserver multiplexer/);
-  assert.match(coreJs,/window\.__MEE_SHARED_MUTATION_OBSERVER__=true/);
+test('canonical runtime renders directly without observer patch infrastructure',()=>{
+  assert.equal(metrics.sourceMutationObservers,0);
+  assert.equal(metrics.nativeMutationObserversAfter,0);
+  assert.doesNotMatch(coreJs,/MutationObserver|__MEE_SHARED_MUTATION_OBSERVER__/);
 });

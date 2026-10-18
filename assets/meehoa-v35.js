@@ -34,7 +34,7 @@
         '<div class="calendar-grid"><div class="calendar-dow">T2</div><div class="calendar-dow">T3</div><div class="calendar-dow">T4</div><div class="calendar-dow">T5</div><div class="calendar-dow">T6</div><div class="calendar-dow">T7</div><div class="calendar-dow">CN</div>'+cells.join('')+'</div>'+
         (single?'':'<div class="calendar-selection '+(x.start&&!x.end?'mee-range-waiting':'')+'"><div><b>'+dateVN2(x.start)+'</b><div class="sub">Bắt đầu</div></div><span>→</span><div style="text-align:right"><b>'+endText+'</b><div class="sub">Kết thúc</div></div></div>')+
         '<div class="calendar-actions"><button type="button" class="btn" onclick="MEEOPS7.closeOverlay()">Hủy</button><button type="button" class="btn primary" '+(!x.start||(!single&&!x.end)?'disabled':'')+' onclick="MEEOPS7.datePickerApply()">Áp dụng</button></div>'+
-      '</div></div>';
+      '</div></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
   }
 
   async function loadProductionRange(start,end){
@@ -105,7 +105,7 @@
     if(!window.S)return;var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],ov=qs('#overlay');if(!r||!ov)return;
     var item=(r.items||[]).find(function(x){return x.name===name});if(!item)return;
     var orders=(item.orderList||[]).map(function(x){return '<article class="mee-material-order"><div class="mee-material-order-top"><div><b>'+esc(x.customer||'Chưa rõ khách')+'</b><div class="sub">'+esc((x.time||'—')+' · '+dateVN2(x.date||d))+'</div></div><span class="badge">'+esc(name)+'</span></div><div class="flower-copy">'+esc(x.flower||'')+'</div>'+(x.id?'<button type="button" class="btn" data-open-order="'+attr(x.id)+'">Mở đơn hàng</button>':'')+'</article>'}).join('');
-    ov.innerHTML='<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer"><div class="drawer-head"><div><h3 style="margin:0">'+esc(name)+'</h3><div class="sub">'+Number(item.orders||0)+' đơn cần loại hoa này</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="mee-material-drawer-list">'+(orders||'<div class="empty">Không có đơn.</div>')+'</div></aside></div>';
+    ov.innerHTML='<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer"><div class="drawer-head"><div><h3 style="margin:0">'+esc(name)+'</h3><div class="sub">'+Number(item.orders||0)+' đơn cần loại hoa này</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="mee-material-drawer-list">'+(orders||'<div class="empty">Không có đơn.</div>')+'</div></aside></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
     qsa('[data-open-order]',ov).forEach(function(btn){btn.addEventListener('click',function(){var id=btn.dataset.openOrder;if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();setTimeout(function(){if(window.MEEOPS7&&MEEOPS7.openDrawer)MEEOPS7.openDrawer(id,'production')},0)})});
   }
 

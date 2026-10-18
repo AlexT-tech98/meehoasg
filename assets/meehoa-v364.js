@@ -15,7 +15,7 @@
   function closeActiveOverlay(){
     var ov=qs('#overlay');
     var proof=ov&&qs('.mee-proof-layer-v364',ov);
-    if(proof){proof.remove();schedule();return}
+    if(proof){proof.remove();overlaySync();return}
     coreClose();
   }
   window.MEEV364CloseOverlay=closeActiveOverlay;
@@ -177,14 +177,12 @@
 
   function contentSync(){patchPayment();patchPaidCopy();patchMaterialsLabel()}
   function overlaySync(){patchOrderImageUploader();ensureOverlayControls()}
-  function patch(){contentSync();patchOrderImageUploader();ensureOverlayControls()}
-  var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patch,45)}
+  function patch(){contentSync();overlaySync()}
   function init(){
     window.MEE_V364_CONTENT_SYNC=contentSync;
     window.MEE_V364_OVERLAY_SYNC=overlaySync;
     patch();
     var ov=qs('#overlay');if(ov){
-      new MutationObserver(schedule).observe(ov,{childList:true,subtree:true});
       ov.addEventListener('click',function(e){
         var target=e.target;
         if(target&&target.matches&&target.matches('.modal-bg,.drawer-bg')){e.preventDefault();closeActiveOverlay();return}

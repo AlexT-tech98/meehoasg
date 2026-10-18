@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const read=x=>fs.readFileSync(path.join(__dirname,'..','assets',x),'utf8');
 const sources=['meehoa-v3.js','meehoa-v34.js','meehoa-v35.js','meehoa-v361.js','meehoa-v362.js','meehoa-v364.js','meehoa-v366.js','meehoa-order-actions.js'];
-const baseline={'meehoa-v3.js':0,'meehoa-v34.js':0,'meehoa-v35.js':0,'meehoa-v361.js':0,'meehoa-v362.js':0,'meehoa-v364.js':1,'meehoa-v366.js':0,'meehoa-order-actions.js':2};
+const baseline={'meehoa-v3.js':0,'meehoa-v34.js':0,'meehoa-v35.js':0,'meehoa-v361.js':0,'meehoa-v362.js':0,'meehoa-v364.js':0,'meehoa-v366.js':0,'meehoa-order-actions.js':0};
 test('legacy observer entry points are bounded; new UI components must render directly',()=>{
   for(const file of sources){
     const count=(read(file).match(/new\s+MutationObserver\s*\(/g)||[]).length;
@@ -18,6 +18,9 @@ test('legacy observer entry points are bounded; new UI components must render di
   assert.match(read('meehoa-v3.js'),/MEE_SHELL_CONTENT_SYNC=decorateShippingIcons/);
   assert.match(read('meehoa-v364.js'),/MEE_V364_CONTENT_SYNC=contentSync/);
   assert.match(read('meehoa-v364.js'),/MEE_V364_OVERLAY_SYNC=overlaySync/);
+  assert.doesNotMatch(read('meehoa-v364.js'),/MutationObserver|schedule\(\)/);
+  assert.match(read('meehoa-order-actions.js'),/MEE_ORDER_ACTIONS_CONTENT_SYNC=contentSync/);
+  assert.match(read('meehoa-order-actions.js'),/MEE_ORDER_ACTIONS_OVERLAY_SYNC=overlaySync/);
   assert.match(require('node:fs').readFileSync('html','utf8'),/ov\.onpaste = function[\s\S]*?MEE_V364_OVERLAY_SYNC\(\)/);
   assert.doesNotMatch(read('meehoa-v364.js'),/observe\(root/);
   assert.match(read('meehoa-v34.js'),/MEE_ORDER_FORM_LAYOUT=enhanceOrderForm/);
