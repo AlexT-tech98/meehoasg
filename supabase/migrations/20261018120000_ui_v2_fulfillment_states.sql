@@ -100,6 +100,14 @@ begin
       or (n.banner and (coalesce(n.banner_qty,0) not between 1 and 99 or nullif(trim(n.banner_text),'') is null)) then
      return jsonb_build_object('ok',false,'code','ORDER_INPUT_INVALID','message','Thông tin đơn, thời gian hoặc số tiền không hợp lệ.');
    end if;
+   -- Changing between pickup and delivery after readiness would leave a
+   -- misleading Chờ lấy/Chờ giao badge. Require an explicit backward
+   -- production transition; editing details must never silently move status.
+   if p_action='updateOrder' and o.status in ('Chờ lấy','Chờ giao')
+      and (n.shipping='Ghé lấy') is distinct from (o.shipping='Ghé lấy') then
+     return jsonb_build_object('ok',false,'code','SHIPPING_STATUS_CONFLICT',
+       'message','Đưa đơn về Đã bó trước khi đổi giữa giao hàng và ghé lấy.');
+   end if;
    v_sale:=case when u.role='SALE' then u.username else n.sale end;
    select username into v_sale from public.app_users where active and
      (lower(trim(username))=lower(trim(v_sale)) or lower(trim(display_name))=lower(trim(v_sale)))
