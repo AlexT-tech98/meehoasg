@@ -4,7 +4,6 @@
   function qs(s,r){return (r||document).querySelector(s)}
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
 
-  function retireLegacyMobileNav(){var legacy=qs('#mobileNav');if(legacy)legacy.remove()}
 
   function forceSidebarState(side,open){
     if(!side)return;
@@ -17,7 +16,7 @@
   }
 
   function ensureMenu(){
-    var top=qs('.topbar');if(!top)return;retireLegacyMobileNav();
+    var top=qs('.topbar');if(!top)return;
     var btn=qs('.mee-menu-btn',top);
     if(!btn){btn=document.createElement('button');btn.className='mee-menu-btn';btn.type='button';btn.title='Mở menu';btn.setAttribute('aria-label','Mở menu');btn.setAttribute('aria-expanded','false');btn.innerHTML='<span></span>';var left=qs('.topbar-left',top);top.insertBefore(btn,left||top.firstChild)}
     var back=qs('.mee-menu-backdrop');
