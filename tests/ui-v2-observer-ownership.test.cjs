@@ -16,7 +16,9 @@ test('the remaining ops patch owner must stay explicit until safely migrated',()
  const source=read('meehoa-v366.js');
  assert.doesNotMatch(source,/function patchDelete\(/);
  assert.match(source,/data-mee-delete-order/);
- assert.match(source,/function wrapOpenForm\(/);
+ assert.doesNotMatch(source,/function wrapOpenForm\(/);
+ assert.match(source,/MEE_ORDER_FORM_ENHANCE=patchOrderForm/);
+ assert.match(require('node:fs').readFileSync('html','utf8'),/MEE_ORDER_FORM_ENHANCE\(\)/);
  assert.match(source,/function delegatedEditTap\(/);
  assert.match(source,/function delegatedCopyTap\(/);
 });
