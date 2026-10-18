@@ -67,3 +67,11 @@ test('dashboard has explicit counters for both five-stage readiness queues',()=>
  assert.match(core,/'Chờ bó':0,'Đã bó':0,'Chờ giao':0,'Chờ lấy':0,'Đã giao':0,unsettled:0/);
  assert.match(core,/summary\[o\.status\]=\(summary\[o\.status\]\|\|0\)\+1/);
 });
+
+test('rollout package includes a prior-green five-state V2 frontend rollback, never an obsolete V1 backend',()=>{
+ const script=read('scripts/build-release.cjs');
+ assert.match(script,/const anchor='301cf981fff8040ef54a4d11a16aae22d82d1888'/);
+ assert.match(script,/rollback=\['index.html','html','assets\/meehoa-core.js','assets\/meehoa-core.css','manifest.webmanifest'\]/);
+ assert.match(script,/Retain upgraded production SQL, core\/legacy\/order-actions\/shared backend/);
+ assert.doesNotMatch(script,/anchor='52718b2cd9311891297e4666dfeba4a72629b463',rollback/);
+});
