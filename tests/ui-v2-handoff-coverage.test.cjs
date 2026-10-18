@@ -29,3 +29,14 @@ test('canonical KPI and order drawer remain functional modules',()=>{
  assert.match(kpiCss,/\.sales-kpi-card/);
  assert.match(drawerCss,/\.mee-order-drawer-head/);
 });
+
+test('ready-for-delivery and ready-for-pickup orders retain overdue priority',()=>{
+ const lateStates=['Đã bó','Chờ giao','Chờ lấy'];
+ const front=html.match(/function dashboardAttentionKind\(o\)[\s\S]*?return ''; \}/);
+ assert.ok(front,'canonical dashboard priority classifier exists');
+ for(const status of lateStates){
+   assert.ok(front[0].includes(status),'frontend supports '+status);
+   assert.match(ops,new RegExp(status));
+ }
+ assert.match(ops,/\['Đã bó','Chờ giao','Chờ lấy'\]\.includes\(o\.status\)&&due<now/);
+});
