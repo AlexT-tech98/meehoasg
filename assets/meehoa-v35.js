@@ -122,6 +122,6 @@
   function removeLoadingCopy(){document.querySelectorAll('.page-status').forEach(function(el){el.remove()});var pill=qs('.loading-pill');if(pill){Array.from(pill.childNodes).forEach(function(n){if(n.nodeType===3)n.textContent=''});pill.querySelectorAll(':scope > span:not(.spinner)').forEach(function(el){el.style.display='none'})}}
   function patch(){installRangePicker();patchProductionRangeButton();patchPaidCopy(qs('#content')||document);patchPaidCopy(qs('#overlay')||document);renderMaterials();removeLoadingCopy()}
   var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patch,50)}
-  function init(){if(window.MEEOPS7)MEEOPS7.openMaterialDrawer=openMaterialDrawer;patch();var content=qs('#content'),overlay=qs('#overlay');if(content)new MutationObserver(schedule).observe(content,{childList:true,subtree:true});if(overlay)new MutationObserver(schedule).observe(overlay,{childList:true,subtree:true})}
+  function init(){window.MEE_MATERIALS_RENDER=renderMaterials;if(window.MEEOPS7)MEEOPS7.openMaterialDrawer=openMaterialDrawer;patch();var content=qs('#content'),overlay=qs('#overlay');if(content)new MutationObserver(schedule).observe(content,{childList:true,subtree:true});if(overlay)new MutationObserver(schedule).observe(overlay,{childList:true,subtree:true})}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
