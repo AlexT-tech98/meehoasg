@@ -22,10 +22,10 @@
   ],
   "sourceRequestsBefore": 15,
   "runtimeRequestsAfter": 2,
-  "sourceCssBytes": 118044,
-  "sourceJsBytes": 72580,
-  "coreCssBytes": 118419,
-  "coreJsBytes": 74651,
+  "sourceCssBytes": 116268,
+  "sourceJsBytes": 71942,
+  "coreCssBytes": 116643,
+  "coreJsBytes": 74013,
   "sourceMutationObservers": 11,
   "nativeMutationObserversAfter": 1
 }
