@@ -17,7 +17,7 @@ async function main(){
   const shot=module=>page.screenshot({path:path.join(out,label+'-'+module+'.png'),fullPage:true});
   await page.goto(origin);await page.locator('#loginUser').fill(a.username);await page.locator('#loginPass').fill(a.password);await page.locator('#loginBtn').click();
   await page.waitForFunction(()=>S.user&&document.querySelector('#content')?.textContent.length>30);checks.push('authenticated-real-backend');
-  if(a.role==='ADMIN'){await page.locator('.mee-approved-analytics-sales').waitFor();assert.equal(await page.locator('.mee-approved-analytics-sales').isVisible(),true);assert.match(await page.locator('.mee-approved-analytics-sales').innerText(),/đơn/);checks.push('dashboard-sale-counts-visible');await shot('dashboard');}
+  if(a.role==='ADMIN'){await page.locator('.mee-dv2-sales').waitFor();assert.equal(await page.locator('.mee-dv2-sales').isVisible(),true);assert.match(await page.locator('.mee-dv2-sales').innerText(),/đơn/);checks.push('dashboard-sale-counts-visible');await shot('dashboard');}
   await page.evaluate(()=>MEEOPS7.go('orders'));await page.waitForFunction(()=>S.page==='orders'&&document.querySelector('#content')?.textContent.includes('QA Khách'));
   const before=calls.filter(x=>x==='getOrders').length;await page.evaluate(()=>MEEOPS7.go('orders'));assert.equal(calls.filter(x=>x==='getOrders').length,before);checks.push('warm-orders-no-extra-call');
   await page.evaluate(()=>MEEOPS7.openOrderForm());await page.locator('#orderForm input[name=date]').waitFor();assert.equal(await page.locator('#orderForm input[name=date]').inputValue(),'');assert.equal(await page.locator('#orderForm input[name=date]').evaluate(x=>x.required),true);
