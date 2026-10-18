@@ -105,9 +105,20 @@ async function main(){
    assert.deepEqual(clipped,[],'Production amount/debt text cannot clip beyond narrow card: '+clipped.join(', '));
 
   }
+  if(width===390){
+   const overlap=await page.evaluate(()=>{
+    const toast=document.querySelector('#toast'),nav=document.querySelector('#mobileNav');
+    toast.textContent='Thông báo QA không che điều hướng';toast.className='toast err';
+    const t=toast.getBoundingClientRect(),n=nav.getBoundingClientRect();
+    toast.classList.add('hidden');
+    return {toastBottom:t.bottom,navTop:n.top,navVisible:n.height>0};
+   });
+   assert.equal(overlap.navVisible,true,'mobile navigation must be visible');
+   assert.ok(overlap.toastBottom<=overlap.navTop-4,'toast must not obscure mobile navigation: '+JSON.stringify(overlap));
+  }
   await page.screenshot({path:path.join(out,`${width}-${role}.png`),fullPage:true});
   assert.deepEqual(errors,[],'no browser exceptions');
-  results.push({width,role,coldMs,warmMs,checks:['calendar-overlay','new-date-blank-required','edit-date-retained','image-manager-on-new-and-edit','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(width===390?['mobile-menu-overlay']:[]),...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation','production-finance-not-clipped']:[])],calls:calls.map(c=>c.name)});
+  results.push({width,role,coldMs,warmMs,checks:['calendar-overlay','new-date-blank-required','edit-date-retained','image-manager-on-new-and-edit','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(width===390?['mobile-menu-overlay','toast-clear-of-mobile-navigation']:[]),...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation','production-finance-not-clipped']:[])],calls:calls.map(c=>c.name)});
   await context.tracing.stop({path:path.join(out,`${width}-${role}.zip`)});await context.close();activeContext=null;activePage=null;
  }}finally{if(activeContext){await activePage.screenshot({path:path.join(out,activeLabel+'-failure.png'),fullPage:true}).catch(()=>{});await activeContext.tracing.stop({path:path.join(out,activeLabel+'-failure.zip')}).catch(()=>{});}await browser.close();server.close();fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:'isolated UI integration; synthetic API; NOT staging E2E',complete:results.length===6,results},null,2)+'\n');}
  console.log(JSON.stringify(results,null,2));
