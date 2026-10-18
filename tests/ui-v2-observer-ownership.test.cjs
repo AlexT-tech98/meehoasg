@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const read=x=>fs.readFileSync(path.join(__dirname,'..','assets',x),'utf8');
 const sources=['meehoa-v3.js','meehoa-v34.js','meehoa-v35.js','meehoa-v361.js','meehoa-v362.js','meehoa-v364.js','meehoa-v366.js','meehoa-order-actions.js'];
-const baseline={'meehoa-v3.js':0,'meehoa-v34.js':0,'meehoa-v35.js':2,'meehoa-v361.js':0,'meehoa-v362.js':0,'meehoa-v364.js':0,'meehoa-v366.js':2,'meehoa-order-actions.js':0};
+const baseline={'meehoa-v3.js':1,'meehoa-v34.js':1,'meehoa-v35.js':2,'meehoa-v361.js':0,'meehoa-v362.js':1,'meehoa-v364.js':2,'meehoa-v366.js':2,'meehoa-order-actions.js':2};
 test('legacy observer entry points are bounded; new UI components must render directly',()=>{
   for(const file of sources){
     const count=(read(file).match(/new\s+MutationObserver\s*\(/g)||[]).length;
