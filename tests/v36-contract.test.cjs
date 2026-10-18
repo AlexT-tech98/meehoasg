@@ -38,7 +38,7 @@ test('materials authorization fails closed before direct database analysis', () 
 });
 
 test('production/materials owner keeps runtime behavior and static styling separated', () => {
-  assert.match(read('html'), /Đã thanh toán đủ tiền hoa/);
+  assert.match(fs.readFileSync('html','utf8'), /Đã thanh toán đủ tiền hoa/);
   assert.doesNotMatch(ui, /patchPaidCopy/);
   assert.match(ui, /Nguyên liệu AI theo đơn/);
   assert.match(ui, /openMaterialDrawer/);
