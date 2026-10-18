@@ -77,6 +77,7 @@ async function main(){
   assert.equal(await page.locator('#orderForm input[name=date]').inputValue(),day,'edit keeps date');
   await page.evaluate(()=>MEEOPS7.closeOverlay());
   await page.evaluate(()=>MEEOPS7.openDrawer('FIXTURE-0'));await page.locator('#overlay').getByText('Banner ×3',{exact:true}).waitFor();
+  assert.equal(await page.locator('#overlay [data-mee-delete-order]').count(),role==='ADMIN'?1:0,'admin delete must be rendered by drawer owner for authorized role only');
   await page.evaluate(()=>MEEOPS7.closeOverlay());
   await page.waitForFunction(()=>!document.body.classList.contains('mee-overlay-open-v364')&&!document.body.classList.contains('mee-menu-open'));
   await page.waitForFunction(()=>{window.scrollTo(0,1000);return window.scrollY>500;});
