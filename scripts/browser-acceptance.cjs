@@ -95,10 +95,19 @@ async function main(){
    assert.equal(await page.evaluate(()=>S.selected.size),1,'checkbox selects one');
    assert.equal(await page.evaluate(()=>S.data.production.orders[0].status),'Chờ bó');
    assert.ok(!calls.slice(before).some(c=>/update|submit|save|create|review/i.test(c.name)),'selection never sends mutation');
+   const clipped=await page.locator('.mee-production-lane .mee-production-finance').evaluateAll(rows=>rows.slice(0,16).flatMap(line=>{
+    const card=line.closest('.order'),bounds=card.getBoundingClientRect();
+    return [...line.querySelectorAll('span')].filter(item=>{
+      const r=item.getBoundingClientRect();
+      return r.left<bounds.left+4||r.right>bounds.right-4||r.width===0;
+    }).map(item=>item.textContent.trim());
+   }));
+   assert.deepEqual(clipped,[],'Production amount/debt text cannot clip beyond narrow card: '+clipped.join(', '));
+
   }
   await page.screenshot({path:path.join(out,`${width}-${role}.png`),fullPage:true});
   assert.deepEqual(errors,[],'no browser exceptions');
-  results.push({width,role,coldMs,warmMs,checks:['calendar-overlay','new-date-blank-required','edit-date-retained','image-manager-on-new-and-edit','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(width===390?['mobile-menu-overlay']:[]),...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation']:[])],calls:calls.map(c=>c.name)});
+  results.push({width,role,coldMs,warmMs,checks:['calendar-overlay','new-date-blank-required','edit-date-retained','image-manager-on-new-and-edit','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(width===390?['mobile-menu-overlay']:[]),...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation','production-finance-not-clipped']:[])],calls:calls.map(c=>c.name)});
   await context.tracing.stop({path:path.join(out,`${width}-${role}.zip`)});await context.close();activeContext=null;activePage=null;
  }}finally{if(activeContext){await activePage.screenshot({path:path.join(out,activeLabel+'-failure.png'),fullPage:true}).catch(()=>{});await activeContext.tracing.stop({path:path.join(out,activeLabel+'-failure.zip')}).catch(()=>{});}await browser.close();server.close();fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:'isolated UI integration; synthetic API; NOT staging E2E',complete:results.length===6,results},null,2)+'\n');}
  console.log(JSON.stringify(results,null,2));
