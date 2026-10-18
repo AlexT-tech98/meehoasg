@@ -51,3 +51,14 @@ test('both deployed API entrypoints expose readiness statuses and overdue attent
  assert.match(legacy,/'Chờ giao': 0, 'Chờ lấy': 0/);
  assert.match(core,/statuses:\['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'\]/);
 });
+
+test('UI V2 migration is packaged as an independent deployable delta with hashed manifest',()=>{
+ const build=read('scripts/build-release.cjs');
+ const old=JSON.parse(read('scripts/release-migrations.json'));
+ assert.ok(!old.includes('20261018120000_ui_v2_fulfillment_states.sql'),'do not replay PR39 deltas');
+ assert.match(build,/files\.push\(uiV2Migration\)/);
+ assert.match(build,/ui-v2-schema-delta\.sql/);
+ assert.match(build,/uiV2SchemaDelta:\{path:'ui-v2-schema-delta\.sql'/);
+ assert.match(build,/sha256:sha\(uiV2Delta\)/);
+ assert.match(migration,/CREATE OR REPLACE FUNCTION public\.mee_ops_mutate/);
+});
