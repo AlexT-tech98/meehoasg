@@ -174,7 +174,7 @@ body .badge.info,body .badge.blue,body .mee-summary-chip{background:#e3f1ff!impo
 .order-card-mobile-body{display:grid!important;grid-template-columns:56px minmax(0,1fr)!important}
 .order-card-mobile-body a{display:block!important;max-width:56px!important;overflow:hidden!important}
 .order-card-mobile-body a img{width:100%!important}
-#meeReloadApp,.mee-reload-app-v365{display:none!important}
+#meeReloadApp{display:none!important}
 
 
 @media(max-width:900px){body .topbar .mee-refresh-action{display:inline-flex!important;align-items:center!important;visibility:visible!important;font-size:12px!important;padding:8px!important;min-width:0!important;white-space:nowrap!important}body .topbar .actions{display:flex!important;gap:5px!important}body .topbar .topbar-user{display:none!important}}
