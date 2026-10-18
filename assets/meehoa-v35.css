@@ -72,24 +72,24 @@
 .calendar-selection{align-items:center!important}
 .calendar-selection>span{font-weight:800!important;color:#9b8b83!important}
 
-.mee-materials-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin:14px 0 18px;padding:18px;border-radius:20px;background:linear-gradient(135deg,#eff9f5,#fff 52%,#fff2f5);border:1px solid rgba(21,94,71,.08)}
+.mee-materials-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin:10px 0 16px;padding:17px;border-radius:9px;background:#fff;border:1px solid var(--border)}
 .mee-materials-hero h3{margin:0 0 4px;font-size:18px}
 .mee-materials-summary{display:flex;gap:8px;flex-wrap:wrap}
 .mee-summary-chip{border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700;background:#fff;border:1px solid #e6ebe8}
 .mee-summary-chip.review{background:#fff1f2;color:#b52f4d;border-color:#ffd0d8}
 .mee-materials-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px}
-.mee-material-card{appearance:none;text-align:left;border:1px solid #e6ebe8;border-radius:18px;background:#fff;padding:16px;min-height:118px;box-shadow:0 8px 22px rgba(30,55,45,.05);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease;cursor:pointer}
-.mee-material-card:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(30,55,45,.09);border-color:#a9d8c5}
+.mee-material-card{appearance:none;text-align:left;border:1px solid var(--border);border-radius:9px;background:#fff;padding:15px;min-height:104px;box-shadow:none;transition:border-color .14s ease,background .14s ease;cursor:pointer}
+.mee-material-card:hover{background:#fbfcfe;border-color:#9cb5d7}
 .mee-material-card:focus-visible{outline:3px solid rgba(21,94,71,.18);outline-offset:2px}
 .mee-material-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
 .mee-material-name{font-size:16px;font-weight:800;line-height:1.3;color:#183329}
 .mee-material-count{display:inline-flex;align-items:center;justify-content:center;min-width:54px;padding:5px 9px;border-radius:999px;background:#eaf8f1;color:#166e50;border:1px solid #bee8d4;font-size:12px;font-weight:800}
 .mee-material-hint{margin-top:18px;font-size:12px;color:#7f8d86}.mee-material-hint:after{content:' →';font-weight:800;color:#3d745f}
-.mee-review-panel{margin-top:18px;padding:17px;border-radius:20px;background:linear-gradient(135deg,#fff4f4,#fff9ed);border:1px solid #ffd3d7}
+.mee-review-panel{margin-top:16px;padding:16px;border-radius:9px;background:#fff;border:1px solid var(--border)}
 .mee-review-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px}
 .mee-review-head h3{margin:0;color:#a42e45}
 .mee-review-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
-.mee-review-card{border:1px solid #ffd8da;border-radius:14px;background:rgba(255,255,255,.85);padding:12px;cursor:pointer}
+.mee-review-card{border:1px solid var(--border);border-radius:8px;background:#fff;padding:12px;cursor:pointer}
 .mee-review-card b{display:block;margin-bottom:5px}.mee-review-card .sub{color:#8b6168}.mee-review-card:hover{border-color:#ef9fac}
 .mee-material-drawer-list{display:flex;flex-direction:column;gap:10px}
 .mee-material-order{border:1px solid var(--border);border-radius:14px;padding:12px;background:#fff}
@@ -103,9 +103,9 @@
   .calendar-modal{width:min(430px,calc(100vw - 20px))!important;padding:15px!important;border-radius:22px!important}
   .calendar-shortcuts{overflow-x:auto!important;flex-wrap:nowrap!important;padding-bottom:2px!important}
   .calendar-shortcuts .btn{flex:0 0 auto!important}
-  .mee-materials-hero{padding:14px!important;border-radius:16px!important}
+  .mee-materials-hero{padding:14px}
   .mee-materials-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
-  .mee-material-card{padding:13px!important;min-height:108px!important}
+  .mee-material-card{padding:13px;min-height:108px}
 }
 @media(max-width:560px){
   .mee-materials-grid,.mee-review-grid{grid-template-columns:minmax(0,1fr)!important}
