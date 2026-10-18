@@ -7,6 +7,7 @@ const root=path.resolve(__dirname,'..'),out=path.join(root,'artifacts/browser');
 fs.mkdirSync(out,{recursive:true});
 const day='2026-10-15',build='2026.09.28-supabase-v3';
 const orders=Array.from({length:36},(_,i)=>({id:'FIXTURE-'+i,customer:'Khách giả '+i,phone:'0900000000',date:day,time:'10:00',flower:'Tulip',flowerTotal:500000,payment:'Chưa thanh toán',paid:0,debt:605000,totalDue:605000,sale:'Sale Fixture',saleUsername:'sale',status:'Chờ bó',shipping:'Ghé lấy',address:'',note:'Dữ liệu kiểm thử cô lập',imageUrls:[],driveUrls:[],card:false,banner:true,bannerQty:3,bannerText:'Fixture',accessoryTotal:105000,vat:0,shipFee:0,shipConfirmed:false,canEdit:true,canOperate:true,canShip:true,canSubmitSettlement:false,detailLoaded:true,updatedAt:'2026-10-15T00:00:00Z'}));
+Object.assign(orders[1],{fullPaid:true,fullPaidTotal:605000,payment:'Đã thanh toán toàn bộ đơn',paid:605000,debt:0,paymentVerified:true});
 const production={ok:true,date:day,orders};
 const listing={ok:true,items:orders,total:orders.length,page:1,pageSize:80,hasMore:false,range:{start:day,end:day}};
 const dashboard={ok:true,range:{start:day,end:day},hourlyScope:'SELECTED_RANGE',hourlyCounts:[{hour:10,count:36}],hourlyUnknown:0,summary:{orders:36,revenue:18000000,grossRevenue:18000000,settledRevenue:0,unsettledRevenue:18000000,debt:21780000,'Chờ bó':36,'Đã bó':0,'Đã giao':0},attention:[],attentionGroups:{nearUnpacked:[],packedOverdue:[]},salesDaily:[{date:day,sale:'Sale Fixture',saleUsername:'sale',orders:36,settledOrders:0,unsettledOrders:36,grossRevenue:18000000,settledRevenue:0,unsettledRevenue:18000000}]};
@@ -103,6 +104,16 @@ async function main(){
     }).map(item=>item.textContent.trim());
    }));
    assert.deepEqual(clipped,[],'Production amount/debt text cannot clip beyond narrow card: '+clipped.join(', '));
+   const textOverflow=await page.locator('.mee-production-lane .mee-production-finance>span').evaluateAll(spans=>spans.flatMap(span=>{
+    const card=span.closest('.order').getBoundingClientRect(),range=document.createRange();range.selectNodeContents(span);
+    return [...range.getClientRects()].some(r=>r.left<card.left+4||r.right>card.right-4)?[span.textContent.trim()]:[];
+   }));
+   assert.deepEqual(textOverflow,[],'Production payment meaning must wrap inside the card, including long Full Paid labels');
+   const duplicateBadges=await page.locator('.mee-production-lane .order.accessory').evaluateAll(cards=>cards.filter(card=>!['none','normal','""'].includes(getComputedStyle(card,'::before').content)).length);
+   assert.equal(duplicateBadges,0,'absolute duplicate accessory badges cannot obscure Production buttons');
+   await page.evaluate(()=>MEEOPS7.setProductionView('grid'));
+   assert.equal(await page.locator('.mee-production-grid .ops-tile.accessory').evaluateAll(cards=>cards.filter(card=>!['none','normal','""'].includes(getComputedStyle(card,'::before').content)).length),0,'grid status buttons are also free of duplicate accessory badges');
+   await page.evaluate(()=>MEEOPS7.setProductionView('kanban'));
 
   }
   if(width===390){
@@ -118,7 +129,7 @@ async function main(){
   }
   await page.screenshot({path:path.join(out,`${width}-${role}.png`),fullPage:true});
   assert.deepEqual(errors,[],'no browser exceptions');
-  results.push({width,role,coldMs,warmMs,checks:['calendar-overlay','new-date-blank-required','edit-date-retained','image-manager-on-new-and-edit','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(width===390?['mobile-menu-overlay','toast-clear-of-mobile-navigation']:[]),...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation','production-finance-not-clipped']:[])],calls:calls.map(c=>c.name)});
+  results.push({width,role,coldMs,warmMs,checks:['calendar-overlay','new-date-blank-required','edit-date-retained','image-manager-on-new-and-edit','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(width===390?['mobile-menu-overlay','toast-clear-of-mobile-navigation']:[]),...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation','production-finance-not-clipped','production-full-paid-text-wraps','kanban-grid-actions-unobscured']:[])],calls:calls.map(c=>c.name)});
   await context.tracing.stop({path:path.join(out,`${width}-${role}.zip`)});await context.close();activeContext=null;activePage=null;
  }}finally{if(activeContext){await activePage.screenshot({path:path.join(out,activeLabel+'-failure.png'),fullPage:true}).catch(()=>{});await activeContext.tracing.stop({path:path.join(out,activeLabel+'-failure.zip')}).catch(()=>{});}await browser.close();server.close();fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:'isolated UI integration; synthetic API; NOT staging E2E',complete:results.length===6,results},null,2)+'\n');}
  console.log(JSON.stringify(results,null,2));

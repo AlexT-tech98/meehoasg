@@ -1149,7 +1149,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     (o.hasAccessories ? '<span class="badge gold" style="font-size:10px;margin-top:4px">CÓ PHỤ KIỆN</span>' : '') +
   '</div></div>';
 }
-    function ordersDebtNotes(o){var x=[];if(o.card){var q=Math.max(1,Number(o.cardQty||1)),fee=Number(o.cardFee)||q*10000;x.push('+'+vnd(fee)+' thiệp'+(q>1?' (×'+q+')':''));}if(o.banner)x.push('+35.000đ banner');if(Number(o.charmFee))x.push('+'+vnd(o.charmFee)+' charm');if(Number(o.paperFee))x.push('+'+vnd(o.paperFee)+' thay giấy');if(Number(o.vat))x.push('+'+vnd(o.vat)+' VAT');var html=x.length?'<div class="debt-breakdown">'+x.map(esc).join('<br>')+'</div>':'';if(isShop(o.shipping))html+='<span class="orders-ship-note">+phí ship</span>';return html;}
+    function ordersDebtNotes(o){var x=[];if(o.card){var q=Math.max(1,Number(o.cardQty||1)),fee=Number(o.cardFee)||q*10000;x.push('+'+vnd(fee)+' thiệp'+(q>1?' (×'+q+')':''));}if(o.banner){var bq=Math.max(1,Number(o.bannerQty||1));x.push('+'+vnd(bq*35000)+' banner'+(bq>1?' (×'+bq+')':''));}if(Number(o.charmFee))x.push('+'+vnd(o.charmFee)+' charm');if(Number(o.paperFee))x.push('+'+vnd(o.paperFee)+' thay giấy');if(Number(o.vat))x.push('+'+vnd(o.vat)+' VAT');var html=x.length?'<div class="debt-breakdown">'+x.map(esc).join('<br>')+'</div>':'';if(isShop(o.shipping))html+='<span class="orders-ship-note">+phí ship</span>';return html;}
     function shipFeeAction(o){return o&&o.canShip&&isShop(o.shipping)?'<button class="btn" onclick="MEEOPS7.openShipFeeForm(\''+o.id+'\')">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</button>':'';}
 
     function card(o, select) {
