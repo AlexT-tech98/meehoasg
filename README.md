@@ -4,7 +4,7 @@
 
 > **Production status — GO-LIVE 01/10/2026:** the website is the primary operations interface and **Supabase is the production source of truth**. Production writeback uses **v9.2 FAST** every 1 minute; a full duplicate-ID health audit runs every 15 minutes. The old Apps Script web app / legacy Sheet flow is retained only for rollback and historical reference and must not be used as the primary writer during normal production.
 
-> **Runtime consolidation — 04/10/2026:** the previous v3→v365 frontend/API layering was consolidated. Browser frontend requests were reduced from 18 compatibility CSS/JS requests to 2 core runtime requests; 10 compatibility MutationObserver declarations are multiplexed through 1 native observer. Critical login/bootstrap, Orders, Production, Dashboard, KPI and Materials reads are served directly by `meehoasg-api-core`. Historical versioned assets/functions remain temporarily as rollback references, not as the normal browser route.
+> **Runtime consolidation — 04/10/2026:** the previous v3→v365 frontend/API layering was consolidated. The UI V2 branch now builds 15 canonical CSS/JS sources into 2 browser runtime requests and uses direct render hooks with 0 UI MutationObservers. Critical login/bootstrap, Orders, Production, Dashboard, KPI and Materials reads are served directly by `meehoasg-api-core`. Historical versioned assets/functions remain temporarily as rollback references, not as the normal browser route.
 
 ## Current production architecture
 
@@ -93,10 +93,10 @@ Canonical runtime:
 - metrics: `runtime-metrics.json`
 
 Current measured build contract:
-- separate frontend CSS/JS requests before: **18**
+- separate canonical frontend CSS/JS sources before bundling: **15**
 - browser runtime requests after: **2**
-- compatibility MutationObserver declarations: **10**
-- native MutationObserver instances after multiplexer: **1**
+- UI MutationObserver declarations in canonical sources: **0**
+- native UI MutationObserver instances in the bundle: **0**
 - dead historical request to missing `meehoa-v361.css`: removed
 
 Historical version files remain as deterministic build inputs and rollback references. They are not loaded individually by production `index.html`.
@@ -226,7 +226,7 @@ GitHub Actions runs `node --test tests/*.test.cjs` on pushes and pull requests t
 
 Coverage includes:
 - consolidated frontend request count and core-asset ordering;
-- shared MutationObserver contract;
+- direct owner render hooks and zero UI MutationObserver contract;
 - canonical API core and no historical API chaining;
 - direct login/bootstrap and production/read hot paths;
 - SALE read-all/edit-own permission behavior;

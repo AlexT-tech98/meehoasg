@@ -26,4 +26,6 @@ These are measurable override debt, not proof that all declarations conflict. A 
 5. Obtain a controlled production deployment with rollback available and confirm real post-deploy smoke tests plus operational/egress evidence. Production smoke tests cannot be asserted before the operator deploys.
 
 ## Current verified limits
-Dashboard has one direct renderer and zero `!important` in its designated stylesheet. Legacy Dashboard chart and v361 injection classes have been retired from production CSS. The rest of the CSS base has substantial historic overrides and has not yet been demonstrated clean. Therefore the zero-patch architectural requirement remains **not passed**, despite passing CI on earlier commits.
+Dashboard has one direct renderer and zero `!important` in its designated stylesheet. Legacy Dashboard chart and v361 injection classes have been retired from production CSS. Canonical UI JavaScript now contains zero `MutationObserver` calls: Production, drawer, form, calendar, payment, Materials and shipping/settlement owners invoke explicit render hooks. The generated bundle no longer installs an observer multiplexer. Desktop/mobile synthetic browser acceptance covers six viewport/role combinations, including calendar, mobile menu and image manager lifecycles.
+
+The CSS base still has substantial historic overrides and has not yet been demonstrated clean. Authenticated staging and production operational evidence are separate release gates. Therefore the full Zero Patch Layer and release requirements remain **not passed**.
