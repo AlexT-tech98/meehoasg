@@ -40,3 +40,26 @@ test('ready-for-delivery and ready-for-pickup orders retain overdue priority',()
  }
  assert.match(ops,/\['Đã bó','Chờ giao','Chờ lấy'\]\.includes\(o\.status\)&&due<now/);
 });
+
+test('production forward/back transitions respect pickup versus delivery',()=>{
+ const begin=html.indexOf('function readinessStatus(o)');
+ const end=html.indexOf('function paymentLabel(o)',begin);
+ assert.ok(begin>=0&&end>begin,'canonical transitions found');
+ const transitionSource=html.slice(begin,end);
+ const transition=new Function(transitionSource+';return {nextStatusValue,previousStatusValue};')();
+ const cases=[
+  {shipping:'Ghé lấy',ready:'Chờ lấy'},
+  {shipping:'Khách tự book',ready:'Chờ giao'},
+  {shipping:'Shop book ship',ready:'Chờ giao'}
+ ];
+ for(const item of cases){
+   const make=status=>({status,shipping:item.shipping});
+   assert.equal(transition.nextStatusValue(make('Chờ bó')),'Đã bó');
+   assert.equal(transition.nextStatusValue(make('Đã bó')),item.ready);
+   assert.equal(transition.nextStatusValue(make(item.ready)),'Đã giao');
+   assert.equal(transition.previousStatusValue(make('Đã giao')),item.ready);
+   assert.equal(transition.previousStatusValue(make(item.ready)),'Đã bó');
+   assert.equal(transition.previousStatusValue(make('Đã bó')),'Chờ bó');
+   assert.equal(transition.nextStatusValue(make('Đã giao')),'');
+ }
+});
