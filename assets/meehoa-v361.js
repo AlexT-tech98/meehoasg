@@ -32,7 +32,7 @@
     var near=(r.attentionGroups&&r.attentionGroups.nearUnpacked||[]).length,late=(r.attentionGroups&&r.attentionGroups.packedOverdue||[]).length;
     return '<section class="mee-dv2-metrics" aria-label="Các chỉ số vận hành">'+
       metric('Đơn hàng',String(orders),'Đã giao '+delivered+' / '+orders)+
-      metric('Doanh thu đơn',visibleMoney(revenue,'revenue'),'Bình quân '+visibleMoney(average,'average'), 'revenue')+
+      metric('Doanh thu đơn',visibleMoney(revenue,'revenue'),'Bình quân '+visibleMoney(average,'average')+privacyButton('average','Bình quân trên đơn'), 'revenue')+
       metric('Công nợ chưa thu',visibleMoney(s.debt,'debt'),'Cần thu và đối soát','debt')+
       metric('Đơn cần ưu tiên',String(near+late),near+' sắp đến giờ · '+late+' trễ giờ')+
       '</section>';
@@ -125,5 +125,6 @@
     render();
   });
   window.MEE_DASHBOARD_RENDER=render;
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',render);else render();
   if(window.__MEE_TEST_MODE__)window.__MEE_DASHBOARD_TEST__={hourlyData:hourlyData,renderMetrics:renderMetrics};
 })();
