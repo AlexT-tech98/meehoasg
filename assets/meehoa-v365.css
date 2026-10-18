@@ -146,29 +146,29 @@ html,body,.app,.main,#content{max-width:100%!important}#content>*{min-width:0!im
 
 
 /* Meehoasg Atelier — approved visual language; presentation only, no workflow changes */
-:root{--bg-app:#f5f2ec;--bg-surface:#fffefa;--bg-subtle:#e3f1ff;--bg-hover:#edf5fe;--text-primary:#25253a;--text-secondary:#656679;--text-muted:#888899;--border:#e7e2de;--border-light:#f0ece8;--brand-green:#103f82;--brand-green-hover:#1853a0;--brand-green-soft:#e3f1ff;--brand-green-border:#c2ddf5;--shadow-card:none}
-html,body{background:#f5f2ec!important;color:#25253a!important;font-family:'DM Sans',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif!important}
-body .app,body .main,body #content,body .content{background-color:#f5f2ec!important}
+:root{--bg-app:#f6f7f9;--bg-surface:#ffffff;--bg-subtle:#f3f6fa;--bg-hover:#eef2f8;--text-primary:#1b2a40;--text-secondary:#62728a;--text-muted:#8693a6;--border:#e1e6ee;--border-light:#edf0f5;--brand-green:#103f82;--brand-green-hover:#1853a0;--brand-green-soft:#e3f1ff;--brand-green-border:#c2ddf5;--shadow-card:none}
+html,body{background:#f6f7f9!important;color:#1b2a40!important;font-family:'DM Sans',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif!important}
+body .app,body .main,body #content,body .content{background-color:#f6f7f9!important}
 body .sidebar{background:#050b17!important;background-image:none!important;color:#f8faff!important;border-right:0!important;box-shadow:none!important}
 body .sidebar .nav button{color:#c0d1e8!important;background:transparent!important;border-radius:9px!important}
 body .sidebar .nav button.active,body .sidebar .nav button[aria-current="page"]{color:#fff!important;background:#103f82!important;border-color:transparent!important;box-shadow:none!important}
 body .sidebar .nav button:hover{background:#132844!important;color:white!important}
 body .sidebar .brand,body .sidebar .brand-copy,body .sidebar .brand-copy *,body .sidebar .side-user,body .sidebar .user-info,body .sidebar .user-info b{color:#f9fbff!important}
 body .sidebar .side-user{border-top-color:#284058!important}
-body .topbar{background:#f5f2ec!important;border-bottom:1px solid #e7e2de!important;box-shadow:none!important}
+body .topbar{background:#f6f7f9!important;border-bottom:1px solid #e1e6ee!important;box-shadow:none!important}
 body .content{max-width:1660px!important}
 body h1,body h2,body h3,.stat strong,.mee-approved-kpi-value{font-family:Manrope,Inter,sans-serif!important;letter-spacing:-.035em}
 body .btn.primary,body .fab,body button.primary{background:#103f82!important;background-image:none!important;color:#fff!important;border-color:#103f82!important;box-shadow:none!important}
 body .btn.primary:hover,body button.primary:hover{background:#1853a0!important}
 body .btn.secondary,body .date-filter-btn,body .topbar button:not(.primary){box-shadow:none!important}
-body .stat,body .panel,body .card,body .lane,body .ops-tile,body .order,body .mee-material-card,body .table-wrap,body .sheet-table-desktop,body .production-shell,body .mee-approved-panel,body .mee-approved-kpi{background:#fffefa!important;background-image:none!important;border:1px solid #e7e2de!important;box-shadow:none!important;border-radius:14px!important}
-body .modal,body .drawer,body .login-card,body .mee-form-section{background:#fffefa!important;box-shadow:0 14px 45px rgba(4,19,38,.10)!important}
+body .stat,body .panel,body .card,body .mee-material-card,body .table-wrap,body .sheet-table-desktop{background:#ffffff!important;background-image:none!important;border:1px solid #e1e6ee!important;box-shadow:none!important;border-radius:9px!important}
+body .modal,body .login-card,body .mee-form-section{background:#ffffff!important;box-shadow:0 14px 45px rgba(4,19,38,.10)!important}
 body .table-wrap,body .sheet-table-desktop{overflow-x:auto!important}
 body .control-table th,body .sheet-table th{background:#f7f6f2!important;color:#888899!important}
 body .control-table tr:hover td,body .sheet-table tr:hover td{background:#f2f7fd!important}
 body input:focus,body select:focus,body textarea:focus{outline-color:#4c91d9!important;border-color:#4c91d9!important}
 body .badge.info,body .badge.blue,body .mee-summary-chip{background:#e3f1ff!important;color:#26639c!important;border-color:#c6e0fa!important}
-body .mee-materials-hero{background:#e3f1ff!important;border-color:#c6e0fa!important;border-radius:14px!important}
+
 @media(min-width:901px){body .sidebar{width:232px!important;padding:24px 16px!important}body .sidebar .nav button{min-height:47px!important;font-size:12px!important;padding:12px 13px!important}body .main{margin-left:232px!important;width:calc(100% - 232px)!important;max-width:calc(100% - 232px)!important}}
 @media(max-width:1200px){body .mee-approved-summary{grid-template-columns:repeat(3,minmax(0,1fr))!important}body .mee-approved-summary .mee-approved-kpi.revenue{grid-column:span 2}}
 @media(max-width:620px){body .mee-approved-summary,body .stat-grid-5{grid-template-columns:repeat(2,minmax(0,1fr))!important}body .mee-approved-summary .mee-approved-kpi.revenue,body .stat-grid-5>.stat:first-child{grid-column:span 2}body .mee-approved-summary .mee-approved-kpi{min-height:120px!important;padding:15px!important}body .mee-approved-kpi-value{font-size:23px!important}body .content{padding-inline:12px!important}body .sidebar{background:#050b17!important}body .mobile-nav,body .mobile-bottom-nav{background:#050b17!important}}
