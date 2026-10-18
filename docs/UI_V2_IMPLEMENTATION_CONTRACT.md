@@ -1,5 +1,5 @@
 # MEEHOA UI V2 — Implementer contract
-Status: IN PROGRESS, NOT DEPLOY APPROVED. Reference: approved UI-V2 handoff, 2026-10-18.
+Status: IN PROGRESS, NOT DEPLOY APPROVED. The owner approved feature-first release sequencing on 2026-10-18; see [phased-release handoff](UI_V2_PHASED_RELEASE_HANDOFF.md). Critical CSS defects remain pre-deploy blockers, while documented cosmetic debt can follow after release.
 
 ## Immutable business boundaries
 Preserve production login, authorization, order create/edit/save/copy/delete, price and payment math, debt and settlement request permissions, KPI settled revenue, role-based editing, images, sync and search. Never use mockup data as seed data.
@@ -24,8 +24,8 @@ Before changing persistence: inventory status readers/writers in frontend, Edge 
 - Feature ownership declared exactly once and built deterministically into meehoa-core.css/js.
 - Obsolete implementation removed from active source list *when replacement passes*; Git history preserves rollback.
 - Tests for desktop/mobile, roles, status selection, save/edit, full-paid orders, production bulk operations, KPI equality, debt/settlement and old/new imagery.
-- CI green AND production smoke checks before deploy approval. Compare bundle, API payload and production metrics against baseline.
+- Exact-head CI green and a reviewed production smoke/rollback plan before controlled deployment. Compare bundle, API payload and production metrics against baseline; record real smoke evidence immediately after deployment before operational DONE.
 - Do not conflate a mergeable PR or GitHub PASS with end-to-end operational PASS.
 
 ## Release sequencing
-Baseline SHA/screens and functionality -> replace one module at a time -> run characterization/regression tests -> prune old ownership -> build -> CI -> staging parity -> deploy only after explicit readiness checklist.
+Baseline SHA/screens and functionality -> fix all critical ownership/visual defects -> run characterization/regression tests -> build -> exact-head CI -> staging parity -> verify deployed baseline and rollback readiness -> controlled rollout -> production smoke/metrics -> operational DONE. Defer only documented noncritical CSS cleanup to a separate follow-up change.
