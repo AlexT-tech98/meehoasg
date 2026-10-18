@@ -175,11 +175,12 @@
     }
   }
 
-  function patch(){patchPayment();patchPaidCopy();patchMaterialsLabel();patchOrderImageUploader();ensureOverlayControls()}
+  function contentSync(){patchPayment();patchPaidCopy();patchMaterialsLabel()}
+  function patch(){contentSync();patchOrderImageUploader();ensureOverlayControls()}
   var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patch,45)}
   function init(){
+    window.MEE_V364_CONTENT_SYNC=contentSync;
     patch();
-    var root=qs('#content');if(root)new MutationObserver(schedule).observe(root,{childList:true,subtree:true,characterData:true});
     var ov=qs('#overlay');if(ov){
       new MutationObserver(schedule).observe(ov,{childList:true,subtree:true});
       ov.addEventListener('click',function(e){
