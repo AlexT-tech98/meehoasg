@@ -86,7 +86,7 @@
     return true;
   }
 
-  function materialSig(r,d){return d+'|'+(r.reviewCount||0)+'|'+(r.items||[]).map(function(x){return x.name+':'+x.orders}).join(',')}
+  function materialSig(r,d){return d+'|'+(r.reviewCount||0)+'|'+(r.status||'')+'|'+(r.aiModel||'')+'|'+(r.aiMessage||'')+'|'+(r.items||[]).map(function(x){return x.name+':'+x.orders}).join(',')}
   function renderMaterials(){
     if(!window.S||S.page!=='flowers')return;
     var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],el=qs('#content');if(!d||!r||!el)return;
@@ -98,6 +98,7 @@
     el.dataset.meeMaterialsSig=sig;
     qsa('[data-material]',el).forEach(function(btn){btn.addEventListener('click',function(){openMaterialDrawer(btn.dataset.material)})});
     qsa('[data-review-order]',el).forEach(function(btn){btn.addEventListener('click',function(){var id=btn.dataset.reviewOrder;if(id&&window.MEEOPS7&&MEEOPS7.openDrawer)MEEOPS7.openDrawer(id,'production')})});
+    if(window.MEE_MATERIALS_STATUS_RENDER)window.MEE_MATERIALS_STATUS_RENDER();
   }
 
   function openMaterialDrawer(name){
