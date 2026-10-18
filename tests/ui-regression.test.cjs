@@ -10,11 +10,12 @@ const v34Js = read('assets/meehoa-v34.js');
 const v35Js = read('assets/meehoa-v35.js');
 const entry = read('index.html');
 
-test('mobile uses hamburger/sidebar and disables legacy bottom navigation', () => {
-  assert.match(canonicalCss, /\.mobile-nav\{display:none!important\}/);
-  assert.match(canonicalCss, /\.sidebar\.mee-open/);
-  assert.match(v3Js, /aria-expanded/);
-  assert.match(v3Js, /mee-menu-backdrop/);
+test('mobile keeps one native bottom navigation and accessible sidebar menu', () => {
+  assert.match(canonicalCss,/\.mobile-nav\{display:grid\}/);
+  assert.match(read('assets/meehoa-v3.css'),/\.mobile-nav \.mee-mobile-create/);
+  assert.doesNotMatch(v3Js,/retireLegacyMobileNav/);
+  assert.match(v3Js,/mee-menu-backdrop/);
+  assert.match(read('html'),/mee-mobile-create/);
 });
 
 test('production mobile preview images remain bounded thumbnails', () => {
