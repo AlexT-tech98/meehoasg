@@ -1938,8 +1938,8 @@ body.mee-search-page .topbar-left{min-width:0!important}
 body.mee-page-settlement-v364 .mee-settlement-selectbar-v364{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   margin:10px 0 12px;padding:10px 12px;border:1px solid var(--border);
-  border-radius:13px;background:#fff;position:sticky;top:74px;z-index:9;
-  box-shadow:0 6px 20px rgba(30,55,45,.05)
+  border-radius:9px;background:#fff;position:sticky;top:74px;z-index:9;
+  box-shadow:none
 }
 body.mee-page-settlement-v364 .mee-settlement-selectbar-v364 label{
   display:flex;align-items:center;gap:8px;margin:0!important;text-transform:none!important;
@@ -1955,8 +1955,8 @@ body.mee-page-settlement-v364 .mee-settlement-grid-v364{
 }
 body.mee-page-settlement-v364 .mee-settlement-grid-v364>.settlement-card{
   margin:0!important;padding:14px!important;min-width:0!important;overflow:hidden!important;
-  border-radius:17px!important;background:#fff!important;border:1px solid rgba(82,59,52,.10)!important;
-  box-shadow:0 8px 24px rgba(66,44,37,.055)!important
+  border-radius:9px!important;background:#fff!important;border:1px solid var(--border)!important;
+  box-shadow:none!important
 }
 body.mee-page-settlement-v364 .mee-settlement-grid-v364>.settlement-card>.settle-check{
   width:18px!important;height:18px!important;margin:0 0 8px!important;padding:0!important
@@ -1969,7 +1969,7 @@ body.mee-page-settlement-v364 .settlement-card .thumbs a{display:block!important
 body.mee-page-settlement-v364 .settlement-card .thumbs img{
   display:block!important;width:100%!important;height:150px!important;max-height:150px!important;
   object-fit:cover!important;object-position:top!important;border-radius:11px!important;
-  margin:0!important;cursor:zoom-in!important;border:1px solid rgba(82,59,52,.08)!important;background:#f6f4f1!important
+  margin:0!important;cursor:zoom-in!important;border:1px solid rgba(82,59,52,.08)!important;background:#f6f7f9!important
 }
 body.mee-page-settlement-v364 .settlement-card .order-actions{margin-top:11px!important}
 
@@ -2001,7 +2001,7 @@ body.mee-overlay-open-v364{overflow:hidden!important;overscroll-behavior:none!im
 /* Create/Edit order image manager */
 .mee-order-image-manager-v364{margin-top:10px}
 .mee-order-image-grid-v364{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:10px}
-.mee-order-image-tile-v364{position:relative;min-width:0;border:1px solid var(--border);border-radius:13px;background:#f8f8f5;overflow:hidden;aspect-ratio:1/1}
+.mee-order-image-tile-v364{position:relative;min-width:0;border:1px solid var(--border);border-radius:8px;background:#f6f7f9;overflow:hidden;aspect-ratio:1/1}
 .mee-order-image-tile-v364 img{display:block;width:100%;height:100%;object-fit:cover;cursor:zoom-in}
 .mee-order-image-tile-v364 span{position:absolute;left:6px;bottom:6px;max-width:calc(100% - 12px);padding:3px 6px;border-radius:7px;background:rgba(22,35,29,.72);color:#fff;font-size:9.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mee-order-image-tile-v364 button{position:absolute;right:6px;top:6px;width:26px!important;height:26px!important;min-width:26px!important;padding:0!important;border:0!important;border-radius:50%!important;background:rgba(255,255,255,.94)!important;color:#b2324d!important;font-size:18px!important;font-weight:700!important;box-shadow:0 3px 10px rgba(0,0,0,.15)!important;display:grid!important;place-items:center!important}
