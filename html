@@ -355,8 +355,9 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     }).join('');
   }
   if (mn) {
-    var main_1 = ['dashboard', 'production', 'orders', 'debt'], primary = allowed.filter(function (p) { return main_1.includes(p[0]); }), extra = allowed.filter(function (p) { return !main_1.includes(p[0]); });
+    var main_1 = ['dashboard', 'production', 'orders', 'debt'], extra = allowed.filter(function(p){return !main_1.includes(p[0]);}), primary = ['dashboard','orders','create','production','debt'].map(function(key){return key==='create'?{create:true}:allowed.find(function(p){return p[0]===key;});}).filter(Boolean);
     mn.innerHTML = primary.map(function (p) {
+      if(p.create)return '<button type="button" class="mee-mobile-create" onclick="MEEOPS7.openOrderForm()"><div>＋</div>Tạo</button>';
       return '<button data-p="' + p[0] + '" onclick="MEEOPS7.go(\'' + p[0] + '\')"><div>' + p[2] + '</div>' + p[1] + '</button>';
     }).join('') + (extra.length ? '<button id="mobileMoreBtn" onclick="MEEOPS7.openMobileMore()"><div>☰</div>Thêm</button>' : '');
     mn.style.setProperty('--mobile-count', String(Math.max(1, mn.children.length)));
