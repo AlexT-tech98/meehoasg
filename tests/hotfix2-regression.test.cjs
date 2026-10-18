@@ -20,11 +20,11 @@ test('canonical ops runtime parses and production shell loads only consolidated 
 });
 
 test('dashboard owns the one-hour tracker and ops runtime does not re-fetch it', () => {
-  assert.match(dashboard, /function hourlyModel/);
-  assert.match(dashboard, /id='meeHourlySingleV361'/);
-  assert.match(dashboard, /window\.gas\('getDashboardSummary'/);
+  assert.match(dashboard, /function hourlyData/);
+  assert.match(dashboard, /data-hourly-total/);
+  assert.match(dashboard, /renderHourly\(r\)/);
   assert.doesNotMatch(dashboard, /window\.gas\('getOrders'/);
-  assert.match(dashboard, /hourlyState\.dashboardRef!==r/);
+  assert.match(dashboard, /window\.MEE_DASHBOARD_RENDER=render/);
   assert.doesNotMatch(ops, /renderHourly|cleanupHourly|hourlyBusy|hourlyLastAt|meeHourlySingleV365/);
   assert.doesNotMatch(dashboard, /08–10|10–12|12–14|14–16|16–18|18–20/);
 });
