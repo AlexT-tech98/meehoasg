@@ -17,6 +17,8 @@ test('fulfillment migration replaces canonical SQL RPC and retains settlement au
  assert.match(migration,/p_action='submitSettlement'/);
  assert.match(migration,/u.role<>'ADMIN'/);
  assert.match(migration,/operation_receipts/);
+ assert.match(migration,/SHIPPING_STATUS_CONFLICT/);
+ assert.match(migration,/o.status in \('Chờ lấy','Chờ giao'\)/);
  assert.doesNotMatch(migration,/array_position\(array\['Chờ bó','Đã bó','Đã giao'\]/);
 });
 
