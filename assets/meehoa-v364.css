@@ -41,8 +41,8 @@ body.mee-page-settlement-v364 .settlement-card .order-actions{margin-top:11px!im
 body.mee-overlay-open-v364{overflow:hidden!important;overscroll-behavior:none!important}
 #overlay{position:relative;z-index:1000!important}
 #overlay .modal-bg,#overlay .drawer-bg{z-index:1000!important}
-#overlay .modal,#overlay .drawer{max-height:calc(100dvh - 24px)!important;overscroll-behavior:contain!important}
-#overlay .modal-head,#overlay .drawer-head{
+#overlay .modal,#overlay .drawer:not(.mee-order-drawer-v2){max-height:calc(100dvh - 24px)!important;overscroll-behavior:contain!important}
+#overlay .modal-head,#overlay .drawer-head:not(.mee-order-drawer-head){
   position:sticky!important;top:0!important;z-index:20!important;
   background:rgba(255,255,255,.97)!important;backdrop-filter:blur(8px)!important;
   margin-top:-8px!important;padding-top:8px!important;padding-bottom:10px!important;
@@ -86,8 +86,8 @@ body.mee-overlay-open-v364{overflow:hidden!important;overscroll-behavior:none!im
 }
 
 /* Order drawer: reserve gallery space and keep long details scrollable. */
-#overlay .drawer{box-sizing:border-box!important;min-width:0!important;min-height:0!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important}
-#overlay .drawer>*{flex-shrink:0!important;min-width:0!important}
+#overlay .drawer:not(.mee-order-drawer-v2){box-sizing:border-box!important;min-width:0!important;min-height:0!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important}
+#overlay .drawer:not(.mee-order-drawer-v2)>*{flex-shrink:0!important;min-width:0!important}
 #overlay .drawer .drawer-head{gap:12px!important}
 #overlay .drawer .drawer-head>div{min-width:0!important;overflow-wrap:anywhere}
 #overlay .drawer .thumbs{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;overflow:visible!important;flex-shrink:0!important}
@@ -97,4 +97,4 @@ body.mee-overlay-open-v364{overflow:hidden!important;overscroll-behavior:none!im
 #overlay .drawer .order-actions .btn{min-width:0!important;white-space:normal!important}
 .order-card-mobile,.ops-tile,.order{min-width:0;overflow-wrap:anywhere}
 .order-card-mobile.row-alert:before,.order.accessory:before,.ops-tile.accessory:before{pointer-events:none!important}
-@media(max-width:600px){#overlay .drawer{height:100dvh!important;max-height:100dvh!important}#overlay .drawer .drawer-head{top:calc(-16px - env(safe-area-inset-top))}#overlay .modal{box-sizing:border-box;max-height:calc(100dvh - env(safe-area-inset-top));overflow-y:auto}.order-card-mobile-footer{flex-wrap:wrap}}
+@media(max-width:600px){#overlay .drawer:not(.mee-order-drawer-v2){height:100dvh!important;max-height:100dvh!important}#overlay .drawer .drawer-head{top:calc(-16px - env(safe-area-inset-top))}#overlay .modal{box-sizing:border-box;max-height:calc(100dvh - env(safe-area-inset-top));overflow-y:auto}.order-card-mobile-footer{flex-wrap:wrap}}
