@@ -14,6 +14,10 @@ test('after an order time/date edit the authoritative Dashboard retains correct 
   {id:'QA-A',date:'2025-01-01',time:'09:15',flowerTotal:100,paymentVerified:false,debt:100,sale:'QA',saleUsername:'qa',status:'Chờ bó'},
   {id:'QA-B',date:'2025-01-02',time:'invalid',flowerTotal:100,paymentVerified:false,debt:100,sale:'QA',saleUsername:'qa',status:'Chờ bó'}
  ];
+ c.all=async (_table,query)=>{
+  const dates=String(query?.and||'').match(/[0-9]{4}-[0-9]{2}-[0-9]{2}/g)||[];
+  return c.fixtures.filter(row=>dates.length<2||(row.date>=dates[0]&&row.date<=dates[1]));
+ };
  const initial=await vm.runInContext("fastDashboard({start:'2025-01-01',end:'2025-01-02'})",c);
  assert.equal(initial.summary.orders,2);assert.equal(initial.hourlyUnknown,1);
  assert.deepEqual(Array.from(initial.hourlyCounts,x=>x.hour),[9]);
