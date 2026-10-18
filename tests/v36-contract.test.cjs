@@ -43,7 +43,8 @@ test('production/materials owner keeps runtime behavior and static styling separ
   assert.match(ui, /openMaterialDrawer/);
   assert.doesNotMatch(ui, /Doanh thu theo nhân viên \/ ngày/);
   assert.doesNotMatch(ui, /injectV36Styles/);
-  assert.match(css, /body\.mee-page-production \.ops-lines\{display:grid!important/);
+  assert.match(css, /\.mee-production-v2\{display:grid/);
+  assert.match(css, /\.mee-production-kanban\{display:grid/);
   assert.match(css, /\.mee-materials-grid/);
 });
 
