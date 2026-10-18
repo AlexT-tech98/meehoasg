@@ -171,13 +171,13 @@
   }
   function patch(){patchOrderForm();patchCopyActions()}
   function init(){
-    window.MEE_ORDER_FORM_ENHANCE=patchOrderForm;patch();
+    window.MEE_ORDER_FORM_ENHANCE=patchOrderForm;
+    window.MEE_COPY_ACTIONS_SYNC=patchCopyActions;
+    patch();
     if(!document.documentElement.dataset.meeDeleteDelegateV2){document.documentElement.dataset.meeDeleteDelegateV2='1';document.addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-mee-delete-order]');if(!button)return;if(!window.S||!S.user||S.user.role!=='ADMIN')return;event.preventDefault();requestDelete(button.dataset.meeDeleteOrder,button);});}
     if(!document.documentElement.dataset.meeCopyDelegate365){document.documentElement.dataset.meeCopyDelegate365='1';document.addEventListener('click',delegatedEditTap,true);document.addEventListener('click',delegatedCopyTap,true)}
     if(window.MEEOPS7)wrapCopy();
-    var root=qs('#content');if(root)new MutationObserver(function(){setTimeout(patch,20)}).observe(root,{childList:true,subtree:true});
-    var ov=qs('#overlay');if(ov)new MutationObserver(function(){setTimeout(function(){patchOrderForm();patchCopyActions()},0)}).observe(ov,{childList:true,subtree:true});
-    document.addEventListener('visibilitychange',function(){if(!document.hidden)patch()});
+    // Drawer, creation confirmation and order form invoke their canonical render hooks directly.
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
