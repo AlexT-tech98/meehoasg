@@ -75,6 +75,7 @@ async function main(){
    if(width<=760)await page.locator('.mee-production-stat').filter({hasText:'Chờ bó'}).click();
    const prior=calls.length,old=await page.evaluate(()=>S.orders.get('QA-SEED-002').status);await page.locator('#content input[type=checkbox][onchange*="QA-SEED-002"]').check();assert.equal(await page.evaluate(()=>S.selected.size),1);assert.equal(await page.evaluate(()=>S.orders.get('QA-SEED-002').status),old);assert.ok(!calls.slice(prior).some(n=>/update|submit|save|create|review/i.test(n)));
    await page.getByRole('button',{name:'Tiến trạng thái →',exact:true}).click();await page.waitForFunction(()=>S.orders.get('QA-SEED-002').status==='Chờ lấy');
+   if(width<=760)await page.locator('.mee-production-stat').filter({hasText:'Chờ lấy'}).click(); // Mobile only operates visible status tab; switch after advancing.
    await page.evaluate(()=>MEEOPS7.changeStatus('QA-SEED-002','Chờ bó'));await page.waitForFunction(()=>S.orders.get('QA-SEED-002').status==='Chờ bó');checks.push('checkbox-selection-only-explicit-status-action');await shot('production');
   }
   // Visual release gate: capture KPI for every role and Admin-only Payment/Admin
