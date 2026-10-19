@@ -157,7 +157,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         token: storageGet('mee_token') || '', user: null, page: 'dashboard', view: 'kanban', selected: new Set(),
         options: { shipping: SHIPPING_DEFAULT.slice(), sales: [], statuses: ['Chờ bó', 'Đã bó', 'Đã giao'] }, optionsLoaded: false, optionsPromise: null,
         filters: {
-            dashboard: { start: today(), end: today() }, production: { date: today(), q: '' }, orders: { start: today(), end: today(), q: '', searchWithinRange: false, page: 1, pageSize: 80 },
+            dashboard: { start: today(), end: today() }, production: { date: today(), q: '', statusTab: 'Chờ bó' }, orders: { start: today(), end: today(), q: '', searchWithinRange: false, page: 1, pageSize: 80 },
             debt: { start: today(), end: today(), sale: '' }, payment: { start: today(), end: today(), status: 'PENDING' }, kpi: { month: today().slice(0, 7) }, flowers: { date: today(), start: today(), end: today() }
         },
         data: { dashboard: null, production: null, orders: null, debt: null, payment: null, kpi: {}, flowers: {}, admin: null },
@@ -1014,6 +1014,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     }); }
     function setProductionDate(v) { S.filters.production.date = v; loadProduction(true); }
     function setProductionView(v) { S.view = v === 'grid' ? 'grid' : 'kanban'; renderProduction(); }
+    function setProductionStatus(v) { if(['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'].indexOf(v)<0)return;if(S.filters.production.statusTab!==v){S.filters.production.statusTab=v;S.selected.clear();}renderProduction(); }
     function setDebtFilter(k, v) { if (['start', 'end', 'sale'].includes(k))
         S.filters.debt[k] = v; loadDebt(true); }
     function setKpiMonth(v) { S.filters.kpi.month = v; loadKpiPage(true); }
@@ -1156,7 +1157,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function card(o, select) {
   if (select === void 0) select = false;
   var next = nextStatusValue(o), prev = previousStatusValue(o);
-  var check = select && canOps() ? '<input type="checkbox" style="width:18px;height:18px;cursor:pointer" ' + (S.selected.has(o.id) ? 'checked' : '') + ' onclick="event.stopPropagation()" onchange="event.stopPropagation();MEEOPS7.togglePick(\'' + o.id + '\',this.checked)"> ' : '';
+  var check = select && canOps() ? '<label class="mee-production-pick" onclick="event.stopPropagation()"><input type="checkbox" aria-label="Chọn đơn ' + attr(o.customer || o.id) + '" style="width:18px;height:18px;cursor:pointer" ' + (S.selected.has(o.id) ? 'checked' : '') + ' onclick="event.stopPropagation()" onchange="event.stopPropagation();MEEOPS7.togglePick(\'' + o.id + '\',this.checked)"></label> ' : '';
   var isUrgent = dashboardAttentionKind(o) || o.hasAccessories;
   return '<article class="order ' + (isUrgent ? 'urgent' : '') + ' ' + (o.hasAccessories ? 'accessory' : '') + '">' +
     '<div class="order-top">' +
@@ -1181,7 +1182,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
 function opsTile(o) {
   var next = nextStatusValue(o), prev = previousStatusValue(o);
   var u = firstImage(o, 240), thumb = u ? '<img src="' + attr(u) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)">' : '✿';
-  return '<article class="ops-tile ' + (o.hasAccessories ? 'accessory' : '') + '">' +
+  return '<article class="ops-tile ' + (o.hasAccessories ? 'accessory' : '') + '" data-production-active="' + (o.status === S.filters.production.statusTab) + '">' +
     '<div class="ops-thumb-wrap">' + thumb + '</div>' +
     '<div>' +
       '<div class="order-top"><b>' + esc(timeVN(o.time)) + ' · ' + esc(o.customer) + '</b><span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></div>' +
@@ -1353,6 +1354,8 @@ function opsTile(o) {
     function renderProduction() {
   var r=S.data.production||{},all=r.orders||[],el=document.getElementById('content');if(!el)return;
   var lanes=['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'];
+  var active=S.filters.production.statusTab;if(lanes.indexOf(active)<0)active=S.filters.production.statusTab='Chờ bó';
+  var activeCount=all.filter(function(o){return o.status===active;}).length;
   var pending=all.filter(function(o){return o.status!=='Đã giao';}).length;
   el.innerHTML='<section class="mee-production-v2">'+
     '<header class="mee-production-head"><div><h2>Sản xuất</h2><p>'+all.length+' đơn trong kỳ · '+pending+' chưa hoàn tất</p></div>'+
@@ -1360,23 +1363,23 @@ function opsTile(o) {
       '<div class="mee-production-view" role="group" aria-label="Chế độ hiển thị">'+
       '<button type="button" class="btn '+(S.view==='kanban'?'primary':'secondary')+'" onclick="MEEOPS7.setProductionView(\'kanban\')">Kanban</button>'+
       '<button type="button" class="btn '+(S.view==='grid'?'primary':'secondary')+'" onclick="MEEOPS7.setProductionView(\'grid\')">Grid</button></div></div></header>'+
-    '<div class="mee-production-stats" aria-label="Tổng hợp theo trạng thái">'+lanes.map(function(st){
-      return '<div class="mee-production-stat"><span>'+st+'</span><b>'+all.filter(function(o){return o.status===st;}).length+'</b></div>';
+    '<div class="mee-production-stats" role="group" aria-label="Chọn trạng thái sản xuất">'+lanes.map(function(st){
+      return '<button type="button" class="mee-production-stat" aria-pressed="'+(st===active)+'" onclick="MEEOPS7.setProductionStatus(\''+st+'\')"><span>'+st+'</span><b>'+all.filter(function(o){return o.status===st;}).length+'</b></button>';
     }).join('')+'</div>'+
     (S.selected.size?'<div class="mee-production-selection" role="region" aria-label="Thao tác hàng loạt">'+
       '<b>Đã chọn '+S.selected.size+' đơn</b><div><button type="button" class="btn secondary" onclick="MEEOPS7.bulkStatus(\'back\')">← Lùi trạng thái</button>'+
       '<button type="button" class="btn primary" onclick="MEEOPS7.bulkStatus(\'forward\')">Tiến trạng thái →</button></div></div>':'')+
     (S.view==='kanban'?'<div class="kanban mee-production-kanban">'+lanes.map(function(st){
       var items=all.filter(function(o){return o.status===st;});
-      return '<section class="lane '+laneClass(st)+' mee-production-lane"><header class="lane-title">'+
+      return '<section class="lane '+laneClass(st)+' mee-production-lane" data-production-active="'+(st===active)+'"><header class="lane-title">'+
         '<span>'+st+'</span><span class="mee-production-count">'+items.length+'</span></header>'+
         '<div class="mee-production-lane-list">'+(items.map(function(o){return card(o,true);}).join('')||'<div class="mee-production-empty">Không có đơn</div>')+'</div></section>';
     }).join('')+'</div>':
-    '<div class="ops-grid mee-production-grid">'+(all.map(opsTile).join('')||empty())+'</div>')+
+    '<div class="ops-grid mee-production-grid">'+(all.map(opsTile).join('')||empty())+(all.length&&!activeCount?'<div class="mee-production-mobile-empty">Không có đơn '+esc(active)+'.</div>':'')+'</div>')+
   '</section>';
 if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();if(window.MEE_ORDER_ACTIONS_CONTENT_SYNC)window.MEE_ORDER_ACTIONS_CONTENT_SYNC();}
-    async function bulkStatus(direction){if(!S.selected.size)return toast('Chưa chọn đơn.',1);var selected=Array.from(S.selected).map(orderById).filter(Boolean),statuses=Array.from(new Set(selected.map(function(o){return o.status;})));if(statuses.length!==1)return toast('Chỉ chọn các đơn cùng trạng thái để chuyển hàng loạt.',1);var targets=selected.map(function(o){return direction==='back'?previousStatusValue(o):nextStatusValue(o);}),uniqueTargets=Array.from(new Set(targets)),target=uniqueTargets[0];
-    if(uniqueTargets.length!==1)return toast('Chọn các đơn cùng bước xử lý và cùng hình thức giao/lấy để chuyển hàng loạt.',1);if(!target)return toast(direction==='back'?'Các đơn đã ở trạng thái Chờ bó.':'Các đơn đã ở trạng thái Đã giao.',1);var items=selected.map(function(o){return{orderId:o.id,sourceSheet:o.sourceSheet,sourceRow:o.sourceRow,expectedUpdatedAt:o.updatedAt};});try{var r=await actionRun(function(){return gas('updateStatusBulk',{items:items,status:target,mutationRequestId:safeUuid()});},'Đang chuyển sang '+target+'…');var results=r.results||[],okIds=new Set(results.filter(function(x){return x.ok;}).map(function(x){return x.orderId;})),actualStatuses=[];if(!okIds.size&&r.ok===false)throw new Error('Không cập nhật được các đơn đã chọn.');selected.forEach(function(o){if(okIds.has(o.id)){var saved=results.find(function(x){return x.orderId===o.id;})||{},actual=resolveStatusValue(o,target,saved),patched=saved.order?Object.assign({},saved.order,{status:actual}):Object.assign({},o,{updatedAt:saved.updatedAt||(saved.row&&saved.row.updated_at)||o.updatedAt,status:actual,canSubmitSettlement:actual==='Đã giao'&&norm(o.saleUsername||o.sale)===norm(S.user.username)});actualStatuses.push(actual);applyCanonicalOrder(patched,o,true);}});renderPatchedPage();S.selected.clear();orderMutationDirty();S.dirty.delete('getProductionOrders');toast('Đã chuyển '+okIds.size+' đơn sang '+(Array.from(new Set(actualStatuses)).join(' / ')||target)+'.',okIds.size!==items.length);}catch(e){toast(e.message,1);}}
+    async function bulkStatus(direction){if(!S.selected.size)return toast('Chưa chọn đơn.',1);var selected=Array.from(S.selected).map(orderById).filter(Boolean);if(window.matchMedia&&window.matchMedia('(max-width:760px)').matches&&selected.some(function(o){return o.status!==S.filters.production.statusTab;})){S.selected.clear();renderProduction();return toast('Chọn lại các đơn trong trạng thái đang xem.',1);}var statuses=Array.from(new Set(selected.map(function(o){return o.status;})));if(statuses.length!==1)return toast('Chỉ chọn các đơn cùng trạng thái để chuyển hàng loạt.',1);var targets=selected.map(function(o){return direction==='back'?previousStatusValue(o):nextStatusValue(o);}),uniqueTargets=Array.from(new Set(targets)),target=uniqueTargets[0];
+    if(uniqueTargets.length!==1)return toast('Chọn các đơn cùng bước xử lý và cùng hình thức giao/lấy để chuyển hàng loạt.',1);if(!target)return toast(direction==='back'?'Các đơn đã ở trạng thái Chờ bó.':'Các đơn đã ở trạng thái Đã giao.',1);var items=selected.map(function(o){return{orderId:o.id,sourceSheet:o.sourceSheet,sourceRow:o.sourceRow,expectedUpdatedAt:o.updatedAt};});try{var r=await actionRun(function(){return gas('updateStatusBulk',{items:items,status:target,mutationRequestId:safeUuid()});},'Đang chuyển sang '+target+'…');var results=r.results||[],okIds=new Set(results.filter(function(x){return x.ok;}).map(function(x){return x.orderId;})),actualStatuses=[];if(!okIds.size&&r.ok===false)throw new Error('Không cập nhật được các đơn đã chọn.');selected.forEach(function(o){if(okIds.has(o.id)){var saved=results.find(function(x){return x.orderId===o.id;})||{},actual=resolveStatusValue(o,target,saved),patched=saved.order?Object.assign({},saved.order,{status:actual}):Object.assign({},o,{updatedAt:saved.updatedAt||(saved.row&&saved.row.updated_at)||o.updatedAt,status:actual,canSubmitSettlement:actual==='Đã giao'&&norm(o.saleUsername||o.sale)===norm(S.user.username)});actualStatuses.push(actual);applyCanonicalOrder(patched,o,true);}});S.selected.clear();renderPatchedPage();orderMutationDirty();S.dirty.delete('getProductionOrders');toast('Đã chuyển '+okIds.size+' đơn sang '+(Array.from(new Set(actualStatuses)).join(' / ')||target)+'.',okIds.size!==items.length);}catch(e){toast(e.message,1);}}
     function renderOrders() {
   var r = S.data.orders || {}, list = r.items || [], el = document.getElementById('content');
   if (!el) return;
@@ -1683,6 +1686,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
         setFlowerDate: setFlowerDate,
         setKpiMonth: setKpiMonth,
         setProductionDate: setProductionDate,
+        setProductionStatus: setProductionStatus,
         setProductionView: setProductionView,
         settlementForm: settlementForm,
         signIn: signIn,
