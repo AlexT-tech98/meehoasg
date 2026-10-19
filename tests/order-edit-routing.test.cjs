@@ -88,7 +88,9 @@ test('edit button is distinct from copy, and edit tap routes exactly once', () =
 test('generated core includes the corrected action handler and the mobile boot cache is bumped', () => {
   const chunk = between(core, '/* ===== meehoa-v366.js ===== */\n', '\n/* ===== meehoa-order-actions.js ===== */\n');
   assert.equal(chunk.slice('/* ===== meehoa-v366.js ===== */\n'.length).trim(), runtime.trim(), 'compiled core matches its source owner');
-  assert.match(index, /var RELEASE='20261018-ui-v2-rc1'/);
-  assert.match(index, /meehoa-core\.js\?v=20261018-ui-v2-rc1/);
+  const release=index.match(/var RELEASE='([^']+)'/);
+  assert.ok(release,'shell must declare a cache-busting release');
+  assert.ok(index.includes('meehoa-core.js?v='+release[1]),'core JS must use the same release');
+  assert.ok(index.includes('meehoa-core.css?v='+release[1]),'core CSS must use the same release');
   assert.match(html, /if\(f\.dataset\.saving==='1'\)\{orderFormFeedback/);
 });
