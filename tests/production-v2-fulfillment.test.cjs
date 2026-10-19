@@ -70,7 +70,7 @@ test('dashboard has explicit counters for both five-stage readiness queues',()=>
 
 test('rollout package includes a prior-green five-state V2 frontend rollback, never an obsolete V1 backend',()=>{
  const script=read('scripts/build-release.cjs');
- assert.match(script,/const anchor='4bb73ffb594118e5b14463772d423ec5320973bc'/);
+ assert.match(script,/const anchor='6d41af509775d33350a2c29e15bd0cbec84cee29'/);
  assert.match(script,/rollback=\['index.html','html','assets\/meehoa-core.js','assets\/meehoa-core.css','manifest.webmanifest'\]/);
  assert.match(script,/Retain upgraded production SQL, core\/legacy\/order-actions\/shared backend/);
  assert.doesNotMatch(script,/anchor='52718b2cd9311891297e4666dfeba4a72629b463',rollback/);

@@ -9,7 +9,7 @@ const {chromium}=require('playwright');
 const root=path.resolve(__dirname,'..'),pkg=path.join(root,'artifacts/release/package');
 const currentOnly=process.argv.includes('--candidate-only');
 const out=path.join(root,'artifacts/five-state-fallback'+(currentOnly?'-candidate':''));
-const states=['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'],day='2026-10-18';
+const states=['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'],day='2026-10-18',nextDay='2026-10-19';
 const users={ADMIN:{username:'admin',display_name:'QA Admin',role:'ADMIN'},SALE:{username:'sale1',display_name:'QA Sale',role:'SALE'},THO_OPS:{username:'tho',display_name:'QA Thợ',role:'THO_OPS'}};
 const hash=x=>crypto.createHash('sha256').update(x).digest('hex');
 let db,api,seq=0,activeRoot=root;const servedResources=[];
@@ -40,7 +40,7 @@ async function decorated(r,u){
 async function orders(u){return Promise.all((await db.query('select to_jsonb(o) as r from orders o order by id')).rows.map(({r})=>decorated(r,u)));}
 async function finance(){return (await db.query("select count(*)::int as orders,sum(mee_ops_total(o))::text as total,sum(case when full_paid then full_paid_total else 0 end)::text as full_paid,sum(case when settled or full_paid then flower_total else 0 end)::text as kpi_revenue from orders o")).rows[0];}
 async function respond(name,p,u){
- const all=await orders(u),production={ok:true,date:day,orders:all},listing={ok:true,items:all,total:all.length,page:1,pageSize:80,hasMore:false,range:{start:day,end:day}};
+ const all=await orders(u),productionDate=p.date||day,production={ok:true,date:productionDate,orders:all.filter(o=>o.date===productionDate)},listing={ok:true,items:all,total:all.length,page:1,pageSize:80,hasMore:false,range:{start:day,end:day}};
  if(name==='loginAndBootstrap'||name==='getCurrentUserAndBootstrap')return {ok:true,token:'a'.repeat(64),user:{username:u.username,name:u.display_name,role:u.role,active:true},options:{sales:['QA Sale'],shipping:['Ghé lấy','Shop book ship','Khách tự book'],statuses:states},initial:{page:'orders',data:listing,at:Date.now()}};
  if(name==='getOrders')return listing;
  if(name==='getProductionOrders')return production;
@@ -97,7 +97,7 @@ async function main(){
   });
   for(const state of states)assert.ok((await page.locator('#content').innerText()).includes(state),'fallback renders order status '+state);
   await page.evaluate(()=>MEEOPS7.openDrawer('FULL'));await page.locator('#overlay').getByText('Banner ×3',{exact:true}).waitFor();assert.match(await page.locator('#overlay').innerText(),/Full Paid/i);await page.evaluate(()=>MEEOPS7.closeOverlay());
-  const checks=['packaged-fallback-hashes','cached-shell-evicted','actual-served-recovery-resource-hashes','reload-after-frontend-switch','all-five-order-statuses','multi-banner-and-full-paid-retained'];
+  const checks=['packaged-fallback-hashes','cached-shell-evicted','actual-served-recovery-resource-hashes','reload-after-frontend-switch','all-five-order-statuses','multi-banner-and-full-paid-retained'];let rangeEvidence=null;
   if(role!=='SALE'){
    await page.evaluate(()=>MEEOPS7.go('production'));await page.locator('.mee-production-lane').first().waitFor();assert.equal(await page.locator('.mee-production-lane').count(),5);
    assert.equal(await page.evaluate(()=>S.filters.production.date),day,'selected production day matches persisted fixture date');
@@ -113,14 +113,39 @@ async function main(){
     for(const state of route){await page.evaluate(([id,state])=>MEEOPS7.changeStatus(id,state),[id,state]);assert.equal((await row(id)).status,state);assert.equal(await page.evaluate(id=>S.data.production.orders.find(o=>o.id===id).status,id),state);}
    }
    const n2=calls.filter(c=>c.name==='updateStatusBulk').length;await page.evaluate(()=>{MEEOPS7.togglePick('PACKED',true);MEEOPS7.togglePick('WAIT',true);});await page.evaluate(()=>MEEOPS7.bulkStatus('forward'));assert.equal(calls.filter(c=>c.name==='updateStatusBulk').length,n2,'mixed state bulk guarded without mutation');
+   // A local date edit puts one persisted order on day two. The real picker
+   // must merge date-filtered replies, and mutations must keep that card in
+   // the selected range rather than comparing only filters.production.date.
+   await db.query('update orders set order_date=$1,updated_at=clock_timestamp() where id=$2',[nextDay,'WAIT']);
+   assert.equal((await respond('getProductionOrders',{date:day},u)).orders.length,5,'first-day response excludes the moved order');
+   assert.deepEqual((await respond('getProductionOrders',{date:nextDay},u)).orders.map(o=>o.id),['WAIT'],'second-day response contains only its own order');
+   const rangeCallsStart=calls.length;
+   await page.evaluate(([start,end])=>{MEEOPS7.openDatePicker('production','range');MEEOPS7.datePickerSelect(start);MEEOPS7.datePickerSelect(end);},[day,nextDay]);
+   await page.getByRole('button',{name:'Áp dụng',exact:true}).click();
+   await page.waitForFunction(([start,end])=>S.page==='production'&&S.data.production?.rangeStart===start&&S.data.production.rangeEnd===end&&S.data.production.orders?.length===6,[day,nextDay]);
+   assert.equal(await page.evaluate(()=>S.filters.production.date),day,'the single-date field remains the range start');
+   const requestedDates=[...new Set(calls.slice(rangeCallsStart).filter(c=>c.name==='getProductionOrders').map(c=>c.payload.date))].sort();
+   assert.deepEqual(requestedDates,[day,nextDay],'actual picker fetches both selected production days');
+   const route=['Đã bó','Chờ lấy','Đã giao','Chờ lấy','Đã bó','Chờ bó'];
+   for(const status of route){
+    await page.evaluate(status=>MEEOPS7.changeStatus('WAIT',status),status);
+    const persisted=await row('WAIT');assert.equal(persisted.status,status);assert.equal(persisted.order_date,nextDay);
+    const visible=await page.evaluate(()=>({count:S.data.production.orders.length,matching:S.data.production.orders.filter(o=>o.id==='WAIT')}));
+    assert.equal(visible.count,6,'day-two status mutation cannot remove a selected-range order');assert.equal(visible.matching.length,1);assert.equal(visible.matching[0].date,nextDay);assert.equal(visible.matching[0].status,status);
+    const card=page.locator('.mee-production-lane .order').filter({has:page.getByRole('heading',{name:'QA WAIT',exact:true})});
+    assert.equal(await card.count(),1,'day-two card remains rendered exactly once');assert.equal(await card.locator('.order-top > .badge').innerText(),status);assert.match(await card.locator('.meta').innerText(),/19\/10\/2026/);
+   }
+   rangeEvidence={start:day,end:nextDay,requestedDates,orders:6,dayTwoOrder:'WAIT',persistedDate:(await row('WAIT')).order_date,statuses:route};
+   await page.screenshot({path:path.join(out,width+'-'+role+'-two-day-range.png'),fullPage:true});
    checks.push('five-production-lanes','selection-no-mutation','pickup-forward-backward','delivery-forward-backward','mixed-bulk-denied','full-paid-finance-text-wraps','no-accessory-badge-obstruction');
+   checks.push('production-responses-filter-by-requested-day','actual-two-day-production-picker','day-two-status-retained-in-sql-client-dom');
   }else{
    assert.equal(await page.locator('.status-next').count(),0);const o=await row('WAIT'),denied=await rpc('updateStatus',{orderId:o.id,expectedUpdatedAt:o.updated_at,status:'Đã bó'},u.username);assert.equal(denied.code,'NOT_OWNER');assert.deepEqual(await row('WAIT'),o);checks.push('sale-production-controls-hidden','sql-sale-status-mutation-denied');
   }
   const ownerOrder=await row('DELIVERED');for(const actor of ['admin','tho']){const denied=await rpc('submitSettlement',{orderId:ownerOrder.id,expectedUpdatedAt:ownerOrder.updated_at,newSettlementId:'DENIED-'+(++seq),newBillUrls:['supabase://settlement-bills/qa-denied.jpg']},actor);assert.equal(denied.code,'NOT_OWNER');}
   assert.deepEqual(await finance(),before,'rollback/status changes preserve total, Full Paid and settled KPI revenue');checks.push('cross-owner-settlement-denied','sql-money-full-paid-kpi-invariant');
   const full=await row('FULL');assert.deepEqual(full.image_urls,['supabase://order-images/qa-sample.jpg']);assert.deepEqual(full.full_paid_bill_urls,['supabase://settlement-bills/qa-proof.jpg']);checks.push('stored-proof-identities-preserved');
-  await page.screenshot({path:path.join(out,width+'-'+role+'.png'),fullPage:true});assert.deepEqual(errors,[]);results.push({width,role,checks,actualFrontendHashes,calls:calls.map(c=>c.name),finance:before});await context.close();
+  await page.screenshot({path:path.join(out,width+'-'+role+'.png'),fullPage:true});assert.deepEqual(errors,[]);results.push({width,role,checks,rangeEvidence,actualFrontendHashes,calls:calls.map(c=>c.name),finance:before});await context.close();
  }
  }finally{await browser.close();server.close();await db.close();const testedRoot=currentOnly?root:path.join(pkg,'compatible-fallback');fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:currentOnly?'candidate frontend and canonical isolated SQL RPC; synthetic authentication/transport; NOT production restore':'actual packaged frontend and canonical isolated SQL RPC; synthetic authentication/transport; NOT production restore',mode:currentOnly?'candidate-only':'packaged-fallback',candidate:manifest.commit,fallback:manifest.compatibleFallback.commit,testedFrontendHashes:manifest.compatibleFallback.files.map(f=>({path:f.path,sha256:hash(fs.readFileSync(path.join(testedRoot,f.path)))})),testedSqlSha256:manifest.uiV2SchemaDelta.sha256,complete:results.length===6,results},null,2)+'\n');}
  console.log('PASS five-state '+(currentOnly?'corrected candidate frontend':'packaged frontend fallback')+' '+results.length+'/6 role/viewport matrices');
