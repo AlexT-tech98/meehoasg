@@ -71,7 +71,9 @@ async function main(){
  const results=[];
  try{for(const width of [1440,390])for(const role of ['ADMIN','SALE','THO_OPS']){
   await seed();const u=users[role],before=await finance();
-  const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce'}),page=await context.newPage(),calls=[],errors=[];
+  const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce',timezoneId:'Asia/Ho_Chi_Minh'}),page=await context.newPage(),calls=[],errors=[];
+  // Fixture dates must not depend on the wall clock when this drill runs later.
+  await page.clock.setFixedTime(new Date(day+'T05:00:00Z'));
   page.on('pageerror',e=>errors.push(e.message));
   await context.route('**/*',async route=>{
    const req=route.request(),url=new URL(req.url());if(url.origin===origin)return route.continue();
@@ -98,6 +100,7 @@ async function main(){
   const checks=['packaged-fallback-hashes','cached-shell-evicted','actual-served-recovery-resource-hashes','reload-after-frontend-switch','all-five-order-statuses','multi-banner-and-full-paid-retained'];
   if(role!=='SALE'){
    await page.evaluate(()=>MEEOPS7.go('production'));await page.locator('.mee-production-lane').first().waitFor();assert.equal(await page.locator('.mee-production-lane').count(),5);
+   assert.equal(await page.evaluate(()=>S.filters.production.date),day,'selected production day matches persisted fixture date');
    await page.screenshot({path:path.join(out,width+'-'+role+'-precheck.png'),fullPage:true});
    const overflow=await page.locator('.mee-production-finance>span').evaluateAll(spans=>spans.flatMap(span=>{
     const card=span.closest('.order').getBoundingClientRect(),range=document.createRange();range.selectNodeContents(span);
