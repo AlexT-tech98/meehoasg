@@ -12,19 +12,23 @@ test('versioned stale Sheet ACK reports conflict and uses atomic version predica
 
 test('successful Sheet ACK confirms the matched row and bounds batches',async()=>{const h=harness('meehoasg-ingest',false,[{id:'ONE'}]);let r=await h.request({action:'recordSheetPositions',updates:[{id:'ONE',source_sheet:'Sheet',source_row:3,expectedUpdatedAt:'2026-10-09T01:00:00Z'}]});const result=await r.json();assert.equal(result.ok,true);assert.equal(result.updated,1);assert.equal(result.conflicts,0);r=await h.request({action:'recordSheetPositions',updates:Array.from({length:201},()=>({id:'ONE'}))});assert.equal(r.status,500);assert.equal(h.calls.length,1);});
 
-test('five-state statuses roundtrip in Sheet ingest and legacy packed flags without marking delivered',()=>{
+test('four-state import canonicalizes historical packed orders without marking delivered',()=>{
  const source=fs.readFileSync('supabase/functions/meehoasg-ingest/index.js','utf8');
  const scope={Deno:{env:{get:()=>''},serve:()=>{}},TextEncoder,URL,console};
  vm.createContext(scope);vm.runInContext(source,scope);
  const script=fs.readFileSync('supabase/functions/meehoasg-ingest/apps-script-production-cutover-v9.1.gs','utf8');
  const sheet={};vm.createContext(sheet);vm.runInContext(script,sheet);
- for(const [status,packed,delivered] of [
-  ['Chờ bó',false,false],['Đã bó',true,false],
-  ['Chờ giao',true,false],['Chờ lấy',true,false],['Đã giao',true,true]
+ for(const [status,shipping,canonical,packed,delivered] of [
+  ['Chờ bó','Shop book ship','Chờ bó',false,false],
+  ['Đã bó','Shop book ship','Chờ giao',true,false],
+  ['Đã bó','Ghé lấy','Chờ lấy',true,false],
+  ['Chờ giao','Shop book ship','Chờ giao',true,false],
+  ['Chờ lấy','Ghé lấy','Chờ lấy',true,false],
+  ['Đã giao','Shop book ship','Đã giao',true,true]
  ]){
-  const record=vm.runInContext('mapOrder('+JSON.stringify({id:'QA-STATE',date:'2026-10-18',status})+')',scope);
-  assert.equal(record.status,status);
-  const legacy=sheet._p91OrderRow({status,order_date:'2026-10-18'},'QA-STATE');
+  const record=vm.runInContext('mapOrder('+JSON.stringify({id:'QA-STATE',date:'2026-10-18',status,shipping})+')',scope);
+  assert.equal(record.status,canonical);
+  const legacy=sheet._p91OrderRow({status,shipping,order_date:'2026-10-18'},'QA-STATE');
   assert.equal(legacy[6],packed,status+' packed');
   assert.equal(legacy[7],delivered,status+' delivered');
  }
