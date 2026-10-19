@@ -20,7 +20,7 @@ s=s.replace(authAnchor,directAuth);
 const fastOrdersAnchor="async function fastOrders(payload){";
 const idx=s.indexOf(fastOrdersAnchor);
 if(idx<0)throw new Error('fastOrders anchor not found');
-const prodFn="async function fastProduction(payload){const user=await requireUser(payload),dir=await saleDirectory(),date=clean(payload.date)||dateToday(),rows=await all('orders',{and:`(order_date.gte.${date},order_date.lte.${date})`,order:'order_time.asc'}),sm=await settlementMap(rows.map(r=>r.id));const orders=await Promise.all(rows.map(async r=>decorate({...r,image_urls:await displayUrls(r.image_urls||[])},user,sm[r.id],dir)));return {ok:true,date,orders,visibilityRule:'SALE_READ_ALL_EDIT_OWN'}}\n\n";
+const prodFn="async function fastProduction(payload){const user=await requireUser(payload,['ADMIN','THO_OPS']),dir=await saleDirectory(),date=clean(payload.date)||dateToday(),rows=await all('orders',{and:`(order_date.gte.${date},order_date.lte.${date})`,order:'order_time.asc'}),sm=await settlementMap(rows.map(r=>r.id));const orders=await Promise.all(rows.map(async r=>decorate({...r,image_urls:await displayUrls(r.image_urls||[])},user,sm[r.id],dir)));return {ok:true,date,orders,visibilityRule:'SALE_READ_ALL_EDIT_OWN'}}\n\n";
 s=s.slice(0,idx)+prodFn+s.slice(idx);
 
 const bootstrapAnchor="async function bootstrapPatch(name,payload,result){";

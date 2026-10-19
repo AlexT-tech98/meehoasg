@@ -51,3 +51,13 @@ The automatic approval reviewer rejected provisioning four dedicated production 
 5. Only after the gates pass: merge, controlled matching SQL/API/frontend rollout, served-hash verification, real smoke/finance/permission/image checks, and sync/error/performance/Egress observation. Record actual evidence before operational DONE.
 
 Raw retained baseline artifacts and browser screenshots are under `/workspace/prod-baseline`; no production credentials or customer rows are included in this document.
+
+## Continued verification — 19 October 2026
+
+Corrected recovery packaging commit `b5c0a89b5255cdcd4fcea24816c999b54c1a8adb` passed [exact-HEAD CI 39156173978](https://github.com/AlexT-tech98/meehoasg/actions/runs/39156173978). The packaged-frontend rehearsal also passed all six role/viewport combinations locally. It explicitly evicts only the cached shell before switching frontend and checks that the browser actually received all five expected resource hashes; it does not silently reuse candidate HTML from localStorage.
+
+Further source/handler inspection found two core read-route permission checks missing compared with the existing UI and legacy API: Dashboard is ADMIN-only; Production is ADMIN/THO_OPS-only. The candidate now enforces both inside the canonical functions, while SALE retains Orders read-all and own-edit behavior. Actual-handler tests exercise token hashing, active sessions/users, denied role responses and zero financial/order queries on denial. Authenticated local staging adds direct cross-role endpoint checks. This is a candidate correction, not a claim that the live API has been updated.
+
+A local real-PostgreSQL/Storage run passed the original 17 API scenarios, all six browser role/viewport cases and a supplementary mobile SALE create → edit → save → reload workflow with three banners and an uploaded image. A prior benchmark recorded one desktop SALE cold-client outlier above its unchanged five-second budget; it remains retained and requires a final run without concurrent local browser load. Final role-corrected API/benchmark and independent database/Storage recovery are being completed. All evidence remains explicitly local, not production business acceptance.
+
+The proposed business-table guard additionally passed a real PostgreSQL independent-session test: pause waits for an already-authorized write to commit, timeout does not falsely mark paused, subsequent service-role/RPC writes fail, missing control rows fail closed, and reopening/removal preserve orders, receipts, audit and money. It is not deployed and does not replace an early Storage/upload gate or a demonstrated live drain.

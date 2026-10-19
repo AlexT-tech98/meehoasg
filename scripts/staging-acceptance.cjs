@@ -20,6 +20,17 @@ async function main(){
   assert.equal((await db.query('select name from meehoa_qa.environment')).rows[0]?.name,'meehoa-pr39-local-synthetic');
   await check('active roles login; disabled login denied',async()=>{for(const a of accounts){const r=await call('loginAndBootstrap',{username:a.username,password:a.password},'');assert.equal(r.ok,a.active,a.username);if(a.active){assert.equal(r.user.role,a.role);sessions[a.username]=r.token;}}});
   await check('anonymous session and direct table access rejected; SALE cannot administer users',async()=>{const anon=await call('getOrders',{},'');assert.equal(anon.code,'AUTH_REQUIRED');const direct=await fetch(cfg.API_URL+'/rest/v1/orders?select=id&limit=1',{headers:{apikey:cfg.ANON_KEY,authorization:'Bearer '+cfg.ANON_KEY}});assert.ok([401,403].includes(direct.status),'anon must not read orders directly');const denied=await call('listUsers',{},'qa_sale');assert.equal(denied.ok,false);});
+  await check('core protected readers enforce Dashboard ADMIN and Production operations roles',async()=>{
+   for(const actor of ['qa_sale','qa_tho']){
+    const r=await call('getDashboardSummary',{start:env.today,end:env.today},actor);
+    assert.equal(r.ok,false,actor+' must not access the Admin Dashboard API');assert.equal(r.code,'AUTH_REQUIRED');
+    for(const key of ['summary','salesDaily','attention','attentionGroups','hourlyCounts'])assert.equal(r[key],undefined,'denied Dashboard response must omit '+key);
+   }
+   const sale=await call('getProductionOrders',{date:env.today},'qa_sale');assert.equal(sale.ok,false);assert.equal(sale.code,'AUTH_REQUIRED');assert.equal(sale.orders,undefined);
+   for(const actor of ['qa_admin','qa_tho']){const r=await call('getProductionOrders',{date:env.today},actor);assert.equal(r.ok,true,actor+' retains Production access');assert.ok(Array.isArray(r.orders));}
+   const orders=await call('getOrders',{start:env.today,end:env.today},'qa_sale');assert.equal(orders.ok,true,'SALE retains Orders read-all access');
+   return{dashboardDeniedRoles:['SALE','THO_OPS'],productionDeniedRoles:['SALE'],productionAllowedRoles:['ADMIN','THO_OPS'],saleOrdersRead:true};
+  });
   await check('global search all dates, accent normalization, bounded disjoint pages',async()=>{
    const all=new Set();let total;
    for(let page=1;page<=12;page++){const r=await call('getOrders',{q:'qa khach tien',globalSearch:true,page,pageSize:20,start:env.today,end:env.today},'qa_sale');assert.equal(r.ok,true);assert.equal(r.searchScope,'ALL_DATES');assert.ok(r.items.length<=20);total=r.total;for(const o of r.items){assert.ok(!all.has(o.id),'duplicate page row');all.add(o.id);}if(!r.hasMore)break;}
