@@ -228,10 +228,19 @@
       var key=x.key,start=x.start,end=x.mode==='single'?x.start:x.end;
       if(S.filters[key]){if('date' in S.filters[key])S.filters[key].date=start;if('start' in S.filters[key])S.filters[key].start=start;if('end' in S.filters[key])S.filters[key].end=end}
       if(window.closeOverlay)closeOverlay();
-      if(key==='production'&&x.mode!=='single'){await loadProductionRange(start,end);return}
+      if(key==='production'&&x.mode!=='single'){
+        // Orders-equivalent search: selecting dates narrows the server search; no 62-day image fetch while searching.
+        if(String(S.filters.production.q||'').trim()){
+          S.filters.production.searchWithinRange=true;
+          if(MEEOPS7.refreshProductionSearch)await MEEOPS7.refreshProductionSearch();
+          return;
+        }
+        await loadProductionRange(start,end);return;
+      }
       if(key==='orders'){S.filters.orders.page=1;if(String(S.filters.orders.q||'').trim())S.filters.orders.searchWithinRange=true;}
       if(key==='flowers'&&window.loadFlowers)await loadFlowers(true);else if(window.loadPage)await loadPage(key,true);
     };
+    MEEOPS7.loadProductionRange=loadProductionRange;
     return true;
   }
 
