@@ -1,6 +1,11 @@
 /* Canonical write service. Business data commits only through one SQL RPC. */
 export function operationFailure(message, code='ORDER_INPUT_INVALID') { return {ok:false,code,message}; }
 const clean=v=>String(v??'').trim();
+// Seasonal intake rule for NEW orders only. Existing orders stay editable.
+export function isClosedReceptionDate(value){
+  return value==='2026-10-19'||value==='2026-10-20';
+}
+const CLOSED_RECEPTION_MESSAGE='MEEHOA đã ngưng nhận đơn ngày 19/10 và 20/10. Vui lòng chọn ngày nhận khác.';
 const bool=v=>v===true||v===1||v==='1'||v==='true'||v==='on';
 export function operationMoney(value, optional=false) {
   if(optional&&(value===undefined||value===null||value===''))return 0;
@@ -50,6 +55,8 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
     // Read a completed receipt before uploading; retries never mutate an order.
     const args={p_actor:user.username,p_request_id:requestId,p_action:action,p_fingerprint:fingerprint};
     const receipt=await rpc('mee_ops_lookup',args);if(receipt)return receipt;
+    if(action==='createOrder'&&isClosedReceptionDate(clean(p.order?.date)))
+      return operationFailure(CLOSED_RECEPTION_MESSAGE,'ORDER_DATE_CLOSED');
     const input={orderId:clean(p.orderId),expectedUpdatedAt:clean(p.expectedUpdatedAt)};
     const staged=[];let submitted=false;
     const upload=async(files,bucket)=>{const urls=await uploadImages(files,bucket);staged.push(...urls);return urls;};
