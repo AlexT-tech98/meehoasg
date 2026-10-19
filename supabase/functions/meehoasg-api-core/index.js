@@ -157,7 +157,7 @@ Deno.serve(async request=>{
               orderId:clean(item.orderId), expectedUpdatedAt:item.expectedUpdatedAt,
               status:statusValue, requestId:bulkId+'-'+i
             },user);
-            results.push({orderId:clean(item.orderId),ok:!!saved?.ok,updatedAt:saved?.order?.updatedAt||saved?.row?.updated_at||'',code:saved?.code||'',message:saved?.message||''});
+            results.push({orderId:clean(item.orderId),ok:!!saved?.ok,status:clean(saved?.order?.status||saved?.row?.status||saved?.status),updatedAt:saved?.order?.updatedAt||saved?.row?.updated_at||'',code:saved?.code||'',message:saved?.message||''});
           }catch(err){
             results.push({orderId:clean(item.orderId),ok:false,code:'STATUS_FAILED',message:String(err?.message||'Có lỗi xảy ra.')});
           }
