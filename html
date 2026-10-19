@@ -154,15 +154,15 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     window.__MEE_BOOT_STAGE__ = 'state-init';
     var SHIPPING_DEFAULT = ['Shop book ship', 'Khách tự book', 'Ghé lấy'];
     var PRODUCTION_STATUSES = ['Chờ bó','Chờ giao','Chờ lấy','Đã giao'];
-    var productionSearchTimer = null, productionSearchComposing = false, productionSearchChanged = false;
+    var productionSearchTimer = null, productionSearchComposing = false, productionSearchChanged = false, productionSearchGeneration = 0;
     var S = {
         token: storageGet('mee_token') || '', user: null, page: 'dashboard', view: 'kanban', selected: new Set(),
         options: { shipping: SHIPPING_DEFAULT.slice(), sales: [], statuses: PRODUCTION_STATUSES.slice() }, optionsLoaded: false, optionsPromise: null,
         filters: {
-            dashboard: { start: today(), end: today() }, production: { date: today(), q: '', statusTab: 'Chờ bó' }, orders: { start: today(), end: today(), q: '', searchWithinRange: false, page: 1, pageSize: 80 },
+            dashboard: { start: today(), end: today() }, production: { date: today(), q: '', searchWithinRange: false, statusTab: 'Chờ bó' }, orders: { start: today(), end: today(), q: '', searchWithinRange: false, page: 1, pageSize: 80 },
             debt: { start: today(), end: today(), sale: '' }, payment: { start: today(), end: today(), status: 'PENDING' }, kpi: { month: today().slice(0, 7) }, flowers: { date: today(), start: today(), end: today() }
         },
-        data: { dashboard: null, production: null, orders: null, debt: null, payment: null, kpi: {}, flowers: {}, admin: null },
+        data: { dashboard: null, production: null, productionSearch: null, orders: null, debt: null, payment: null, kpi: {}, flowers: {}, admin: null },
         cache: new Map(), orders: new Map(), detailAt: new Map(), activeLoads: {}, loadSeq: {}, viewAt: {}, currentDrawer: '', adminAt: 0, dirty: new Set(), perf: { buffer: [], flushTimer: null, flushing: false }
     };
     var pages = [['dashboard', 'Tổng quan', '⌂'], ['production', 'Sản xuất', '✿'], ['orders', 'Đơn hàng', '▦'], ['debt', 'Công nợ', '₫'], ['payment', 'Payment Check', '✓'], ['kpi', 'Báo cáo / KPI', '★'], ['flowers', 'Nguyên liệu', '❀'], ['admin', 'Cài đặt', '⚙']];
@@ -327,7 +327,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     // Dashboard financial/KPI/sales/attention aggregates are server-owned. After any
     // order mutation, refresh that complete snapshot; never partially recompute money.
     function patchOrdersOrder(order, oldOrder) { var r=S.data.orders;if(!r)return;var f=S.filters.orders,newMatch=order&&isoInRange(order.date,f.start,f.end)&&matchesSearch(order,f.q),had=(r.items||[]).some(function(x){return x.id===order.id;});r.items=listUpsert(r.items||[],order,newMatch);if(!had&&newMatch)r.total=(r.total||0)+1;else if(had&&!newMatch)r.total=Math.max(0,(r.total||0)-1); }
-    function patchProductionOrder(order) { var r=S.data.production;if(!r)return;var start=r.rangeStart||S.filters.production.date,end=r.rangeEnd||start;r.orders=listUpsert(r.orders||[],order,!!start&&isoInRange(order.date,start,end)); }
+    function patchProductionOrder(order) { var r=S.data.production;if(r){var start=r.rangeStart||S.filters.production.date,end=r.rangeEnd||start;r.orders=listUpsert(r.orders||[],order,!!start&&isoInRange(order.date,start,end));}var search=S.data.productionSearch;if(search&&Array.isArray(search.items)){var index=search.items.findIndex(function(x){return x.id===order.id;});if(index>=0)search.items[index]=order;} }
     function debtMatches(order) { if(!order||!isoInRange(order.date,S.filters.debt.start,S.filters.debt.end)||order.settled||order.fullPaid)return false;if(S.user.role==='ADMIN')return !S.filters.debt.sale||norm(order.sale)===norm(S.filters.debt.sale);return order.saleUsername?norm(order.saleUsername)===norm(S.user.username):norm(order.sale)===norm(S.user.name); }
     function patchDebtOrder(order) { var r=S.data.debt;if(!r)return;r.items=listUpsert(r.items||[],order,debtMatches(order));var list=r.items||[];r.summary={orders:list.length,debt:list.reduce(function(n,o){return n+(Number(o.debt)||0);},0),shipFeePending:list.filter(function(o){return o.shipFeePending;}).length}; }
     function renderPatchedPage() { if(S.page==='dashboard'){if(S.dirty.has('getDashboardSummary'))loadDashboard(true);else if(S.data.dashboard)renderDashboard();}else if(S.page==='production'&&S.data.production)renderProduction();else if(S.page==='orders'&&S.data.orders)renderOrders();else if(S.page==='debt'&&S.data.debt)renderDebt();else if(S.page==='payment'&&S.data.payment)renderPayment(); }
@@ -1016,15 +1016,115 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     }); }
     function setProductionDate(v) { S.filters.production.date = v; loadProduction(true); }
     function setProductionView(v) { S.view = v === 'grid' ? 'grid' : 'kanban'; renderProduction(); }
-    function setProductionStatus(v) { if(PRODUCTION_STATUSES.indexOf(v)<0)return;clearTimeout(productionSearchTimer);productionSearchTimer=null;productionSearchChanged=false;if(S.filters.production.statusTab!==v){S.filters.production.statusTab=v;S.selected.clear();}renderProduction(); }
+    function setProductionStatus(v) { if(PRODUCTION_STATUSES.indexOf(v)<0)return;if(S.filters.production.statusTab!==v){S.filters.production.statusTab=v;S.selected.clear();}if(productionSearchChanged)applyProductionSearch();else renderProduction(); }
     function productionSearchText(v) { return norm(v).replace(/đ/g,'d').replace(/\s+/g,' ').trim(); }
-    function productionMatchesSearch(o,q) { var words=productionSearchText(q).split(' ').filter(Boolean);if(!words.length)return true;var phone=String(o.phone||'').replace(/\D/g,''),digits=String(q||'').replace(/\D/g,'');if(digits&&/^[\d\s()+.\-]+$/.test(q)&&phone.indexOf(digits)>=0)return true;var text=productionSearchText([o.id,o.customer,o.phone,phone,o.flower,o.note,o.address,o.sale,o.saleUsername,o.shipping].join(' '));return words.every(function(word){return text.indexOf(word)>=0;}); }
-    function productionSearchOrders(items,q) { return (items||[]).filter(function(o){return productionMatchesSearch(o,q);}); }
-    function productionOrderVisible(o) { if(!o)return false;var matches=((S.data.production||{}).orders||[]).some(function(row){return row.id===o.id&&productionMatchesSearch(row,S.filters.production.q);});return matches&&(!(window.matchMedia&&window.matchMedia('(max-width:760px)').matches)||visibleOrderStatus(o)===S.filters.production.statusTab); }
-    function applyProductionSearch() { clearTimeout(productionSearchTimer);productionSearchTimer=null;var changed=productionSearchChanged;productionSearchChanged=false;if(S.page!=='production')return;if(changed&&window.matchMedia&&window.matchMedia('(max-width:760px)').matches){var matches=productionSearchOrders((S.data.production||{}).orders,S.filters.production.q);if(!matches.some(function(o){return visibleOrderStatus(o)===S.filters.production.statusTab;})){var first=PRODUCTION_STATUSES.find(function(st){return matches.some(function(o){return visibleOrderStatus(o)===st;});});if(first)S.filters.production.statusTab=first;}}renderProduction(); }
-    function setProductionSearch(value,composing) { clearTimeout(productionSearchTimer);var q=String(value||'');if(q!==S.filters.production.q){productionSearchChanged=true;S.selected.clear();}S.filters.production.q=q;productionSearchComposing=!!composing;if(!productionSearchComposing)productionSearchTimer=setTimeout(applyProductionSearch,200); }
-    function clearProductionSearch() { clearTimeout(productionSearchTimer);productionSearchChanged=!!S.filters.production.q;productionSearchComposing=false;S.filters.production.q='';S.selected.clear();applyProductionSearch();var input=document.getElementById('productionSearchInput');if(input){input.focus({preventScroll:true});input.setSelectionRange(0,0);} }
-    function productionSearchKeydown(e) { if(e.isComposing||productionSearchComposing)return;if(e.key==='Escape'){e.preventDefault();e.stopPropagation();clearProductionSearch();}else if(e.key==='Enter'){e.preventDefault();e.stopPropagation();applyProductionSearch();} }
+    // Both Orders and Production use getOrders / mee_search_orders_page.
+    // The server owns matching, date scope and pagination; never re-filter returned rows locally.
+    function productionSearchKey() {
+      var f=S.filters.production;
+      return JSON.stringify([String(f.q||'').trim(),!!f.searchWithinRange,f.start||f.date,f.end||f.start||f.date]);
+    }
+    function productionSearchArgs(page) {
+      var f=S.filters.production;
+      return {start:f.start||f.date,end:f.end||f.start||f.date,q:String(f.q||'').trim(),
+        globalSearch:!f.searchWithinRange,page:page,pageSize:S.filters.orders.pageSize};
+    }
+    function productionSearchItems() {
+      var q=productionSearchText(S.filters.production.q),search=S.data.productionSearch;
+      if(!q)return (S.data.production&&S.data.production.orders)||[];
+      return search&&search.key===productionSearchKey()?(search.items||[]):[];
+    }
+    function restoreProductionRange(){
+      var f=S.filters.production,r=S.data.production||{},start=f.start||f.date,end=f.end||start;
+      var loadedStart=r.rangeStart||r.date||f.date,loadedEnd=r.rangeEnd||r.date||f.date;
+      if(S.page!=='production')return;
+      if(start!==loadedStart||end!==loadedEnd){
+        if(window.MEEOPS7&&MEEOPS7.loadProductionRange)MEEOPS7.loadProductionRange(start,end);
+        else loadProduction(true);
+      }else renderProduction();
+    }
+    function productionOrderVisible(o) {
+      if(!o)return false;
+      return productionSearchItems().some(function(row){return row.id===o.id;})&&
+        (!(window.matchMedia&&window.matchMedia('(max-width:760px)').matches)||
+          visibleOrderStatus(o)===S.filters.production.statusTab);
+    }
+    async function loadProductionSearch(reset,autoSelectMobileStatus) {
+      var f=S.filters.production,q=String(f.q||'').trim(),key=productionSearchKey(),seq=++productionSearchGeneration;
+      if(!q){S.data.productionSearch=null;restoreProductionRange();return;}
+      if(reset)S.selected.clear();
+      var old=S.data.productionSearch,page=reset?1:((old&&old.key===key?old.page:0)||0)+1;
+      if(!reset&&(!old||old.key!==key||!old.hasMore||old.loading))return;
+      if(productionSearchText(q).length<2||q.length>200){
+        S.data.productionSearch={key:key,items:[],total:0,page:1,hasMore:false,loading:false,
+          error:'Nhập từ 2 đến 200 ký tự để tìm đơn.'};
+        if(S.page==='production')renderProduction();
+        return;
+      }
+      S.data.productionSearch=reset?
+        {key:key,items:[],total:0,page:1,hasMore:false,loading:true,error:''}:
+        Object.assign({},old,{loading:true,error:''});
+      if(S.page==='production')renderProduction();
+      try{
+        var result=validateBuild(await gas('getOrders',productionSearchArgs(page)));
+        if(seq!==productionSearchGeneration||key!==productionSearchKey())return;
+        if(!result.ok)throw new Error(result.message||'Không tìm được đơn.');
+        var previous=!reset&&old&&old.key===key?old.items||[]:[],items=previous.concat(result.items||[]);
+        S.data.productionSearch={key:key,items:items,total:Number(result.total)||0,
+          page:result.page,hasMore:!!result.hasMore,loading:false,error:''};
+        rememberOrders(result.items);
+        if(autoSelectMobileStatus&&window.matchMedia&&window.matchMedia('(max-width:760px)').matches){
+          var active=S.filters.production.statusTab;
+          if(!items.some(function(o){return visibleOrderStatus(o)===active;})){
+            var first=PRODUCTION_STATUSES.find(function(st){return items.some(function(o){return visibleOrderStatus(o)===st;});});
+            if(first)S.filters.production.statusTab=first;
+          }
+        }
+        if(S.page==='production')renderProduction();
+      }catch(error){
+        if(seq!==productionSearchGeneration||key!==productionSearchKey())return;
+        S.data.productionSearch=Object.assign({},S.data.productionSearch,{loading:false,error:String(error&&error.message||error)});
+        if(S.page==='production')renderProduction();
+      }
+    }
+    function applyProductionSearch() {
+      clearTimeout(productionSearchTimer);productionSearchTimer=null;
+      var changed=productionSearchChanged;productionSearchChanged=false;
+      if(S.page!=='production')return;
+      return loadProductionSearch(true,changed);
+    }
+    function setProductionSearch(value,composing) {
+      clearTimeout(productionSearchTimer);
+      var q=String(value||'');
+      if(q!==S.filters.production.q){productionSearchChanged=true;S.selected.clear();}
+      S.filters.production.q=q;productionSearchComposing=!!composing;
+      if(!productionSearchComposing)productionSearchTimer=setTimeout(applyProductionSearch,280);
+    }
+    function clearProductionSearch() {
+      clearTimeout(productionSearchTimer);productionSearchTimer=null;productionSearchChanged=false;
+      productionSearchComposing=false;productionSearchGeneration++;
+      S.filters.production.q='';S.data.productionSearch=null;S.selected.clear();
+      restoreProductionRange();
+      var input=document.getElementById('productionSearchInput');
+      if(input){input.value='';input.focus({preventScroll:true});input.setSelectionRange(0,0);}
+    }
+    function setProductionSearchDateScope(enabled){
+      S.filters.production.searchWithinRange=!!enabled;S.selected.clear();
+      if(String(S.filters.production.q||'').trim())return loadProductionSearch(true,true);
+      if(S.page==='production')renderProduction();
+    }
+    function refreshProductionSearch(){
+      if(String(S.filters.production.q||'').trim())return loadProductionSearch(true,true);
+    }
+    function loadMoreProductionSearch(){
+      var search=S.data.productionSearch;
+      if(search&&search.hasMore&&!search.loading)return loadProductionSearch(false,false);
+    }
+    function productionSearchKeydown(e){
+      if(e.isComposing||productionSearchComposing)return;
+      if(e.key==='Escape'){e.preventDefault();e.stopPropagation();clearProductionSearch();}
+      else if(e.key==='Enter'){e.preventDefault();e.stopPropagation();applyProductionSearch();}
+    }
     function setDebtFilter(k, v) { if (['start', 'end', 'sale'].includes(k))
         S.filters.debt[k] = v; loadDebt(true); }
     function setKpiMonth(v) { S.filters.kpi.month = v; loadKpiPage(true); }
@@ -1384,35 +1484,38 @@ function opsTile(o) {
       el.innerHTML=markup;
     }
     function renderProduction() {
-  var r=S.data.production||{},all=(r.orders||[]).map(normalizeOrderStatus),el=document.getElementById('content');if(!el)return;
+  var r=S.data.production||{},el=document.getElementById('content');if(!el)return;
   if(productionSearchComposing&&document.activeElement===document.getElementById('productionSearchInput'))return;
-  var lanes=PRODUCTION_STATUSES,q=String(S.filters.production.q||''),filtered=productionSearchOrders(all,q),hasQuery=!!productionSearchText(q);
-  var active=S.filters.production.statusTab;if(lanes.indexOf(active)<0)active=S.filters.production.statusTab='Chờ bó';
+  var f=S.filters.production,q=String(f.q||''),hasQuery=!!productionSearchText(q);
+  var search=S.data.productionSearch,searchCurrent=!!search&&search.key===productionSearchKey();
+  var all=productionSearchItems().map(normalizeOrderStatus),filtered=all,total=hasQuery?(searchCurrent?search.total:0):all.length;
+  var lanes=PRODUCTION_STATUSES,active=f.statusTab;if(lanes.indexOf(active)<0)active=f.statusTab='Chờ bó';
   var activeCount=filtered.filter(function(o){return o.status===active;}).length;
   var pending=all.filter(function(o){return o.status!=='Đã giao';}).length;
   var markup='<section class="mee-production-v2">'+
-    '<header class="mee-production-head"><div><h2>Sản xuất</h2><p>'+all.length+' đơn trong kỳ · '+pending+' chưa hoàn tất</p></div>'+
-    '<div class="mee-production-toolbar"><div class="date-filter-bar"><button type="button" class="date-filter-btn" onclick="MEEOPS7.openDatePicker(\'production\',\'range\')">▣ '+esc(dateVN(S.filters.production.start||S.filters.production.date))+' → '+esc(dateVN(S.filters.production.end||S.filters.production.date))+'　⌄</button></div>'+
+    '<header class="mee-production-head"><div><h2>Sản xuất</h2><p>'+(hasQuery?'Tìm kiếm đơn hàng · '+(f.searchWithinRange?'Trong khoảng ngày':'Tất cả ngày')+' · '+total+' kết quả':all.length+' đơn trong kỳ · '+pending+' chưa hoàn tất')+'</p></div>'+
+    '<div class="mee-production-toolbar"><div class="date-filter-bar">'+(hasQuery?'<label class="search-date-scope"><input id="productionSearchWithinRange" type="checkbox" '+(f.searchWithinRange?'checked':'')+' onchange="MEEOPS7.setProductionSearchDateScope(this.checked)">Chỉ tìm trong khoảng ngày</label>':'')+'<button type="button" class="date-filter-btn" onclick="MEEOPS7.openDatePicker(\'production\',\'range\')">▣ '+esc(dateVN(S.filters.production.start||S.filters.production.date))+' → '+esc(dateVN(S.filters.production.end||S.filters.production.date))+'　⌄</button></div>'+
       '<div class="mee-production-view" role="group" aria-label="Chế độ hiển thị">'+
       '<button type="button" class="btn '+(S.view==='kanban'?'primary':'secondary')+'" onclick="MEEOPS7.setProductionView(\'kanban\')">Kanban</button>'+
       '<button type="button" class="btn '+(S.view==='grid'?'primary':'secondary')+'" onclick="MEEOPS7.setProductionView(\'grid\')">Grid</button></div></div></header>'+
-    '<div class="mee-production-search-wrap"><label for="productionSearchInput">Tìm đơn trong khoảng ngày</label><div class="mee-production-search">'+
+    '<div class="mee-production-search-wrap"><label for="productionSearchInput">Tìm đơn hàng</label><div class="mee-production-search">'+
       '<input type="search" id="productionSearchInput" value="'+attr(q)+'" placeholder="Mã đơn, khách, SĐT, hoa, ghi chú…" autocomplete="off" enterkeyhint="search" oninput="MEEOPS7.setProductionSearch(this.value,event.isComposing)" oncompositionstart="MEEOPS7.setProductionSearch(this.value,true)" oncompositionend="MEEOPS7.setProductionSearch(this.value,false)" onkeydown="MEEOPS7.productionSearchKeydown(event)">'+
       '<button type="button" class="btn secondary mee-production-search-clear'+(q?'':' hidden')+'" aria-label="Xóa tìm kiếm sản xuất" title="Xóa tìm kiếm" onclick="MEEOPS7.clearProductionSearch()">×</button></div>'+
-      '<p id="productionSearchResult" class="mee-production-search-result" role="status" aria-live="polite">'+filtered.length+' / '+all.length+' đơn trong khoảng ngày'+(hasQuery?' · Kết quả tìm kiếm':'')+'</p></div>'+
+      '<p id="productionSearchResult" class="mee-production-search-result" role="status" aria-live="polite">'+(!hasQuery?all.length+' đơn trong khoảng ngày':!searchCurrent?'Đang tìm đơn…':search.error?esc(search.error):search.loading&&!all.length?'Đang tìm đơn…':'Đang hiển thị '+all.length+' / '+total+' kết quả'+(f.searchWithinRange?' trong khoảng ngày':' trên tất cả ngày'))+'</p></div>'+
     '<div class="mee-production-stats" role="group" aria-label="Chọn trạng thái sản xuất">'+lanes.map(function(st){
       return '<button type="button" class="mee-production-stat" aria-pressed="'+(st===active)+'" onclick="MEEOPS7.setProductionStatus(\''+st+'\')"><span>'+st+'</span><b>'+filtered.filter(function(o){return o.status===st;}).length+'</b></button>';
     }).join('')+'</div>'+
     (S.selected.size?'<div class="mee-production-selection" role="region" aria-label="Thao tác hàng loạt">'+
       '<b>Đã chọn '+S.selected.size+' đơn</b><div><button type="button" class="btn secondary" onclick="MEEOPS7.bulkStatus(\'back\')">← Lùi trạng thái</button>'+
       '<button type="button" class="btn primary" onclick="MEEOPS7.bulkStatus(\'forward\')">Tiến trạng thái →</button></div></div>':'')+
-    (!filtered.length?'<div class="mee-production-search-empty">'+(hasQuery?'Không tìm thấy đơn phù hợp trong khoảng ngày này.':'Không có đơn trong khoảng ngày đã chọn.')+'</div>':S.view==='kanban'?'<div class="kanban mee-production-kanban">'+lanes.map(function(st){
+    (!filtered.length?'<div class="mee-production-search-empty">'+(hasQuery?(!searchCurrent||search.loading?'Đang tìm đơn…':search.error?esc(search.error):'Không tìm thấy đơn phù hợp trên '+(f.searchWithinRange?'khoảng ngày đã chọn.':'tất cả ngày.')):'Không có đơn trong khoảng ngày đã chọn.')+'</div>':S.view==='kanban'?'<div class="kanban mee-production-kanban">'+lanes.map(function(st){
       var items=filtered.filter(function(o){return o.status===st;});
       return '<section class="lane '+laneClass(st)+' mee-production-lane" data-production-active="'+(st===active)+'"><header class="lane-title">'+
         '<span>'+st+'</span><span class="mee-production-count">'+items.length+'</span></header>'+
         '<div class="mee-production-lane-list">'+(items.map(function(o){return card(o,true);}).join('')||'<div class="mee-production-empty">Không có đơn</div>')+'</div></section>';
     }).join('')+'</div>':
     '<div class="ops-grid mee-production-grid">'+filtered.map(opsTile).join('')+(!activeCount?'<div class="mee-production-mobile-empty">Không có đơn '+esc(active)+(hasQuery?' trong kết quả tìm kiếm':'')+'.</div>':'')+'</div>')+
+    (hasQuery&&searchCurrent&&search.hasMore?'<div class="mee-production-pagination"><button type="button" class="btn secondary" '+(search.loading?'disabled':'')+' onclick="MEEOPS7.loadMoreProductionSearch()">'+(search.loading?'Đang tải thêm…':'Tải thêm kết quả ('+all.length+' / '+total+')')+'</button></div>':'')+
   '</section>';
 mountProductionMarkup(el,markup,q);
 if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();if(window.MEE_ORDER_ACTIONS_CONTENT_SYNC)window.MEE_ORDER_ACTIONS_CONTENT_SYNC();}
@@ -1741,6 +1844,9 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
         setProductionDate: setProductionDate,
         setProductionSearch: setProductionSearch,
         clearProductionSearch: clearProductionSearch,
+        setProductionSearchDateScope: setProductionSearchDateScope,
+        refreshProductionSearch: refreshProductionSearch,
+        loadMoreProductionSearch: loadMoreProductionSearch,
         productionSearchKeydown: productionSearchKeydown,
         setProductionStatus: setProductionStatus,
         setProductionView: setProductionView,

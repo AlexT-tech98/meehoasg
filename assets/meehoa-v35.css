@@ -16,6 +16,8 @@
 .mee-production-search input{flex:1 1 0;width:100%;min-width:0;min-height:44px;font-size:16px;border:1px solid var(--border);border-radius:8px;background:var(--bg-surface);padding:10px 12px}
 .mee-production-search .mee-production-search-clear{flex:0 0 44px;width:44px;min-width:44px;height:44px;min-height:44px;padding:0;font-size:22px;line-height:1}
 .mee-production-search-result{margin:0;font-size:12px;line-height:1.4;color:var(--text-secondary);overflow-wrap:anywhere}
+.mee-production-pagination{display:flex;justify-content:center;padding:10px 0;min-width:0}
+.mee-production-pagination .btn{min-height:44px;min-width:180px}
 .mee-production-search-empty{min-width:0;padding:28px 16px;border:1px solid var(--border);border-radius:9px;background:var(--bg-surface);text-align:center;color:var(--text-secondary);font-size:13px}
 .mee-production-view{display:flex;align-items:center;gap:3px;border:1px solid var(--border);border-radius:8px;background:var(--bg-surface);padding:3px}
 .mee-production-view .btn{border:0;box-shadow:none;height:33px;font-size:12px;padding:5px 12px;border-radius:5px}
