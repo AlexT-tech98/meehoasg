@@ -1034,6 +1034,15 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
       if(!q)return (S.data.production&&S.data.production.orders)||[];
       return search&&search.key===productionSearchKey()?(search.items||[]):[];
     }
+    function restoreProductionRange(){
+      var f=S.filters.production,r=S.data.production||{},start=f.start||f.date,end=f.end||start;
+      var loadedStart=r.rangeStart||r.date||f.date,loadedEnd=r.rangeEnd||r.date||f.date;
+      if(S.page!=='production')return;
+      if(start!==loadedStart||end!==loadedEnd){
+        if(window.MEEOPS7&&MEEOPS7.loadProductionRange)MEEOPS7.loadProductionRange(start,end);
+        else loadProduction(true);
+      }else renderProduction();
+    }
     function productionOrderVisible(o) {
       if(!o)return false;
       return productionSearchItems().some(function(row){return row.id===o.id;})&&
@@ -1042,7 +1051,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     }
     async function loadProductionSearch(reset,autoSelectMobileStatus) {
       var f=S.filters.production,q=String(f.q||'').trim(),key=productionSearchKey(),seq=++productionSearchGeneration;
-      if(!q){S.data.productionSearch=null;if(S.page==='production')renderProduction();return;}
+      if(!q){S.data.productionSearch=null;restoreProductionRange();return;}
       if(reset)S.selected.clear();
       var old=S.data.productionSearch,page=reset?1:((old&&old.key===key?old.page:0)||0)+1;
       if(!reset&&(!old||old.key!==key||!old.hasMore||old.loading))return;
@@ -1095,14 +1104,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
       clearTimeout(productionSearchTimer);productionSearchTimer=null;productionSearchChanged=false;
       productionSearchComposing=false;productionSearchGeneration++;
       S.filters.production.q='';S.data.productionSearch=null;S.selected.clear();
-      var f=S.filters.production,r=S.data.production||{},start=f.start||f.date,end=f.end||start;
-      var loadedStart=r.rangeStart||r.date||f.date,loadedEnd=r.rangeEnd||r.date||f.date;
-      if(S.page==='production'){
-        if(start!==loadedStart||end!==loadedEnd){
-          if(window.MEEOPS7&&MEEOPS7.loadProductionRange)MEEOPS7.loadProductionRange(start,end);
-          else loadProduction(true);
-        }else renderProduction();
-      }
+      restoreProductionRange();
       var input=document.getElementById('productionSearchInput');
       if(input){input.value='';input.focus({preventScroll:true});input.setSelectionRange(0,0);}
     }
