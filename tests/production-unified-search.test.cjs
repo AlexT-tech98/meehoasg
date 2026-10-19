@@ -24,7 +24,7 @@ function harness(responder){
   const window={matchMedia:()=>({matches:false}),MEEOPS7:{}};
   const document={getElementById:()=>null};
   const factory=new Function('S','gas','validateBuild','rememberOrders','renderProduction','norm','window','document','PRODUCTION_STATUSES','visibleOrderStatus','loadProduction','setTimeout','clearTimeout',
-    'var productionSearchTimer=null,productionSearchComposing=false,productionSearchChanged=false,productionSearchGeneration=0;\n'+source+
+    'var MEEOPS7=window.MEEOPS7;var productionSearchTimer=null,productionSearchComposing=false,productionSearchChanged=false,productionSearchGeneration=0;\n'+source+
     ';return {loadProductionSearch,setProductionSearchDateScope,loadMoreProductionSearch,clearProductionSearch,productionOrderVisible,productionSearchArgs,productionSearchItems};');
   const functions=factory(S,gas,x=>x,()=>{},()=>{},v=>String(v||'').toLowerCase(),window,document,
     ['Chờ bó','Chờ giao','Chờ lấy','Đã giao'],o=>o.status,()=>{},setTimeout,clearTimeout);
