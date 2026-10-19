@@ -16,6 +16,7 @@ let db,api,seq=0,activeRoot=root;const servedResources=[];
 const manifest=JSON.parse(fs.readFileSync(path.join(pkg,'package-manifest.json')));
 for(const file of manifest.compatibleFallback.files)assert.equal(hash(fs.readFileSync(path.join(pkg,'compatible-fallback',file.path))),file.sha256,'packaged fallback hash '+file.path);
 assert.equal(hash(fs.readFileSync(path.join(root,manifest.uiV2SchemaDelta.source))),manifest.uiV2SchemaDelta.sha256,'tested SQL matches packaged five-state migration');
+if(manifest.packedReadinessSchemaDelta)assert.equal(hash(fs.readFileSync(path.join(root,manifest.packedReadinessSchemaDelta.source))),manifest.packedReadinessSchemaDelta.sha256,'tested packed-action SQL matches packaged correction');
 async function rpc(action,input,actor='sale1'){
  const key='fallback-'+(++seq);
  return (await db.query('select mee_ops_mutate($1,$2,$3,$4,$5::jsonb) as r',[actor,key,action,hash(key),JSON.stringify(input)])).rows[0].r;
@@ -54,7 +55,7 @@ async function respond(name,p,u){
   const r=await rpc(name,{orderId:p.orderId,expectedUpdatedAt:p.expectedUpdatedAt,status:p.status},u.username);return {...r,...(r.ok?{order:await decorated(r.row,u)}:{})};
  }
  if(name==='updateStatusBulk'){
-  const results=[];for(const item of p.items){const r=await rpc('updateStatus',{orderId:item.orderId,expectedUpdatedAt:item.expectedUpdatedAt,status:p.status},u.username);results.push({orderId:item.orderId,ok:!!r.ok,code:r.code,updatedAt:r.row?.updated_at});}
+  const results=[];for(const item of p.items){const r=await rpc('updateStatus',{orderId:item.orderId,expectedUpdatedAt:item.expectedUpdatedAt,status:p.status},u.username);results.push({orderId:item.orderId,ok:!!r.ok,status:r.row?.status||r.status||'',code:r.code,updatedAt:r.row?.updated_at});}
   return {ok:results.some(r=>r.ok),results,processed:results.filter(r=>r.ok).length,total:results.length};
  }
  return {ok:false,code:'QA_UNHANDLED',message:'Unhandled isolated route '+name};
@@ -109,8 +110,10 @@ async function main(){
    assert.deepEqual(overflow,[],'long financial/payment text must remain readable inside card');
    assert.equal(await page.locator('.order.accessory').evaluateAll(cards=>cards.filter(c=>!['none','normal','""'].includes(getComputedStyle(c,'::before').content)).length),0,'absolute accessory badge cannot cover status buttons');
    const n=calls.length;await page.locator('.lane-pickup input[type=checkbox]').first().check();assert.equal(calls.slice(n).filter(c=>/update|save|submit|review/.test(c.name)).length,0);await page.evaluate(()=>S.selected.clear());
-   for(const [id,route] of [['WAIT',['Đã bó','Chờ lấy','Đã giao','Chờ lấy','Đã bó','Chờ bó']],['PACKED',['Chờ giao','Đã giao','Chờ giao','Đã bó']]]){
-    for(const state of route){await page.evaluate(([id,state])=>MEEOPS7.changeStatus(id,state),[id,state]);assert.equal((await row(id)).status,state);assert.equal(await page.evaluate(id=>S.data.production.orders.find(o=>o.id===id).status,id),state);}
+   // Packing a Chờ bó order saves its shipping queue immediately. Requested
+   // action and persisted status differ; backward steps still retain Đã bó.
+   for(const [id,route] of [['WAIT',[['Đã bó','Chờ lấy'],['Đã giao','Đã giao'],['Chờ lấy','Chờ lấy'],['Đã bó','Đã bó'],['Chờ bó','Chờ bó']]],['PACKED',[['Chờ giao','Chờ giao'],['Đã giao','Đã giao'],['Chờ giao','Chờ giao'],['Đã bó','Đã bó']]]]){
+    for(const [requested,saved] of route){await page.evaluate(([id,state])=>MEEOPS7.changeStatus(id,state),[id,requested]);assert.equal((await row(id)).status,saved);assert.equal(await page.evaluate(id=>S.data.production.orders.find(o=>o.id===id).status,id),saved);}
    }
    const n2=calls.filter(c=>c.name==='updateStatusBulk').length;await page.evaluate(()=>{MEEOPS7.togglePick('PACKED',true);MEEOPS7.togglePick('WAIT',true);});await page.evaluate(()=>MEEOPS7.bulkStatus('forward'));assert.equal(calls.filter(c=>c.name==='updateStatusBulk').length,n2,'mixed state bulk guarded without mutation');
    // A local date edit puts one persisted order on day two. The real picker
@@ -126,16 +129,16 @@ async function main(){
    assert.equal(await page.evaluate(()=>S.filters.production.date),day,'the single-date field remains the range start');
    const requestedDates=[...new Set(calls.slice(rangeCallsStart).filter(c=>c.name==='getProductionOrders').map(c=>c.payload.date))].sort();
    assert.deepEqual(requestedDates,[day,nextDay],'actual picker fetches both selected production days');
-   const route=['Đã bó','Chờ lấy','Đã giao','Chờ lấy','Đã bó','Chờ bó'];
-   for(const status of route){
-    await page.evaluate(status=>MEEOPS7.changeStatus('WAIT',status),status);
+   const route=[['Đã bó','Chờ lấy'],['Đã giao','Đã giao'],['Chờ lấy','Chờ lấy'],['Đã bó','Đã bó'],['Chờ bó','Chờ bó']];
+   for(const [requested,status] of route){
+    await page.evaluate(status=>MEEOPS7.changeStatus('WAIT',status),requested);
     const persisted=await row('WAIT');assert.equal(persisted.status,status);assert.equal(persisted.order_date,nextDay);
     const visible=await page.evaluate(()=>({count:S.data.production.orders.length,matching:S.data.production.orders.filter(o=>o.id==='WAIT')}));
     assert.equal(visible.count,6,'day-two status mutation cannot remove a selected-range order');assert.equal(visible.matching.length,1);assert.equal(visible.matching[0].date,nextDay);assert.equal(visible.matching[0].status,status);
     const card=page.locator('.mee-production-lane .order').filter({has:page.getByRole('heading',{name:'QA WAIT',exact:true})});
     assert.equal(await card.count(),1,'day-two card remains rendered exactly once');assert.equal(await card.locator('.order-top > .badge').innerText(),status);assert.match(await card.locator('.meta').innerText(),/19\/10\/2026/);
    }
-   rangeEvidence={start:day,end:nextDay,requestedDates,orders:6,dayTwoOrder:'WAIT',persistedDate:(await row('WAIT')).order_date,statuses:route};
+   rangeEvidence={start:day,end:nextDay,requestedDates,orders:6,dayTwoOrder:'WAIT',persistedDate:(await row('WAIT')).order_date,requestedStatuses:route.map(([requested])=>requested),statuses:route.map(([,status])=>status)};
    await page.screenshot({path:path.join(out,width+'-'+role+'-two-day-range.png'),fullPage:true});
    checks.push('five-production-lanes','selection-no-mutation','pickup-forward-backward','delivery-forward-backward','mixed-bulk-denied','full-paid-finance-text-wraps','no-accessory-badge-obstruction');
    checks.push('production-responses-filter-by-requested-day','actual-two-day-production-picker','day-two-status-retained-in-sql-client-dom');
@@ -147,7 +150,7 @@ async function main(){
   const full=await row('FULL');assert.deepEqual(full.image_urls,['supabase://order-images/qa-sample.jpg']);assert.deepEqual(full.full_paid_bill_urls,['supabase://settlement-bills/qa-proof.jpg']);checks.push('stored-proof-identities-preserved');
   await page.screenshot({path:path.join(out,width+'-'+role+'.png'),fullPage:true});assert.deepEqual(errors,[]);results.push({width,role,checks,rangeEvidence,actualFrontendHashes,calls:calls.map(c=>c.name),finance:before});await context.close();
  }
- }finally{await browser.close();server.close();await db.close();const testedRoot=currentOnly?root:path.join(pkg,'compatible-fallback');fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:currentOnly?'candidate frontend and canonical isolated SQL RPC; synthetic authentication/transport; NOT production restore':'actual packaged frontend and canonical isolated SQL RPC; synthetic authentication/transport; NOT production restore',mode:currentOnly?'candidate-only':'packaged-fallback',candidate:manifest.commit,fallback:manifest.compatibleFallback.commit,testedFrontendHashes:manifest.compatibleFallback.files.map(f=>({path:f.path,sha256:hash(fs.readFileSync(path.join(testedRoot,f.path)))})),testedSqlSha256:manifest.uiV2SchemaDelta.sha256,complete:results.length===6,results},null,2)+'\n');}
+ }finally{await browser.close();server.close();await db.close();const testedRoot=currentOnly?root:path.join(pkg,'compatible-fallback');fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:currentOnly?'candidate frontend and canonical isolated SQL RPC; synthetic authentication/transport; NOT production restore':'actual packaged frontend and canonical isolated SQL RPC; synthetic authentication/transport; NOT production restore',mode:currentOnly?'candidate-only':'packaged-fallback',candidate:manifest.commit,fallback:manifest.compatibleFallback.commit,testedFrontendHashes:manifest.compatibleFallback.files.map(f=>({path:f.path,sha256:hash(fs.readFileSync(path.join(testedRoot,f.path)))})),testedSqlSha256:manifest.uiV2SchemaDelta.sha256,packedReadinessSqlSha256:manifest.packedReadinessSchemaDelta?.sha256||null,complete:results.length===6,results},null,2)+'\n');}
  console.log('PASS five-state '+(currentOnly?'corrected candidate frontend':'packaged frontend fallback')+' '+results.length+'/6 role/viewport matrices');
 }
 main().catch(e=>{console.error(e);server.close();if(db)db.close().catch(()=>{});process.exitCode=1;});
