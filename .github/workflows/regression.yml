@@ -93,10 +93,10 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Desktop and mobile isolated browser acceptance
         run: node scripts/browser-acceptance.cjs
-      - name: Rehearse packaged five-state frontend recovery with canonical isolated SQL
+      - name: Check current four-state frontend with canonical isolated SQL
         run: |
           node scripts/build-release.cjs
-          node scripts/five-state-fallback-rehearsal.cjs
+          node scripts/five-state-fallback-rehearsal.cjs --candidate-only
       - name: Upload browser and isolated SQL recovery evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,7 +104,7 @@ jobs:
           name: browser-evidence-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             artifacts/browser/
-            artifacts/five-state-fallback/
+            artifacts/five-state-fallback-candidate/
           if-no-files-found: error
 
   staging:

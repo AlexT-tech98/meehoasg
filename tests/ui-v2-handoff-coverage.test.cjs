@@ -5,8 +5,8 @@ const read=p=>fs.readFileSync(p,'utf8');
 const html=read('html'),ops=read('supabase/functions/meehoasg-api-core/index.js');
 const productionCss=read('assets/meehoa-v35.css'),kpiCss=read('assets/meehoa-v365.css'),drawerCss=read('assets/meehoa-v34.css');
 
-test('approved five-stage production UX is owned by canonical source',()=>{
- for(const value of ['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'])assert.ok(html.includes(value),value);
+test('approved four-state production UX is owned by canonical source',()=>{
+ for(const value of ['Chờ bó','Chờ giao','Chờ lấy','Đã giao'])assert.ok(html.includes(value),value);
  assert.match(html,/function readinessStatus\(o\)/);
  assert.match(html,/shipping==='Ghé lấy'\?'Chờ lấy':'Chờ giao'/);
  assert.match(html,/function nextStatusValue\(o\)/);
@@ -31,14 +31,14 @@ test('canonical KPI and order drawer remain functional modules',()=>{
 });
 
 test('ready-for-delivery and ready-for-pickup orders retain overdue priority',()=>{
- const lateStates=['Đã bó','Chờ giao','Chờ lấy'];
+ const lateStates=['Chờ giao','Chờ lấy'];
  const front=html.match(/function dashboardAttentionKind\(o\)[\s\S]*?return ''; \}/);
  assert.ok(front,'canonical dashboard priority classifier exists');
  for(const status of lateStates){
    assert.ok(front[0].includes(status),'frontend supports '+status);
    assert.match(ops,new RegExp(status));
  }
- assert.match(ops,/\['Đã bó','Chờ giao','Chờ lấy'\]\.includes\(o\.status\)&&due<now/);
+ assert.match(ops,/\['Chờ giao','Chờ lấy'\]\.includes\(o\.status\)&&due<now/);
 });
 
 test('production forward/back transitions respect pickup versus delivery',()=>{
@@ -55,10 +55,10 @@ test('production forward/back transitions respect pickup versus delivery',()=>{
  for(const item of cases){
    const make=status=>({status,shipping:item.shipping});
    assert.equal(transition.nextStatusValue(make('Chờ bó')),'Đã bó');
-   assert.equal(transition.nextStatusValue(make('Đã bó')),item.ready);
+   assert.equal(transition.nextStatusValue(make('Đã bó')),'Đã giao');
    assert.equal(transition.nextStatusValue(make(item.ready)),'Đã giao');
    assert.equal(transition.previousStatusValue(make('Đã giao')),item.ready);
-   assert.equal(transition.previousStatusValue(make(item.ready)),'Đã bó');
+   assert.equal(transition.previousStatusValue(make(item.ready)),'Chờ bó');
    assert.equal(transition.previousStatusValue(make('Đã bó')),'Chờ bó');
    assert.equal(transition.nextStatusValue(make('Đã giao')),'');
  }

@@ -1,6 +1,6 @@
-/* Actual packaged frontend fallback + actual isolated SQL RPC.
+/* Current frontend + actual isolated SQL RPC; packaged historical fallback is guarded.
  * Browser transport and login are synthetic. Never reaches a live API or storage.
- * This proves five-state frontend/SQL compatibility, not production recovery.
+ * This checks the current four-state frontend/SQL flow; historical fallback is not deployable.
  */
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),crypto=require('node:crypto');
 const assert=require('node:assert/strict');
@@ -9,14 +9,16 @@ const {chromium}=require('playwright');
 const root=path.resolve(__dirname,'..'),pkg=path.join(root,'artifacts/release/package');
 const currentOnly=process.argv.includes('--candidate-only');
 const out=path.join(root,'artifacts/five-state-fallback'+(currentOnly?'-candidate':''));
-const states=['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'],day='2026-10-18',nextDay='2026-10-19';
+const states=['Chờ bó','Chờ giao','Chờ lấy','Đã giao'],day='2026-10-18',nextDay='2026-10-19';
 const users={ADMIN:{username:'admin',display_name:'QA Admin',role:'ADMIN'},SALE:{username:'sale1',display_name:'QA Sale',role:'SALE'},THO_OPS:{username:'tho',display_name:'QA Thợ',role:'THO_OPS'}};
 const hash=x=>crypto.createHash('sha256').update(x).digest('hex');
 let db,api,seq=0,activeRoot=root;const servedResources=[];
 const manifest=JSON.parse(fs.readFileSync(path.join(pkg,'package-manifest.json')));
+if(!currentOnly&&manifest.compatibleFallback.workflowCompatible===false)throw Error('Historical five-state fallback is not compatible with the current four-state workflow; use --candidate-only.');
 for(const file of manifest.compatibleFallback.files)assert.equal(hash(fs.readFileSync(path.join(pkg,'compatible-fallback',file.path))),file.sha256,'packaged fallback hash '+file.path);
 assert.equal(hash(fs.readFileSync(path.join(root,manifest.uiV2SchemaDelta.source))),manifest.uiV2SchemaDelta.sha256,'tested SQL matches packaged five-state migration');
 if(manifest.packedReadinessSchemaDelta)assert.equal(hash(fs.readFileSync(path.join(root,manifest.packedReadinessSchemaDelta.source))),manifest.packedReadinessSchemaDelta.sha256,'tested packed-action SQL matches packaged correction');
+if(manifest.fourStateSchemaDelta)assert.equal(hash(fs.readFileSync(path.join(root,manifest.fourStateSchemaDelta.source))),manifest.fourStateSchemaDelta.sha256,'tested current four-state SQL matches packaged correction');
 async function rpc(action,input,actor='sale1'){
  const key='fallback-'+(++seq);
  return (await db.query('select mee_ops_mutate($1,$2,$3,$4,$5::jsonb) as r',[actor,key,action,hash(key),JSON.stringify(input)])).rows[0].r;
@@ -36,7 +38,7 @@ async function decorated(r,u){
  const total=Number((await db.query('select mee_ops_total(o) as n from orders o where id=$1',[r.id])).rows[0].n),full=!!r.full_paid,verified=full||r.settled;
  const req=(await db.query('select * from settlement_requests where order_id=$1 limit 1',[r.id])).rows[0];
  const locked=!!r.settled||['PENDING','APPROVED'].includes(req?.status),owner=r.sale===u.username;
- return {id:r.id,updatedAt:r.updated_at,customer:r.customer,phone:r.phone,date:r.order_date,time:r.order_time,flower:r.flower,note:r.note,shipping:r.shipping,address:r.address,flowerTotal:Number(r.flower_total),payment:r.payment,paid:full?Number(r.full_paid_total):0,sale:'QA Sale',saleUsername:r.sale,status:r.status,imageUrls:r.image_urls,driveUrls:r.image_urls,card:r.card,cardQty:r.card_qty,banner:r.banner,bannerQty:r.banner_qty,bannerText:r.banner_text,accessoryTotal:105000,totalDue:total,debt:verified?0:total,vat:Number(r.vat),shipFee:Number(r.ship_fee),shipConfirmed:r.ship_confirmed,fullPaid:full,fullPaidTotal:Number(r.full_paid_total),fullPaidBillUrls:r.full_paid_bill_urls,settled:r.settled,paymentVerified:verified,locked,canEdit:!locked&&(u.role!=='SALE'||owner),canShip:!locked,canOperate:!locked&&u.role!=='SALE',canSubmitSettlement:owner&&!locked&&!full&&r.status==='Đã giao',detailLoaded:true,hasAccessories:true};
+ return {id:r.id,updatedAt:r.updated_at,customer:r.customer,phone:r.phone,date:r.order_date,time:r.order_time,flower:r.flower,note:r.note,shipping:r.shipping,address:r.address,flowerTotal:Number(r.flower_total),payment:r.payment,paid:full?Number(r.full_paid_total):0,sale:'QA Sale',saleUsername:r.sale,status:r.status==='Đã bó'?(r.shipping==='Ghé lấy'?'Chờ lấy':'Chờ giao'):r.status,imageUrls:r.image_urls,driveUrls:r.image_urls,card:r.card,cardQty:r.card_qty,banner:r.banner,bannerQty:r.banner_qty,bannerText:r.banner_text,accessoryTotal:105000,totalDue:total,debt:verified?0:total,vat:Number(r.vat),shipFee:Number(r.ship_fee),shipConfirmed:r.ship_confirmed,fullPaid:full,fullPaidTotal:Number(r.full_paid_total),fullPaidBillUrls:r.full_paid_bill_urls,settled:r.settled,paymentVerified:verified,locked,canEdit:!locked&&(u.role!=='SALE'||owner),canShip:!locked,canOperate:!locked&&u.role!=='SALE',canSubmitSettlement:owner&&!locked&&!full&&r.status==='Đã giao',detailLoaded:true,hasAccessories:true};
 }
 async function orders(u){return Promise.all((await db.query('select to_jsonb(o) as r from orders o order by id')).rows.map(({r})=>decorated(r,u)));}
 async function finance(){return (await db.query("select count(*)::int as orders,sum(mee_ops_total(o))::text as total,sum(case when full_paid then full_paid_total else 0 end)::text as full_paid,sum(case when settled or full_paid then flower_total else 0 end)::text as kpi_revenue from orders o")).rows[0];}
@@ -98,9 +100,9 @@ async function main(){
   });
   for(const state of states)assert.ok((await page.locator('#content').innerText()).includes(state),'fallback renders order status '+state);
   await page.evaluate(()=>MEEOPS7.openDrawer('FULL'));await page.locator('#overlay').getByText('Banner ×3',{exact:true}).waitFor();assert.match(await page.locator('#overlay').innerText(),/Full Paid/i);await page.evaluate(()=>MEEOPS7.closeOverlay());
-  const checks=['packaged-fallback-hashes','cached-shell-evicted','actual-served-recovery-resource-hashes','reload-after-frontend-switch','all-five-order-statuses','multi-banner-and-full-paid-retained'];let rangeEvidence=null;
+  const checks=['packaged-fallback-hashes','cached-shell-evicted','actual-served-recovery-resource-hashes','reload-after-frontend-switch','all-four-order-statuses','multi-banner-and-full-paid-retained'];let rangeEvidence=null;
   if(role!=='SALE'){
-   await page.evaluate(()=>MEEOPS7.go('production'));await page.locator('.mee-production-lane').first().waitFor();assert.equal(await page.locator('.mee-production-lane').count(),5);
+   await page.evaluate(()=>MEEOPS7.go('production'));await page.locator('.mee-production-lane').first().waitFor();assert.equal(await page.locator('.mee-production-lane').count(),currentOnly?4:5);
    assert.equal(await page.evaluate(()=>S.filters.production.date),day,'selected production day matches persisted fixture date');
    await page.screenshot({path:path.join(out,width+'-'+role+'-precheck.png'),fullPage:true});
    const overflow=await page.locator('.mee-production-finance>span').evaluateAll(spans=>spans.flatMap(span=>{
@@ -109,11 +111,13 @@ async function main(){
    }));
    assert.deepEqual(overflow,[],'long financial/payment text must remain readable inside card');
    assert.equal(await page.locator('.order.accessory').evaluateAll(cards=>cards.filter(c=>!['none','normal','""'].includes(getComputedStyle(c,'::before').content)).length),0,'absolute accessory badge cannot cover status buttons');
+   if(currentOnly&&width<=760)await page.locator('.mee-production-stat').filter({hasText:'Chờ lấy'}).click();
    const n=calls.length;await page.locator('.lane-pickup input[type=checkbox]').first().check();assert.equal(calls.slice(n).filter(c=>/update|save|submit|review/.test(c.name)).length,0);await page.evaluate(()=>S.selected.clear());
    // Packing a Chờ bó order saves its shipping queue immediately. Requested
-   // action and persisted status differ; backward steps still retain Đã bó.
-   for(const [id,route] of [['WAIT',[['Đã bó','Chờ lấy'],['Đã giao','Đã giao'],['Chờ lấy','Chờ lấy'],['Đã bó','Đã bó'],['Chờ bó','Chờ bó']]],['PACKED',[['Chờ giao','Chờ giao'],['Đã giao','Đã giao'],['Chờ giao','Chờ giao'],['Đã bó','Đã bó']]]]){
-    for(const [requested,saved] of route){await page.evaluate(([id,state])=>MEEOPS7.changeStatus(id,state),[id,requested]);assert.equal((await row(id)).status,saved);assert.equal(await page.evaluate(id=>S.data.production.orders.find(o=>o.id===id).status,id),saved);}
+   // action and persisted status differ; queue-back saves Chờ bó, including
+   // the retained legacy Đã bó command from an older client.
+   for(const [id,route] of [['WAIT',[['Đã bó','Chờ lấy'],['Đã giao','Đã giao'],['Chờ lấy','Chờ lấy'],['Đã bó','Chờ bó']]],['PACKED',[['Chờ giao','Chờ giao'],['Đã giao','Đã giao'],['Chờ giao','Chờ giao'],['Chờ bó','Chờ bó'],['Đã bó','Chờ giao']]]]){
+    for(const [requested,saved] of route){if(currentOnly&&width<=760){const status=await page.evaluate(id=>S.data.production.orders.find(o=>o.id===id).status,id);await page.locator('.mee-production-stat').filter({hasText:status}).click();}await page.evaluate(([id,state])=>MEEOPS7.changeStatus(id,state),[id,requested]);assert.equal((await row(id)).status,saved);assert.equal(await page.evaluate(id=>S.data.production.orders.find(o=>o.id===id).status,id),saved);}
    }
    const n2=calls.filter(c=>c.name==='updateStatusBulk').length;await page.evaluate(()=>{MEEOPS7.togglePick('PACKED',true);MEEOPS7.togglePick('WAIT',true);});await page.evaluate(()=>MEEOPS7.bulkStatus('forward'));assert.equal(calls.filter(c=>c.name==='updateStatusBulk').length,n2,'mixed state bulk guarded without mutation');
    // A local date edit puts one persisted order on day two. The real picker
@@ -129,18 +133,20 @@ async function main(){
    assert.equal(await page.evaluate(()=>S.filters.production.date),day,'the single-date field remains the range start');
    const requestedDates=[...new Set(calls.slice(rangeCallsStart).filter(c=>c.name==='getProductionOrders').map(c=>c.payload.date))].sort();
    assert.deepEqual(requestedDates,[day,nextDay],'actual picker fetches both selected production days');
-   const route=[['Đã bó','Chờ lấy'],['Đã giao','Đã giao'],['Chờ lấy','Chờ lấy'],['Đã bó','Đã bó'],['Chờ bó','Chờ bó']];
+   const route=[['Đã bó','Chờ lấy'],['Đã giao','Đã giao'],['Chờ lấy','Chờ lấy'],['Chờ bó','Chờ bó']];
    for(const [requested,status] of route){
+    if(currentOnly&&width<=760){const active=await page.evaluate(()=>S.data.production.orders.find(o=>o.id==='WAIT').status);await page.locator('.mee-production-stat').filter({hasText:active}).click();}
     await page.evaluate(status=>MEEOPS7.changeStatus('WAIT',status),requested);
     const persisted=await row('WAIT');assert.equal(persisted.status,status);assert.equal(persisted.order_date,nextDay);
     const visible=await page.evaluate(()=>({count:S.data.production.orders.length,matching:S.data.production.orders.filter(o=>o.id==='WAIT')}));
     assert.equal(visible.count,6,'day-two status mutation cannot remove a selected-range order');assert.equal(visible.matching.length,1);assert.equal(visible.matching[0].date,nextDay);assert.equal(visible.matching[0].status,status);
+    if(currentOnly&&width<=760)await page.locator('.mee-production-stat').filter({hasText:status}).click();
     const card=page.locator('.mee-production-lane .order').filter({has:page.getByRole('heading',{name:'QA WAIT',exact:true})});
     assert.equal(await card.count(),1,'day-two card remains rendered exactly once');assert.equal(await card.locator('.order-top > .badge').innerText(),status);assert.match(await card.locator('.meta').innerText(),/19\/10\/2026/);
    }
    rangeEvidence={start:day,end:nextDay,requestedDates,orders:6,dayTwoOrder:'WAIT',persistedDate:(await row('WAIT')).order_date,requestedStatuses:route.map(([requested])=>requested),statuses:route.map(([,status])=>status)};
    await page.screenshot({path:path.join(out,width+'-'+role+'-two-day-range.png'),fullPage:true});
-   checks.push('five-production-lanes','selection-no-mutation','pickup-forward-backward','delivery-forward-backward','mixed-bulk-denied','full-paid-finance-text-wraps','no-accessory-badge-obstruction');
+   checks.push('four-production-lanes','selection-no-mutation','pickup-forward-backward','delivery-forward-backward','mixed-bulk-denied','full-paid-finance-text-wraps','no-accessory-badge-obstruction');
    checks.push('production-responses-filter-by-requested-day','actual-two-day-production-picker','day-two-status-retained-in-sql-client-dom');
   }else{
    assert.equal(await page.locator('.status-next').count(),0);const o=await row('WAIT'),denied=await rpc('updateStatus',{orderId:o.id,expectedUpdatedAt:o.updated_at,status:'Đã bó'},u.username);assert.equal(denied.code,'NOT_OWNER');assert.deepEqual(await row('WAIT'),o);checks.push('sale-production-controls-hidden','sql-sale-status-mutation-denied');
@@ -150,7 +156,7 @@ async function main(){
   const full=await row('FULL');assert.deepEqual(full.image_urls,['supabase://order-images/qa-sample.jpg']);assert.deepEqual(full.full_paid_bill_urls,['supabase://settlement-bills/qa-proof.jpg']);checks.push('stored-proof-identities-preserved');
   await page.screenshot({path:path.join(out,width+'-'+role+'.png'),fullPage:true});assert.deepEqual(errors,[]);results.push({width,role,checks,rangeEvidence,actualFrontendHashes,calls:calls.map(c=>c.name),finance:before});await context.close();
  }
- }finally{await browser.close();server.close();await db.close();const testedRoot=currentOnly?root:path.join(pkg,'compatible-fallback');fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:currentOnly?'candidate frontend and canonical isolated SQL RPC; synthetic authentication/transport; NOT production restore':'actual packaged frontend and canonical isolated SQL RPC; synthetic authentication/transport; NOT production restore',mode:currentOnly?'candidate-only':'packaged-fallback',candidate:manifest.commit,fallback:manifest.compatibleFallback.commit,testedFrontendHashes:manifest.compatibleFallback.files.map(f=>({path:f.path,sha256:hash(fs.readFileSync(path.join(testedRoot,f.path)))})),testedSqlSha256:manifest.uiV2SchemaDelta.sha256,packedReadinessSqlSha256:manifest.packedReadinessSchemaDelta?.sha256||null,complete:results.length===6,results},null,2)+'\n');}
- console.log('PASS five-state '+(currentOnly?'corrected candidate frontend':'packaged frontend fallback')+' '+results.length+'/6 role/viewport matrices');
+ }finally{await browser.close();server.close();await db.close();const testedRoot=currentOnly?root:path.join(pkg,'compatible-fallback');fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:currentOnly?'candidate frontend and canonical isolated SQL RPC; synthetic authentication/transport; NOT production restore':'actual packaged frontend and canonical isolated SQL RPC; synthetic authentication/transport; NOT production restore',mode:currentOnly?'candidate-only':'packaged-fallback',candidate:manifest.commit,fallback:manifest.compatibleFallback.commit,testedFrontendHashes:manifest.compatibleFallback.files.map(f=>({path:f.path,sha256:hash(fs.readFileSync(path.join(testedRoot,f.path)))})),testedSqlSha256:manifest.uiV2SchemaDelta.sha256,packedReadinessSqlSha256:manifest.packedReadinessSchemaDelta?.sha256||null,fourStateSqlSha256:manifest.fourStateSchemaDelta?.sha256||null,complete:results.length===6,results},null,2)+'\n');}
+ console.log('PASS '+(currentOnly?'four-state candidate frontend':'historical frontend fallback')+' '+results.length+'/6 role/viewport matrices');
 }
 main().catch(e=>{console.error(e);server.close();if(db)db.close().catch(()=>{});process.exitCode=1;});

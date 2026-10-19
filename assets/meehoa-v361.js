@@ -54,12 +54,10 @@
     }).join('')+'</div>';
   }
   function progress(r){
-    var s=r.summary||{},total=n(s.orders),delivered=n(s['Đã giao']),packed=n(s['Đã bó']),waiting=n(s['Chờ bó']);
+    var s=r.summary||{},total=n(s.orders),delivered=n(s['Đã giao']),waiting=n(s['Chờ bó']);
     var pct=function(value){return total?Math.max(0,Math.min(100,value/total*100)):0;};
-    var shipping=n(s['Chờ giao']),pickup=n(s['Chờ lấy']),other=Math.max(0,total-delivered-packed-waiting-shipping-pickup);
-    var segments=[{title:'Đã giao',value:delivered,cls:'done'},{title:'Đã bó',value:packed,cls:'packed'},{title:'Chờ bó',value:waiting,cls:'wait'}];
-    if(shipping)segments.push({title:'Chờ giao',value:shipping,cls:'other'});
-    if(pickup)segments.push({title:'Chờ lấy',value:pickup,cls:'other'});
+    var shipping=n(s['Chờ giao']),pickup=n(s['Chờ lấy']),other=Math.max(0,total-delivered-waiting-shipping-pickup);
+    var segments=[{title:'Đã giao',value:delivered,cls:'done'},{title:'Chờ giao',value:shipping,cls:'other'},{title:'Chờ lấy',value:pickup,cls:'other'},{title:'Chờ bó',value:waiting,cls:'wait'}];
     if(other)segments.push({title:'Trạng thái khác',value:other,cls:'other'});
     return '<section class="mee-dv2-panel mee-dv2-progress"><div class="mee-dv2-panel-head"><h3>Tiến độ trong ngày</h3><span>'+total+' đơn</span></div>'+
       '<div class="mee-dv2-progress-total">'+(total?Math.round(delivered/total*100):0)+'<small>% hoàn thành</small></div>'+

@@ -23,7 +23,7 @@ test('fulfillment migration replaces canonical SQL RPC and retains settlement au
 });
 
 test('production lanes, order filters and accounting scopes display both readiness states',()=>{
- assert.match(frontend,/\['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'\]/);
+ assert.match(frontend,/\['Chờ bó','Chờ giao','Chờ lấy','Đã giao'\]/);
  assert.match(frontend,/function readinessStatus\(o\)/);
  assert.match(frontend,/function nextStatusValue\(o\)/);
  assert.match(frontend,/function previousStatusValue\(o\)/);
@@ -31,8 +31,8 @@ test('production lanes, order filters and accounting scopes display both readine
  assert.match(frontend,/data-mee-order-action="edit"/);
  assert.match(frontend,/Chờ giao/);
  assert.match(frontend,/Chờ lấy/);
- assert.match(core,/statuses:\['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'\]/);
- assert.match(builder,/statuses:\['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'\]/);
+ assert.match(core,/statuses:\['Chờ bó','Chờ giao','Chờ lấy','Đã giao'\]/);
+ assert.match(builder,/statuses:\['Chờ bó','Chờ giao','Chờ lấy','Đã giao'\]/);
 });
 
 test('bulk production preserves per-order audit receipts and requires privileged RPC',()=>{
@@ -45,11 +45,11 @@ test('bulk production preserves per-order audit receipts and requires privileged
 
 test('both deployed API entrypoints expose readiness statuses and overdue attention',()=>{
  const legacy=read('supabase/functions/meehoasg-api/index.js');
- const states="statuses: ['Chờ bó', 'Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao']";
+ const states="statuses: ['Chờ bó', 'Chờ giao', 'Chờ lấy', 'Đã giao']";
  assert.equal(legacy.split(states).length-1,2,'login and options must include both queues');
- assert.match(legacy,/\['Đã bó', 'Chờ giao', 'Chờ lấy'\]\.includes\(o\.status\)/);
+ assert.match(legacy,/\['Chờ giao', 'Chờ lấy'\]\.includes\(o\.status\)/);
  assert.match(legacy,/'Chờ giao': 0, 'Chờ lấy': 0/);
- assert.match(core,/statuses:\['Chờ bó','Đã bó','Chờ giao','Chờ lấy','Đã giao'\]/);
+ assert.match(core,/statuses:\['Chờ bó','Chờ giao','Chờ lấy','Đã giao'\]/);
 });
 
 test('UI V2 migration is packaged as an independent deployable delta with hashed manifest',()=>{
@@ -63,12 +63,12 @@ test('UI V2 migration is packaged as an independent deployable delta with hashed
  assert.match(migration,/CREATE OR REPLACE FUNCTION public\.mee_ops_mutate/);
 });
 
-test('dashboard has explicit counters for both five-stage readiness queues',()=>{
- assert.match(core,/'Chờ bó':0,'Đã bó':0,'Chờ giao':0,'Chờ lấy':0,'Đã giao':0,unsettled:0/);
+test('dashboard has explicit counters for all four production states',()=>{
+ assert.match(core,/'Chờ bó':0,'Chờ giao':0,'Chờ lấy':0,'Đã giao':0,unsettled:0/);
  assert.match(core,/summary\[o\.status\]=\(summary\[o\.status\]\|\|0\)\+1/);
 });
 
-test('rollout package includes a prior-green five-state V2 frontend rollback, never an obsolete V1 backend',()=>{
+test('release package retains the historical five-state frontend without downgrading the backend',()=>{
  const script=read('scripts/build-release.cjs');
  assert.match(script,/const anchor='6d41af509775d33350a2c29e15bd0cbec84cee29'/);
  assert.match(script,/rollback=\['index.html','html','assets\/meehoa-core.js','assets\/meehoa-core.css','manifest.webmanifest'\]/);

@@ -1,6 +1,6 @@
 // Server-to-server Sheet shadow import. Apps Script authenticates with
 // INGEST_SECRET; deploy with verify_jwt=false because it has no Supabase JWT.
-const BUILD = '2026.10.18-sheet-ack-five-state';
+const BUILD = '2026.10.19-sheet-ack-four-state';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const INGEST_SECRET = Deno.env.get('INGEST_SECRET');
@@ -59,7 +59,8 @@ function mapOrder(raw) {
   const sourceId = clean(raw.id), id = clean(raw.sync_id || sourceId);
   const orderDate = isoDate(raw.order_date || raw.date);
   if (!sourceId || !id || !orderDate) return null;
-  const status = clean(raw.status), bannerQty=raw.banner_qty==null?null:Number(raw.banner_qty);
+  const shipping = clean(raw.shipping), rawStatus = clean(raw.status);
+  const status = rawStatus === 'Đã bó' ? (shipping === 'Ghé lấy' ? 'Chờ lấy' : 'Chờ giao') : rawStatus, bannerQty=raw.banner_qty==null?null:Number(raw.banner_qty);
   if(bannerQty!==null&&(!Number.isInteger(bannerQty)||bannerQty<0||bannerQty>99||(bool(raw.banner)&&bannerQty<1)))return null;
   return {
     id, source_sheet: clean(raw.source_sheet) || null,
@@ -67,10 +68,10 @@ function mapOrder(raw) {
     customer: clean(raw.customer), phone: clean(raw.phone),
     order_date: orderDate, order_time: cleanTime(raw.order_time),
     flower: clean(raw.flower), note: clean(raw.note),
-    shipping: clean(raw.shipping), address: clean(raw.address),
+    shipping, address: clean(raw.address),
     flower_total: num(raw.flower_total), payment: clean(raw.payment),
     sale: saleName(raw.sale),
-    status: ['Chờ bó', 'Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao'].includes(status) ? status : 'Chờ bó',
+    status: ['Chờ bó', 'Chờ giao', 'Chờ lấy', 'Đã giao'].includes(status) ? status : 'Chờ bó',
     settled: bool(raw.settled), ship_fee: num(raw.ship_fee),
     ship_confirmed: bool(raw.ship_confirmed),
     card: bool(raw.card), card_text: clean(raw.card_text),
