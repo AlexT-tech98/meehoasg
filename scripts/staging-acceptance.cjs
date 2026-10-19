@@ -73,15 +73,15 @@ async function main(){
     const changed=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:stage},'qa_tho');
     assert.equal(changed.ok,true,changed.message);assert.equal(changed.order.status,expected);o=changed.order;
    }
-   for(const stage of ['Chờ giao','Đã bó','Chờ bó']){
+   for(const [stage,expected] of [['Chờ giao','Chờ giao'],['Đã bó','Chờ bó']]){
     const changed=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:stage},'qa_tho');
-    assert.equal(changed.ok,true,changed.message);assert.equal(changed.order.status,stage);o=changed.order;
+    assert.equal(changed.ok,true,changed.message);assert.equal(changed.order.status,expected);o=changed.order;
    }
    assert.equal(o.status,'Chờ bó');
    const ready=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:'Đã bó'},'qa_tho');assert.equal(ready.ok,true);assert.equal(ready.order.status,'Chờ giao');
    const invalid=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:ready.order.updatedAt,status:'Chờ lấy'},'qa_tho');
    assert.equal(invalid.code,'STATUS_INVALID');
-   return{shipping:'Shop book ship',requested:['Đã bó','Đã giao'],saved:['Chờ giao','Đã giao'],legacyRollback:['Chờ giao','Đã bó','Chờ bó']};
+   return{shipping:'Shop book ship',requested:['Đã bó','Đã giao'],saved:['Chờ giao','Đã giao'],legacyRollback:[['Chờ giao','Chờ giao'],['Đã bó','Chờ bó']]};
   });
   await check('ready-for-pickup shipping edit requires explicit status rollback',async()=>{
    const created=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),customer:run+' Shipping Guard'}},'qa_sale');
@@ -93,10 +93,10 @@ async function main(){
    const stored=(await db.query('select status,shipping from orders where id=$1',[o.id])).rows[0];
    assert.equal(stored.status,'Chờ lấy');assert.equal(stored.shipping,'Ghé lấy');
    const rollback=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:'Đã bó'},'qa_tho');
-   assert.equal(rollback.ok,true,rollback.message);assert.equal(rollback.order.status,'Đã bó');o=rollback.order;
+   assert.equal(rollback.ok,true,rollback.message);assert.equal(rollback.order.status,'Chờ bó');o=rollback.order;
    const edited=await call('updateOrder',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,order:{...base(),customer:o.customer,shipping:'Shop book ship'}},'qa_sale');
    assert.equal(edited.ok,true,edited.message);o=edited.order;
-   const forwarded=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:'Chờ giao'},'qa_tho');
+   const forwarded=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:o.id,expectedUpdatedAt:o.updatedAt,status:'Đã bó'},'qa_tho');
    assert.equal(forwarded.ok,true,forwarded.message);assert.equal(forwarded.order.status,'Chờ giao');
    return{orderId:o.id,guard:'SHIPPING_STATUS_CONFLICT',finalStatus:forwarded.order.status};
   });

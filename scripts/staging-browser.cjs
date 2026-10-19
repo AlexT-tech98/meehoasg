@@ -57,9 +57,9 @@ async function main(){
    await page.evaluate(()=>MEEOPS7.go('flowers'));await page.waitForFunction(()=>S.page==='flowers'&&document.querySelector('#content')?.textContent.includes('Tulip'));
    await page.evaluate(()=>{MEEOPS7.openDatePicker('flowers','range');MEEOPS7.datePickerSelect('2025-01-01');});await page.evaluate(d=>MEEOPS7.datePickerSelect(d),env.today);await page.getByRole('button',{name:'Áp dụng',exact:true}).click();await page.waitForFunction(()=>S.page==='flowers'&&Object.values(S.data.flowers).some(r=>r.totalOrders===240));checks.push('flowers-multiday-real-picker');await shot('flowers');await page.locator('[data-material="Tulip"]').click();await page.waitForFunction(()=>document.querySelectorAll('#overlay .mee-material-order').length===120);await page.evaluate(()=>MEEOPS7.closeOverlay());checks.push('flowers-range-drilldown-distinct-orders');
    await page.evaluate(()=>MEEOPS7.go('production'));await page.waitForFunction(()=>S.page==='production'&&document.querySelector('#content input[type=checkbox]'));
+   if(width<=760)await page.locator('.mee-production-stat').filter({hasText:'Chờ bó'}).click();
    const prior=calls.length,old=await page.evaluate(()=>S.orders.get('QA-SEED-002').status);await page.locator('#content input[type=checkbox][onchange*="QA-SEED-002"]').check();assert.equal(await page.evaluate(()=>S.selected.size),1);assert.equal(await page.evaluate(()=>S.orders.get('QA-SEED-002').status),old);assert.ok(!calls.slice(prior).some(n=>/update|submit|save|create|review/i.test(n)));
    await page.getByRole('button',{name:'Tiến trạng thái →',exact:true}).click();await page.waitForFunction(()=>S.orders.get('QA-SEED-002').status==='Chờ lấy');
-   await page.evaluate(()=>MEEOPS7.changeStatus('QA-SEED-002','Đã bó'));await page.waitForFunction(()=>S.orders.get('QA-SEED-002').status==='Đã bó');
    await page.evaluate(()=>MEEOPS7.changeStatus('QA-SEED-002','Chờ bó'));await page.waitForFunction(()=>S.orders.get('QA-SEED-002').status==='Chờ bó');checks.push('checkbox-selection-only-explicit-status-action');await shot('production');
   }
   // Visual release gate: capture KPI for every role and Admin-only Payment/Admin

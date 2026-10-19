@@ -124,6 +124,7 @@ function paidAmount(payment, base, settled) {
   else if (match[2] === 'k' || (amount > 0 && amount <= 1000 && !/\d\s*(?:đ|d|vn[dđ])(?:$|[\s),.])/i.test(text))) amount *= 1000;
   return Math.max(0, amount);
 }
+function fulfillmentStatus(row) { return row.status === 'Đã bó' ? (row.shipping === 'Ghé lấy' ? 'Chờ lấy' : 'Chờ giao') : row.status; }
 function decorate(row, user, settlement) {
   const contact = contactFields(row);
   const accessory = accessoryTotal(row), ship = norm(row.shipping).includes('shop') && row.ship_confirmed ? num(row.ship_fee) : 0;
@@ -143,7 +144,7 @@ function decorate(row, user, settlement) {
     flower: row.flower, imageUrls: row.image_urls || [], driveUrls: row.image_urls || [],
     note: row.note, shipping: row.shipping, address: contact.address,
     flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
-    fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),paymentVerified:verified,settled: row.settled, status: row.status, shipFee: num(row.ship_fee),
+    fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),paymentVerified:verified,settled: row.settled, status: fulfillmentStatus(row), shipFee: num(row.ship_fee),
     shipConfirmed: row.ship_confirmed, shipFeePending: norm(row.shipping).includes('shop') && !row.ship_confirmed,
     card: row.card, cardQty:row.card?Math.max(1,Math.min(99,Math.floor(num(row.card_qty)||1))):0, cardText: row.card_text, banner: row.banner, bannerText: row.banner_text,
     charmFee: num(row.charm_fee), charmText: row.charm_text, paperFee: num(row.paper_fee),
@@ -178,7 +179,7 @@ async function decoratedRange(start, end, user) {
 async function dashboard(payload, user) {
   const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
   const orders = await decoratedRange(start, end, user);
-  const summary = { orders: 0, revenue: 0, debt: 0, cms: 0, 'Chờ bó': 0, 'Đã bó': 0, 'Chờ giao': 0, 'Chờ lấy': 0, 'Đã giao': 0, unsettled: 0, alerts: 0 };
+  const summary = { orders: 0, revenue: 0, debt: 0, cms: 0, 'Chờ bó': 0, 'Chờ giao': 0, 'Chờ lấy': 0, 'Đã giao': 0, unsettled: 0, alerts: 0 };
   const groups = { nearUnpacked: [], packedOverdue: [] };
   const now = Date.now();
   for (const o of orders) {
@@ -186,7 +187,7 @@ async function dashboard(payload, user) {
     summary[o.status] = (summary[o.status] || 0) + 1; if (!o.settled) summary.unsettled++;
     const due = Date.parse(o.date + 'T' + (o.time || '00:00') + ':00+07:00');
     if (o.status === 'Chờ bó' && due >= now && due - now <= 3600000) groups.nearUnpacked.push(o);
-    if (['Đã bó', 'Chờ giao', 'Chờ lấy'].includes(o.status) && due < now) groups.packedOverdue.push(o);
+    if (['Chờ giao', 'Chờ lấy'].includes(o.status) && due < now) groups.packedOverdue.push(o);
   }
   groups.nearUnpacked = groups.nearUnpacked.slice(0, 20);
   groups.packedOverdue = groups.packedOverdue.slice(0, 20);
@@ -230,7 +231,7 @@ async function loginAndBootstrap(payload) {
   const result = await login(payload);
   if (!result.ok) return result;
   const user = await one('app_users', { username: 'eq.' + result.user.username });
-  return { ...result, options: { shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: ['Chờ bó', 'Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao'] }, initial: await initial(user, result.token) };
+  return { ...result, options: { shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: ['Chờ bó', 'Chờ giao', 'Chờ lấy', 'Đã giao'] }, initial: await initial(user, result.token) };
 }
 async function usersList() {
   const rows = await all('app_users', { select: 'username,display_name,role,active', order: 'display_name.asc' });
@@ -238,7 +239,7 @@ async function usersList() {
 }
 async function options() {
   const rows = await all('app_users', { select: 'display_name,active' });
-  return { ok: true, options: { sales: [...new Set(rows.filter(u => u.active).map(u => u.display_name))], shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: ['Chờ bó', 'Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao'] } };
+  return { ok: true, options: { sales: [...new Set(rows.filter(u => u.active).map(u => u.display_name))], shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: ['Chờ bó', 'Chờ giao', 'Chờ lấy', 'Đã giao'] } };
 }
 function newId(prefix) { return prefix + '-' + crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase(); }
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
@@ -273,6 +274,7 @@ async function atomicWrite(action,payload,user){
   const result=await operations.run(action,payload,user);if(!result?.ok)return result;
   const output={...result};delete output.row;
   if(result.row)output.updatedAt=result.row.updated_at;
+  if(action==='updateStatus'&&result.row)output.status=fulfillmentStatus(result.row);
   return output;
 }
 async function createOrder(payload,user){return atomicWrite('createOrder',payload,user)}
