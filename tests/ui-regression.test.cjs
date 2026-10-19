@@ -10,11 +10,12 @@ const v34Js = read('assets/meehoa-v34.js');
 const v35Js = read('assets/meehoa-v35.js');
 const entry = read('index.html');
 
-test('mobile uses hamburger/sidebar and disables legacy bottom navigation', () => {
-  assert.match(canonicalCss, /\.mobile-nav\{display:none!important\}/);
-  assert.match(canonicalCss, /\.sidebar\.mee-open/);
-  assert.match(v3Js, /aria-expanded/);
-  assert.match(v3Js, /mee-menu-backdrop/);
+test('mobile keeps one native bottom navigation and accessible sidebar menu', () => {
+  assert.match(canonicalCss,/\.mobile-nav\{display:grid\}/);
+  assert.match(read('assets/meehoa-v3.css'),/\.mobile-nav \.mee-mobile-create/);
+  assert.doesNotMatch(v3Js,/retireLegacyMobileNav/);
+  assert.match(v3Js,/mee-menu-backdrop/);
+  assert.match(read('html'),/mee-mobile-create/);
 });
 
 test('production mobile preview images remain bounded thumbnails', () => {
@@ -37,10 +38,11 @@ test('order form enhancement preserves original field nodes and entered address'
   assert.match(v34Js, /Keep original field nodes intact/);
 });
 
-test('production/materials module observes only app surfaces and owns no dashboard patch', () => {
+test('production/materials module renders directly without DOM observers or dashboard patches', () => {
   assert.doesNotMatch(v35Js, /observe\(document\.body/);
-  assert.match(v35Js, /observe\(content/);
-  assert.match(v35Js, /observe\(overlay/);
+  assert.doesNotMatch(v35Js, /MutationObserver|observe\(content|observe\(overlay/);
+  assert.match(v35Js, /MEE_MATERIALS_RENDER=renderMaterials/);
+  assert.match(read('html'), /MEE_MATERIALS_RENDER\(\)/);
   assert.doesNotMatch(v35Js, /function patchDashboard/);
   assert.doesNotMatch(v35Js, /injectV36Styles/);
 });
@@ -48,7 +50,7 @@ test('production/materials module observes only app surfaces and owns no dashboa
 test('global search is shown only on Orders until production search has a real implementation', () => {
   assert.match(v3Js, /var show=page==='orders'/);
   assert.doesNotMatch(v3Js, /page==='orders'\|\|page==='production'/);
-  const visibilityFn = v3Js.slice(v3Js.indexOf('function updateSearchVisibility'), v3Js.indexOf('function cleanKpiCopy'));
+  const visibilityFn = v3Js.slice(v3Js.indexOf('function updateSearchVisibility'), v3Js.indexOf('function shippingIcon'));
   assert.doesNotMatch(visibilityFn, /pageTitle/);
 });
 

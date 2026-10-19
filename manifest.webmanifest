@@ -5,8 +5,8 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f8f7f2",
-  "theme_color": "#0f4937",
+  "background_color": "#f6f7f9",
+  "theme_color": "#050b17",
   "icons": [
     {"src":"/assets/meehoa-mark.svg?v=6","sizes":"any","type":"image/svg+xml","purpose":"any"}
   ]

@@ -178,7 +178,7 @@ async function decoratedRange(start, end, user) {
 async function dashboard(payload, user) {
   const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
   const orders = await decoratedRange(start, end, user);
-  const summary = { orders: 0, revenue: 0, debt: 0, cms: 0, 'Chờ bó': 0, 'Đã bó': 0, 'Đã giao': 0, unsettled: 0, alerts: 0 };
+  const summary = { orders: 0, revenue: 0, debt: 0, cms: 0, 'Chờ bó': 0, 'Đã bó': 0, 'Chờ giao': 0, 'Chờ lấy': 0, 'Đã giao': 0, unsettled: 0, alerts: 0 };
   const groups = { nearUnpacked: [], packedOverdue: [] };
   const now = Date.now();
   for (const o of orders) {
@@ -186,7 +186,7 @@ async function dashboard(payload, user) {
     summary[o.status] = (summary[o.status] || 0) + 1; if (!o.settled) summary.unsettled++;
     const due = Date.parse(o.date + 'T' + (o.time || '00:00') + ':00+07:00');
     if (o.status === 'Chờ bó' && due >= now && due - now <= 3600000) groups.nearUnpacked.push(o);
-    if (o.status === 'Đã bó' && due < now) groups.packedOverdue.push(o);
+    if (['Đã bó', 'Chờ giao', 'Chờ lấy'].includes(o.status) && due < now) groups.packedOverdue.push(o);
   }
   groups.nearUnpacked = groups.nearUnpacked.slice(0, 20);
   groups.packedOverdue = groups.packedOverdue.slice(0, 20);
@@ -230,7 +230,7 @@ async function loginAndBootstrap(payload) {
   const result = await login(payload);
   if (!result.ok) return result;
   const user = await one('app_users', { username: 'eq.' + result.user.username });
-  return { ...result, options: { shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: ['Chờ bó', 'Đã bó', 'Đã giao'] }, initial: await initial(user, result.token) };
+  return { ...result, options: { shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: ['Chờ bó', 'Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao'] }, initial: await initial(user, result.token) };
 }
 async function usersList() {
   const rows = await all('app_users', { select: 'username,display_name,role,active', order: 'display_name.asc' });
@@ -238,7 +238,7 @@ async function usersList() {
 }
 async function options() {
   const rows = await all('app_users', { select: 'display_name,active' });
-  return { ok: true, options: { sales: [...new Set(rows.filter(u => u.active).map(u => u.display_name))], shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: ['Chờ bó', 'Đã bó', 'Đã giao'] } };
+  return { ok: true, options: { sales: [...new Set(rows.filter(u => u.active).map(u => u.display_name))], shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: ['Chờ bó', 'Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao'] } };
 }
 function newId(prefix) { return prefix + '-' + crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase(); }
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});

@@ -30,13 +30,13 @@ test('materials use direct session authentication instead of production-route de
 });
 
 test('dashboard UI has the approved KPI summary, two analytics and no legacy chart injection', () => {
-  assert.match(ui, /mee-dashboard-summary/);
-  assert.match(ui, /Công nợ còn thu/);
-  assert.match(ui, /Doanh thu theo nhân viên/);
-  assert.match(ui, /Đơn hàng theo khung giờ/);
+  assert.match(ui, /mee-dv2-metrics/);
+  assert.match(ui, /Công nợ chưa thu/);
+  assert.match(ui, /Doanh thu theo Sale/);
+  assert.match(ui, /Đơn theo khung giờ/);
   assert.doesNotMatch(ui, /mee-v361-charts/);
   assert.doesNotMatch(ui, /injectStyles/);
   assert.doesNotMatch(ui, /patchFit/);
-  assert.match(css, /\.mee-dashboard-summary/);
-  assert.match(css, /\.mee-approved-panel/);
+  assert.match(css, /\.mee-dv2-metrics/);
+  assert.match(css, /\.mee-dv2-panel/);
 });

@@ -23,7 +23,7 @@ test('normal pages have one vertical scroll owner', () => {
 
 test('tables do not create a second vertical scrollbar', () => {
   assert.match(base, /\.table-wrap\s*\{[\s\S]*overflow:\s*auto;/, 'base table wrapper should be the legacy nested-scroll source');
-  assert.match(css, /\.table-wrap,\.mee-v361-table-wrap\{[\s\S]*overflow-x:auto!important;[\s\S]*overflow-y:visible!important/);
+  assert.match(css, /\.table-wrap\{[\s\S]*overflow-x:auto!important;[\s\S]*overflow-y:visible!important/);
 });
 
 test('intentional local surfaces keep local scrolling and page locks still work', () => {
@@ -31,7 +31,10 @@ test('intentional local surfaces keep local scrolling and page locks still work'
   assert.match(css, /body\.mee-overlay-open-v364,body\.mee-menu-open\{overflow:hidden!important/);
 });
 
-test('high-cost scrolling blur is disabled on topbar and production cards', () => {
-  assert.match(css, /\.topbar\{position:sticky!important;top:0!important;z-index:300!important;flex-shrink:0!important;backdrop-filter:none!important/);
-  assert.match(css, /body\.mee-page-production \.lane,body\.mee-page-production \.order,body\.mee-page-production \.ops-tile\{backdrop-filter:none!important/);
+test('high-cost scrolling blur remains off and Production owns flat visual panels', () => {
+  assert.match(css,/\.topbar\{position:sticky!important;top:0!important;z-index:300!important;flex-shrink:0!important;backdrop-filter:none!important/);
+  const production=fs.readFileSync(path.join(root,'assets/meehoa-v35.css'),'utf8');
+  assert.match(production,/\.mee-production-v2\{display:grid/);
+  assert.match(production,/\.mee-production-lane\{/);
+  assert.doesNotMatch(production,/body\.mee-page-production #content:before/);
 });

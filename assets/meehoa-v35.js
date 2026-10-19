@@ -34,7 +34,7 @@
         '<div class="calendar-grid"><div class="calendar-dow">T2</div><div class="calendar-dow">T3</div><div class="calendar-dow">T4</div><div class="calendar-dow">T5</div><div class="calendar-dow">T6</div><div class="calendar-dow">T7</div><div class="calendar-dow">CN</div>'+cells.join('')+'</div>'+
         (single?'':'<div class="calendar-selection '+(x.start&&!x.end?'mee-range-waiting':'')+'"><div><b>'+dateVN2(x.start)+'</b><div class="sub">Bắt đầu</div></div><span>→</span><div style="text-align:right"><b>'+endText+'</b><div class="sub">Kết thúc</div></div></div>')+
         '<div class="calendar-actions"><button type="button" class="btn" onclick="MEEOPS7.closeOverlay()">Hủy</button><button type="button" class="btn primary" '+(!x.start||(!single&&!x.end)?'disabled':'')+' onclick="MEEOPS7.datePickerApply()">Áp dụng</button></div>'+
-      '</div></div>';
+      '</div></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
   }
 
   async function loadProductionRange(start,end){
@@ -47,7 +47,7 @@
       orders.sort(function(a,b){return (String(a.date||'')+' '+String(a.time||'')).localeCompare(String(b.date||'')+' '+String(b.time||''))});
       S.data.production=Object.assign({},base||{ok:true},{orders:orders,rangeStart:start,rangeEnd:end});
       if(window.rememberOrders)rememberOrders(orders);
-      renderProduction();patchProductionRangeButton();
+      renderProduction();
     }catch(e){if(window.toast)toast(e&&e.message?e.message:'Không tải được khoảng ngày sản xuất.',1)}
   }
 
@@ -86,18 +86,7 @@
     return true;
   }
 
-  function patchProductionRangeButton(){
-    if(!window.S)return;var btn=qs('.production-filter .date-filter-btn');if(!btn)return;
-    var f=S.filters.production||{},start=f.start||f.date,end=f.end||f.date||start;
-    btn.setAttribute('onclick',"MEEOPS7.openDatePicker('production','range')");btn.textContent='▣ '+dateVN2(start)+' → '+dateVN2(end)+'　⌄';
-  }
-
-  function patchPaidCopy(root){
-    root=root||document;var walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),node;
-    while((node=walker.nextNode()))if(node.nodeValue&&node.nodeValue.indexOf('Đã thu đủ')>=0&&node.nodeValue.indexOf('Đã thu đủ tiền hoa')<0)node.nodeValue=node.nodeValue.replace(/Đã thu đủ/g,'Đã thu đủ tiền hoa');
-  }
-
-  function materialSig(r,d){return d+'|'+(r.reviewCount||0)+'|'+(r.items||[]).map(function(x){return x.name+':'+x.orders}).join(',')}
+  function materialSig(r,d){return d+'|'+(r.reviewCount||0)+'|'+(r.status||'')+'|'+(r.aiModel||'')+'|'+(r.aiMessage||'')+'|'+(r.items||[]).map(function(x){return x.name+':'+x.orders}).join(',')}
   function renderMaterials(){
     if(!window.S||S.page!=='flowers')return;
     var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],el=qs('#content');if(!d||!r||!el)return;
@@ -109,19 +98,22 @@
     el.dataset.meeMaterialsSig=sig;
     qsa('[data-material]',el).forEach(function(btn){btn.addEventListener('click',function(){openMaterialDrawer(btn.dataset.material)})});
     qsa('[data-review-order]',el).forEach(function(btn){btn.addEventListener('click',function(){var id=btn.dataset.reviewOrder;if(id&&window.MEEOPS7&&MEEOPS7.openDrawer)MEEOPS7.openDrawer(id,'production')})});
+    if(window.MEE_MATERIALS_STATUS_RENDER)window.MEE_MATERIALS_STATUS_RENDER();
   }
 
   function openMaterialDrawer(name){
     if(!window.S)return;var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],ov=qs('#overlay');if(!r||!ov)return;
     var item=(r.items||[]).find(function(x){return x.name===name});if(!item)return;
     var orders=(item.orderList||[]).map(function(x){return '<article class="mee-material-order"><div class="mee-material-order-top"><div><b>'+esc(x.customer||'Chưa rõ khách')+'</b><div class="sub">'+esc((x.time||'—')+' · '+dateVN2(x.date||d))+'</div></div><span class="badge">'+esc(name)+'</span></div><div class="flower-copy">'+esc(x.flower||'')+'</div>'+(x.id?'<button type="button" class="btn" data-open-order="'+attr(x.id)+'">Mở đơn hàng</button>':'')+'</article>'}).join('');
-    ov.innerHTML='<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer"><div class="drawer-head"><div><h3 style="margin:0">'+esc(name)+'</h3><div class="sub">'+Number(item.orders||0)+' đơn cần loại hoa này</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="mee-material-drawer-list">'+(orders||'<div class="empty">Không có đơn.</div>')+'</div></aside></div>';
+    ov.innerHTML='<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer"><div class="drawer-head"><div><h3 style="margin:0">'+esc(name)+'</h3><div class="sub">'+Number(item.orders||0)+' đơn cần loại hoa này</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="mee-material-drawer-list">'+(orders||'<div class="empty">Không có đơn.</div>')+'</div></aside></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
     qsa('[data-open-order]',ov).forEach(function(btn){btn.addEventListener('click',function(){var id=btn.dataset.openOrder;if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();setTimeout(function(){if(window.MEEOPS7&&MEEOPS7.openDrawer)MEEOPS7.openDrawer(id,'production')},0)})});
   }
 
-  function removeLoadingCopy(){document.querySelectorAll('.page-status').forEach(function(el){el.remove()});var pill=qs('.loading-pill');if(pill){Array.from(pill.childNodes).forEach(function(n){if(n.nodeType===3)n.textContent=''});pill.querySelectorAll(':scope > span:not(.spinner)').forEach(function(el){el.style.display='none'})}}
-  function patch(){installRangePicker();patchProductionRangeButton();patchPaidCopy(qs('#content')||document);patchPaidCopy(qs('#overlay')||document);renderMaterials();removeLoadingCopy()}
-  var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patch,50)}
-  function init(){if(window.MEEOPS7)MEEOPS7.openMaterialDrawer=openMaterialDrawer;patch();var content=qs('#content'),overlay=qs('#overlay');if(content)new MutationObserver(schedule).observe(content,{childList:true,subtree:true});if(overlay)new MutationObserver(schedule).observe(overlay,{childList:true,subtree:true})}
+  function init(){
+    window.MEE_MATERIALS_RENDER=renderMaterials;
+    if(window.MEEOPS7)MEEOPS7.openMaterialDrawer=openMaterialDrawer;
+    installRangePicker();
+    if(window.S&&S.page==='flowers')renderMaterials();
+  }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

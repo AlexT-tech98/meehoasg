@@ -17,7 +17,7 @@ async function main(){
   const shot=module=>page.screenshot({path:path.join(out,label+'-'+module+'.png'),fullPage:true});
   await page.goto(origin);await page.locator('#loginUser').fill(a.username);await page.locator('#loginPass').fill(a.password);await page.locator('#loginBtn').click();
   await page.waitForFunction(()=>S.user&&document.querySelector('#content')?.textContent.length>30);checks.push('authenticated-real-backend');
-  if(a.role==='ADMIN'){await page.locator('.mee-approved-analytics-sales').waitFor();assert.equal(await page.locator('.mee-approved-analytics-sales').isVisible(),true);assert.match(await page.locator('.mee-approved-analytics-sales').innerText(),/đơn/);checks.push('dashboard-sale-counts-visible');await shot('dashboard');}
+  if(a.role==='ADMIN'){await page.locator('.mee-dv2-sales').waitFor();assert.equal(await page.locator('.mee-dv2-sales').isVisible(),true);assert.match(await page.locator('.mee-dv2-sales').innerText(),/đơn/);checks.push('dashboard-sale-counts-visible');await shot('dashboard');}
   await page.evaluate(()=>MEEOPS7.go('orders'));await page.waitForFunction(()=>S.page==='orders'&&document.querySelector('#content')?.textContent.includes('QA Khách'));
   const before=calls.filter(x=>x==='getOrders').length;await page.evaluate(()=>MEEOPS7.go('orders'));assert.equal(calls.filter(x=>x==='getOrders').length,before);checks.push('warm-orders-no-extra-call');
   await page.evaluate(()=>MEEOPS7.openOrderForm());await page.locator('#orderForm input[name=date]').waitFor();assert.equal(await page.locator('#orderForm input[name=date]').inputValue(),'');assert.equal(await page.locator('#orderForm input[name=date]').evaluate(x=>x.required),true);
@@ -60,6 +60,29 @@ async function main(){
    const prior=calls.length,old=await page.evaluate(()=>S.orders.get('QA-SEED-002').status);await page.locator('#content input[type=checkbox][onchange*="QA-SEED-002"]').check();assert.equal(await page.evaluate(()=>S.selected.size),1);assert.equal(await page.evaluate(()=>S.orders.get('QA-SEED-002').status),old);assert.ok(!calls.slice(prior).some(n=>/update|submit|save|create|review/i.test(n)));
    await page.getByRole('button',{name:'Tiến trạng thái →',exact:true}).click();await page.waitForFunction(()=>S.orders.get('QA-SEED-002').status==='Đã bó');
    await page.evaluate(()=>MEEOPS7.changeStatus('QA-SEED-002','Chờ bó'));await page.waitForFunction(()=>S.orders.get('QA-SEED-002').status==='Chờ bó');checks.push('checkbox-selection-only-explicit-status-action');await shot('production');
+  }
+  // Visual release gate: capture KPI for every role and Admin-only Payment/Admin
+  // with the same authenticated, real local API (no production writes).
+  await page.evaluate(()=>MEEOPS7.go('kpi'));
+  await page.waitForFunction(()=>S.page==='kpi'&&!!S.data.kpi[S.filters.kpi.month]&&document.querySelector('#content')?.textContent.length>30);
+  await shot('kpi');checks.push('kpi-role-viewport-real-api-visual');
+  if(a.role==='ADMIN'){
+   await page.evaluate(()=>MEEOPS7.go('payment'));
+   await page.waitForFunction(()=>S.page==='payment'&&!!S.data.payment&&document.querySelector('#content')?.textContent.includes('PAYMENT CHECK'));
+   await shot('payment');checks.push('payment-role-viewport-real-api-visual');
+   await page.evaluate(()=>MEEOPS7.go('admin'));
+   await page.waitForFunction(()=>S.page==='admin'&&!!S.data.admin&&document.querySelector('#content')?.textContent.includes('Người dùng'));
+   assert.ok(await page.locator('#content .table-wrap button').count()>0,'ADMIN user actions must render');
+   if(width===390){
+    const lastButton=await page.locator('#content .table-wrap button').last().evaluate(btn=>{
+      const scroller=btn.closest('.table-wrap');
+      scroller.scrollLeft=scroller.scrollWidth;
+      const button=btn.getBoundingClientRect(),area=scroller.getBoundingClientRect();
+      return {right:button.right,areaRight:area.right,scrollLeft:scroller.scrollLeft};
+    });
+    assert.ok(lastButton.right<=lastButton.areaRight+2,'Admin actions must be reachable by horizontal scrolling on mobile: '+JSON.stringify(lastButton));
+   }
+   await shot('admin');checks.push('admin-role-viewport-real-api-visual');
   }
   assert.deepEqual(errors,[]);results.push({width,role:a.role,status:'PASS',checks,requestNames:calls});await context.close();activePage=null;console.log('PASS full real-browser acceptance '+label);
  }}finally{if(activePage)await activePage.screenshot({path:path.join(out,label+'-failure.png'),fullPage:true}).catch(()=>{});await browser.close();fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:'real candidate UI/API/local PostgreSQL+Storage; Chromium viewport emulation, not Safari hardware or managed cloud',complete:results.length===6,results},null,2)+'\n');}

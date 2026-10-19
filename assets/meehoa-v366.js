@@ -56,13 +56,6 @@
   }
   function patchOrderForm(){var form=qs('#orderForm');if(!form)return;patchMultiline(form);patchMoney(form)}
 
-  function patchCreateButtons(){
-    qsa('.topbar .actions button').forEach(function(b){var c=b.getAttribute('onclick')||'';if(c.indexOf('openOrderForm')>=0)b.dataset.meeHideCreateV365='1'});
-    document.body.classList.toggle('mee-page-dashboard-v365',!!(window.S&&S.page==='dashboard'));
-    if(window.S&&S.page==='dashboard')qsa('#content button').forEach(function(b){var c=b.getAttribute('onclick')||'';if(c.indexOf('openOrderForm')>=0)b.dataset.meeHideCreateV365='1'});
-  }
-  function patchBodyPage(){document.body.classList.toggle('mee-page-dashboard-v365',!!(window.S&&S.page==='dashboard'))}
-
   function buildCopyText(o){
     if(!o)return'';
     var q=Math.max(1,Number(o.cardQty||1)),accessory=[];
@@ -176,26 +169,15 @@
       if(window.loadPage&&S.page)window.loadPage(S.page,true);
     }catch(e){if(window.toast)window.toast(e.message||'Không xóa được đơn.',1);btn.disabled=false;btn.textContent=old}
   }
-  function patchDelete(){
-    if(!window.S||!S.user||S.user.role!=='ADMIN')return;
-    var ov=qs('#overlay'),actions=ov&&qs('.order-actions',ov);if(!actions||qs('.mee-delete-order',actions))return;
-    var id=drawerOrderId();if(!id)return;
-    var b=document.createElement('button');b.type='button';b.className='btn danger full mee-delete-order';b.textContent='Xóa đơn';b.addEventListener('click',function(){requestDelete(id,b)});actions.appendChild(b);
-  }
-
-  function patch(){patchBodyPage();patchCreateButtons();patchOrderForm();patchCopyActions();patchDelete()}
-  function wrapOpenForm(){
-    if(!window.MEEOPS7||!MEEOPS7.openOrderForm||MEEOPS7.openOrderForm._mee365)return;
-    var orig=MEEOPS7.openOrderForm;
-    var wrapped=function(id){var r=orig.apply(this,arguments);setTimeout(patchOrderForm,0);setTimeout(patchOrderForm,160);return r};wrapped._mee365=true;MEEOPS7.openOrderForm=wrapped;
-  }
+  function patch(){patchOrderForm();patchCopyActions()}
   function init(){
-    wrapOpenForm();patch();
+    window.MEE_ORDER_FORM_ENHANCE=patchOrderForm;
+    window.MEE_COPY_ACTIONS_SYNC=patchCopyActions;
+    patch();
+    if(!document.documentElement.dataset.meeDeleteDelegateV2){document.documentElement.dataset.meeDeleteDelegateV2='1';document.addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-mee-delete-order]');if(!button)return;if(!window.S||!S.user||S.user.role!=='ADMIN')return;event.preventDefault();requestDelete(button.dataset.meeDeleteOrder,button);});}
     if(!document.documentElement.dataset.meeCopyDelegate365){document.documentElement.dataset.meeCopyDelegate365='1';document.addEventListener('click',delegatedEditTap,true);document.addEventListener('click',delegatedCopyTap,true)}
-    var tries=0,bindTimer=setInterval(function(){wrapOpenForm();patchCopyActions();tries++;if((window.MEEOPS7&&MEEOPS7._meeCopy365)||tries>80)clearInterval(bindTimer)},50);
-    var root=qs('#content');if(root)new MutationObserver(function(){setTimeout(patch,20)}).observe(root,{childList:true,subtree:true});
-    var ov=qs('#overlay');if(ov)new MutationObserver(function(){setTimeout(function(){patchOrderForm();patchCopyActions();patchDelete()},0)}).observe(ov,{childList:true,subtree:true});
-    document.addEventListener('visibilitychange',function(){if(!document.hidden)patch()});
+    if(window.MEEOPS7)wrapCopy();
+    // Drawer, creation confirmation and order form invoke their canonical render hooks directly.
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

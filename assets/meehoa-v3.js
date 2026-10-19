@@ -4,7 +4,6 @@
   function qs(s,r){return (r||document).querySelector(s)}
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
 
-  function retireLegacyMobileNav(){var legacy=qs('#mobileNav');if(legacy)legacy.remove()}
 
   function forceSidebarState(side,open){
     if(!side)return;
@@ -17,7 +16,7 @@
   }
 
   function ensureMenu(){
-    var top=qs('.topbar');if(!top)return;retireLegacyMobileNav();
+    var top=qs('.topbar');if(!top)return;
     var btn=qs('.mee-menu-btn',top);
     if(!btn){btn=document.createElement('button');btn.className='mee-menu-btn';btn.type='button';btn.title='Mở menu';btn.setAttribute('aria-label','Mở menu');btn.setAttribute('aria-expanded','false');btn.innerHTML='<span></span>';var left=qs('.topbar-left',top);top.insertBefore(btn,left||top.firstChild)}
     var back=qs('.mee-menu-backdrop');
@@ -53,14 +52,6 @@
     document.body.classList.toggle('mee-page-kpi',page==='kpi');
   }
 
-  function cleanKpiCopy(){
-    var active=qs('[data-p="kpi"].active');var title=(qs('#pageTitle')||{}).textContent||'';
-    if(!active&&!/KPI|Báo cáo/i.test(title))return;
-    var content=qs('#content');if(!content)return;
-    var head=content.querySelector('.section-head');
-    if(head){qsa('.sub',head).forEach(function(el){el.remove()});var next=head.nextElementSibling;if(next&&next.classList&&next.classList.contains('notice'))next.remove()}
-  }
-
   function shippingIcon(text){text=String(text||'');if(/Shop book ship/i.test(text))return'🛵';if(/Khách tự book/i.test(text))return'📱';if(/Ghé lấy/i.test(text))return'🏪';return''}
   function decorateShippingIcons(){
     qsa('.order .meta,.order-card-mobile .meta,.order-card-mobile-meta,.drawer .meta,.drawer-row,.ops-lines span').forEach(function(el){
@@ -70,16 +61,10 @@
     })
   }
 
-  function patchShell(){retireLegacyMobileNav();ensureMenu();ensureBranding();updateSearchVisibility();cleanKpiCopy();decorateShippingIcons()}
-  var timer=null,mo=new MutationObserver(function(ms){
-    var relevant=ms.some(function(m){return m.type==='childList'&&(m.addedNodes.length||m.removedNodes.length)});if(!relevant)return;
-    clearTimeout(timer);timer=setTimeout(patchShell,80)
-  });
   function init(){
-    patchShell();var content=qs('#content'),overlay=qs('#overlay');
-    if(content)mo.observe(content,{subtree:true,childList:true});
-    if(overlay)mo.observe(overlay,{subtree:true,childList:true});
-    document.addEventListener('click',function(e){if(e.target.closest('[data-p]'))setTimeout(patchShell,0)},true)
+    window.MEE_SHELL_ROUTE_SYNC=updateSearchVisibility;
+    window.MEE_SHELL_CONTENT_SYNC=decorateShippingIcons;
+    ensureMenu();ensureBranding();updateSearchVisibility();decorateShippingIcons();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

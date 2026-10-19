@@ -41,7 +41,7 @@ create table if not exists public.orders (
   flower_total numeric(14,2) not null default 0,
   payment text not null default '',
   sale text not null default '',
-  status text not null default 'Chờ bó' check (status in ('Chờ bó', 'Đã bó', 'Đã giao')),
+  status text not null default 'Chờ bó' check (status in ('Chờ bó', 'Đã bó', 'Chờ giao', 'Chờ lấy', 'Đã giao')),
   settled boolean not null default false,
   full_paid boolean not null default false,
   full_paid_total numeric(14,2) not null default 0,

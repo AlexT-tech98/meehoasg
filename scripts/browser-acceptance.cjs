@@ -7,6 +7,7 @@ const root=path.resolve(__dirname,'..'),out=path.join(root,'artifacts/browser');
 fs.mkdirSync(out,{recursive:true});
 const day='2026-10-15',build='2026.09.28-supabase-v3';
 const orders=Array.from({length:36},(_,i)=>({id:'FIXTURE-'+i,customer:'Khách giả '+i,phone:'0900000000',date:day,time:'10:00',flower:'Tulip',flowerTotal:500000,payment:'Chưa thanh toán',paid:0,debt:605000,totalDue:605000,sale:'Sale Fixture',saleUsername:'sale',status:'Chờ bó',shipping:'Ghé lấy',address:'',note:'Dữ liệu kiểm thử cô lập',imageUrls:[],driveUrls:[],card:false,banner:true,bannerQty:3,bannerText:'Fixture',accessoryTotal:105000,vat:0,shipFee:0,shipConfirmed:false,canEdit:true,canOperate:true,canShip:true,canSubmitSettlement:false,detailLoaded:true,updatedAt:'2026-10-15T00:00:00Z'}));
+Object.assign(orders[1],{fullPaid:true,fullPaidTotal:605000,payment:'Đã thanh toán toàn bộ đơn',paid:605000,debt:0,paymentVerified:true});
 const production={ok:true,date:day,orders};
 const listing={ok:true,items:orders,total:orders.length,page:1,pageSize:80,hasMore:false,range:{start:day,end:day}};
 const dashboard={ok:true,range:{start:day,end:day},hourlyScope:'SELECTED_RANGE',hourlyCounts:[{hour:10,count:36}],hourlyUnknown:0,summary:{orders:36,revenue:18000000,grossRevenue:18000000,settledRevenue:0,unsettledRevenue:18000000,debt:21780000,'Chờ bó':36,'Đã bó':0,'Đã giao':0},attention:[],attentionGroups:{nearUnpacked:[],packedOverdue:[]},salesDaily:[{date:day,sale:'Sale Fixture',saleUsername:'sale',orders:36,settledOrders:0,unsettledOrders:36,grossRevenue:18000000,settledRevenue:0,unsettledRevenue:18000000}]};
@@ -48,19 +49,19 @@ async function main(){
   await page.waitForFunction(()=>window.S?.user&&document.querySelector('#content')?.textContent.length>30);
   const coldMs=Math.round(performance.now()-started);
   if(role==='ADMIN'){
-   await page.locator('.mee-approved-analytics-sales').waitFor();
-   assert.equal(await page.locator('.mee-approved-analytics-sales').isVisible(),true,'authorized Sale report visible');
-   assert.match(await page.locator('.mee-approved-analytics-sales').innerText(),/36 đơn/);
-   assert.equal(await page.locator('[data-dashboard-money]').count(),4);
+   await page.locator('.mee-dv2-sales').waitFor();
+   assert.equal(await page.locator('.mee-dv2-sales').isVisible(),true,'authorized Sale report visible');
+   assert.match(await page.locator('.mee-dv2-sales').innerText(),/36 đơn/);
+   assert.equal(await page.locator('[data-money-key]').count(),4);
    assert.equal(await page.locator('.dashboard-grid').count(),0);
    assert.equal(await page.locator('[data-hourly-total]').getAttribute('data-hourly-total'),'36');
-   for(const key of ['revenue','average','debt','staff'])await page.locator('[data-dashboard-money="'+key+'"]').click();
-   assert.equal(await page.locator('.mee-approved-kpi.revenue .mee-approved-kpi-value').innerText(),'••••••');
+   for(const key of ['revenue','average','debt','staff'])await page.locator('[data-money-key="'+key+'"]').click();
+   assert.equal(await page.locator('.mee-dv2-metric:nth-child(2) .mee-dv2-metric-value').innerText(),'••••••');
    assert.doesNotMatch(await page.locator('#content').innerText(),/\d[\d.]*\s*đ(?:\s|$)/);
-   await page.reload();await page.locator('[data-dashboard-money="revenue"]').waitFor();
-   assert.equal(await page.locator('.mee-approved-kpi.revenue .mee-approved-kpi-value').innerText(),'••••••','privacy survives cached-shell reload');
-   for(const key of ['revenue','average','debt','staff'])await page.locator('[data-dashboard-money="'+key+'"]').click();
-   assert.match(await page.locator('.mee-approved-kpi.revenue').innerText(),/18.000.000/);
+   await page.reload();await page.locator('[data-money-key="revenue"]').waitFor();
+   assert.equal(await page.locator('.mee-dv2-metric:nth-child(2) .mee-dv2-metric-value').innerText(),'••••••','privacy survives cached-shell reload');
+   for(const key of ['revenue','average','debt','staff'])await page.locator('[data-money-key="'+key+'"]').click();
+   assert.match(await page.locator('.mee-dv2-metric:nth-child(2)').innerText(),/18.000.000/);
 
   }
   await page.evaluate(()=>MEEOPS7.go('orders'));await page.waitForFunction(()=>S.page==='orders'&&document.querySelector('#content').textContent.includes('Khách giả'));
@@ -69,14 +70,22 @@ async function main(){
   await page.waitForFunction(()=>S.page==='orders'&&document.querySelector('#content').textContent.includes('Khách giả'));
   const warmMs=Math.round(performance.now()-warmStart);
   assert.equal(calls.filter(c=>c.name==='getOrders').length,beforeWarm,'fresh revisit reuses Orders data');
+  await page.evaluate(()=>MEEOPS7.openDatePicker('orders','range'));
+  assert.equal(await page.locator('#overlay .calendar-modal').count(),1,'calendar overlay renders');
+  assert.equal(await page.evaluate(()=>document.body.classList.contains('mee-overlay-open-v364')),true,'calendar locks background');
+  await page.evaluate(()=>MEEOPS7.closeOverlay());
+  if(width===390){await page.evaluate(()=>MEEOPS7.openMobileMore());assert.equal(await page.locator('#overlay .mobile-menu-sheet').count(),1,'mobile menu overlay renders');await page.evaluate(()=>MEEOPS7.closeOverlay());}
   await page.evaluate(()=>MEEOPS7.openOrderForm());await page.locator('#orderForm input[name=date]').waitFor();
+  assert.equal(await page.locator('#orderForm .mee-order-image-manager-v364').count(),1,'new order image manager is mounted during form render');
   assert.equal(await page.locator('#orderForm input[name=date]').inputValue(),'','new date must be blank');
   assert.equal(await page.locator('#orderForm input[name=date]').getAttribute('required'),'');
   await page.evaluate(()=>MEEOPS7.closeOverlay());
   await page.evaluate(()=>MEEOPS7.openOrderForm('FIXTURE-0'));await page.locator('#orderForm input[name=date]').waitFor();
+  assert.equal(await page.locator('#orderForm .mee-order-image-manager-v364').count(),1,'edit order image manager mounts on replacement form');
   assert.equal(await page.locator('#orderForm input[name=date]').inputValue(),day,'edit keeps date');
   await page.evaluate(()=>MEEOPS7.closeOverlay());
   await page.evaluate(()=>MEEOPS7.openDrawer('FIXTURE-0'));await page.locator('#overlay').getByText('Banner ×3',{exact:true}).waitFor();
+  assert.equal(await page.locator('#overlay [data-mee-delete-order]').count(),role==='ADMIN'?1:0,'admin delete must be rendered by drawer owner for authorized role only');
   await page.evaluate(()=>MEEOPS7.closeOverlay());
   await page.waitForFunction(()=>!document.body.classList.contains('mee-overlay-open-v364')&&!document.body.classList.contains('mee-menu-open'));
   await page.waitForFunction(()=>{window.scrollTo(0,1000);return window.scrollY>500;});
@@ -87,10 +96,40 @@ async function main(){
    assert.equal(await page.evaluate(()=>S.selected.size),1,'checkbox selects one');
    assert.equal(await page.evaluate(()=>S.data.production.orders[0].status),'Chờ bó');
    assert.ok(!calls.slice(before).some(c=>/update|submit|save|create|review/i.test(c.name)),'selection never sends mutation');
+   const clipped=await page.locator('.mee-production-lane .mee-production-finance').evaluateAll(rows=>rows.slice(0,16).flatMap(line=>{
+    const card=line.closest('.order'),bounds=card.getBoundingClientRect();
+    return [...line.querySelectorAll('span')].filter(item=>{
+      const r=item.getBoundingClientRect();
+      return r.left<bounds.left+4||r.right>bounds.right-4||r.width===0;
+    }).map(item=>item.textContent.trim());
+   }));
+   assert.deepEqual(clipped,[],'Production amount/debt text cannot clip beyond narrow card: '+clipped.join(', '));
+   const textOverflow=await page.locator('.mee-production-lane .mee-production-finance>span').evaluateAll(spans=>spans.flatMap(span=>{
+    const card=span.closest('.order').getBoundingClientRect(),range=document.createRange();range.selectNodeContents(span);
+    return [...range.getClientRects()].some(r=>r.left<card.left+4||r.right>card.right-4)?[span.textContent.trim()]:[];
+   }));
+   assert.deepEqual(textOverflow,[],'Production payment meaning must wrap inside the card, including long Full Paid labels');
+   const duplicateBadges=await page.locator('.mee-production-lane .order.accessory').evaluateAll(cards=>cards.filter(card=>!['none','normal','""'].includes(getComputedStyle(card,'::before').content)).length);
+   assert.equal(duplicateBadges,0,'absolute duplicate accessory badges cannot obscure Production buttons');
+   await page.evaluate(()=>MEEOPS7.setProductionView('grid'));
+   assert.equal(await page.locator('.mee-production-grid .ops-tile.accessory').evaluateAll(cards=>cards.filter(card=>!['none','normal','""'].includes(getComputedStyle(card,'::before').content)).length),0,'grid status buttons are also free of duplicate accessory badges');
+   await page.evaluate(()=>MEEOPS7.setProductionView('kanban'));
+
+  }
+  if(width===390){
+   const overlap=await page.evaluate(()=>{
+    const toast=document.querySelector('#toast'),nav=document.querySelector('#mobileNav');
+    toast.textContent='Thông báo QA không che điều hướng';toast.className='toast err';
+    const t=toast.getBoundingClientRect(),n=nav.getBoundingClientRect();
+    toast.classList.add('hidden');
+    return {toastBottom:t.bottom,navTop:n.top,navVisible:n.height>0};
+   });
+   assert.equal(overlap.navVisible,true,'mobile navigation must be visible');
+   assert.ok(overlap.toastBottom<=overlap.navTop-4,'toast must not obscure mobile navigation: '+JSON.stringify(overlap));
   }
   await page.screenshot({path:path.join(out,`${width}-${role}.png`),fullPage:true});
   assert.deepEqual(errors,[],'no browser exceptions');
-  results.push({width,role,coldMs,warmMs,checks:['new-date-blank-required','edit-date-retained','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation']:[])],calls:calls.map(c=>c.name)});
+  results.push({width,role,coldMs,warmMs,checks:['calendar-overlay','new-date-blank-required','edit-date-retained','image-manager-on-new-and-edit','drawer-banner-quantity','sticky-topbar','warm-orders-no-duplicate-call',...(width===390?['mobile-menu-overlay','toast-clear-of-mobile-navigation']:[]),...(role==='ADMIN'?['sale-report-visible-with-order-count']:[]),...(role!=='SALE'?['selection-no-mutation','production-finance-not-clipped','production-full-paid-text-wraps','kanban-grid-actions-unobscured']:[])],calls:calls.map(c=>c.name)});
   await context.tracing.stop({path:path.join(out,`${width}-${role}.zip`)});await context.close();activeContext=null;activePage=null;
  }}finally{if(activeContext){await activePage.screenshot({path:path.join(out,activeLabel+'-failure.png'),fullPage:true}).catch(()=>{});await activeContext.tracing.stop({path:path.join(out,activeLabel+'-failure.zip')}).catch(()=>{});}await browser.close();server.close();fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({scope:'isolated UI integration; synthetic API; NOT staging E2E',complete:results.length===6,results},null,2)+'\n');}
  console.log(JSON.stringify(results,null,2));

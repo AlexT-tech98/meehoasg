@@ -62,13 +62,14 @@
   }
   function install(){
     if(!window.MEEOPS7)return false;
+    if(MEEOPS7.__meeOrderActionsInstalled)return true;
     MEEOPS7.openShipFeeForm=function(id){
       var o=orderById(id);
       if(!o||!canEditShip(o))return window.toast&&toast('Sale chỉ được nhập phí ship đơn của mình; Thợ/OPS và Admin được thao tác đơn vận hành.',1);
       if(!isShop(o.shipping))return window.toast&&toast('Đơn này không thể nhập phí ship.',1);
       if(o.locked)return window.toast&&toast('Đơn đang khóa, không thể đổi phí ship.',1);
       var ov=qs('#overlay');if(!ov)return;var val=o.shipConfirmed?new Intl.NumberFormat('vi-VN').format(o.shipFee):'';
-      ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><form action="javascript:void(0)" class="modal" data-order-version="'+attr(o.updatedAt||'')+'" style="max-width:460px" onsubmit="MEEOPS7.submitShipFee(event,\''+attr(o.id)+'\')"><div class="modal-head"><div><h3 style="margin:0">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</h3><div class="sub">'+esc(o.customer)+' · '+esc(o.shipping)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><label>PHÍ SHIP THỰC TẾ</label><input name="shipFee" inputmode="numeric" value="'+attr(val)+'" oninput="MEEOPS7.formatMoneyInput(this)" required autofocus><div class="notice">Sale phụ trách đơn này, Thợ/OPS hoặc Admin đều có thể xác nhận phí ship. Phí sẽ khóa khi gửi tất toán.</div><button class="btn primary full" style="margin-top:16px">Lưu phí ship</button></form></div>';
+      ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><form action="javascript:void(0)" class="modal" data-order-version="'+attr(o.updatedAt||'')+'" style="max-width:460px" onsubmit="MEEOPS7.submitShipFee(event,\''+attr(o.id)+'\')"><div class="modal-head"><div><h3 style="margin:0">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</h3><div class="sub">'+esc(o.customer)+' · '+esc(o.shipping)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><label>PHÍ SHIP THỰC TẾ</label><input name="shipFee" inputmode="numeric" value="'+attr(val)+'" oninput="MEEOPS7.formatMoneyInput(this)" required autofocus><div class="notice">Sale phụ trách đơn này, Thợ/OPS hoặc Admin đều có thể xác nhận phí ship. Phí sẽ khóa khi gửi tất toán.</div><button class="btn primary full" style="margin-top:16px">Lưu phí ship</button></form></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
     };
     MEEOPS7.submitShipFee=async function(e,id){
       e.preventDefault();var o=orderById(id),f=e.target;if(!o||!f)return;
@@ -77,7 +78,7 @@
     MEEOPS7.settlementForm=function(id){
       var o=orderById(id);if(!o)return;if(!o.canSubmitSettlement){if(window.toast)toast('Chỉ người phụ trách đơn đủ điều kiện được gửi tất toán.',1);return;}var ov=qs('#overlay');if(!ov)return;var shop=isShop(o.shipping),ready=!shop||!!o.shipConfirmed;
       var shipBlock=shop?('<label>PHÍ SHIP THỰC TẾ</label><div class="mee-readonly-ship '+(ready?'':'missing')+'">'+(ready?money(o.shipFee):'CHƯA CÓ · nhập phí ship trước khi tất toán')+'</div>'):'';
-      ov.innerHTML='<div class="modal-bg"><form action="javascript:void(0)" class="modal" id="settlementForm" data-order-version="'+attr(o.updatedAt||'')+'" onsubmit="MEEOPS7.submitSettlement(event,\''+attr(id)+'\')"><div class="modal-head"><div><h3 style="margin:0">Gửi yêu cầu tất toán</h3><div class="sub">'+esc(o.customer)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div>'+(shop?'<div class="notice">Phí ship phải được xác nhận trước khi gửi tất toán. Sale phụ trách đơn có thể nhập ở phần phí ship của đơn.</div>':'')+shipBlock+'<label>ẢNH BILL / CHUYỂN KHOẢN</label><input id="billFiles" type="file" accept="image/*" multiple required><label>GHI CHÚ</label><textarea name="note"></textarea><button id="settlementSubmit" class="btn primary full" style="margin-top:16px" '+(ready?'':'disabled')+'>Gửi yêu cầu tất toán</button></form></div>';
+      ov.innerHTML='<div class="modal-bg"><form action="javascript:void(0)" class="modal" id="settlementForm" data-order-version="'+attr(o.updatedAt||'')+'" onsubmit="MEEOPS7.submitSettlement(event,\''+attr(id)+'\')"><div class="modal-head"><div><h3 style="margin:0">Gửi yêu cầu tất toán</h3><div class="sub">'+esc(o.customer)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div>'+(shop?'<div class="notice">Phí ship phải được xác nhận trước khi gửi tất toán. Sale phụ trách đơn có thể nhập ở phần phí ship của đơn.</div>':'')+shipBlock+'<label>ẢNH BILL / CHUYỂN KHOẢN</label><input id="billFiles" type="file" accept="image/*" multiple required><label>GHI CHÚ</label><textarea name="note"></textarea><button id="settlementSubmit" class="btn primary full" style="margin-top:16px" '+(ready?'':'disabled')+'>Gửi yêu cầu tất toán</button></form></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
     };
     MEEOPS7.submitSettlement=async function(e,id){
       e.preventDefault();var form=e.target,btn=qs('#settlementSubmit',form),o=orderById(id);if(!o||form.dataset.saving==='1')return;
@@ -92,9 +93,11 @@
     };
     var oldToggle=MEEOPS7.togglePick;
     MEEOPS7.togglePick=function(id,v){var o=orderById(id);if(v&&o&&!o.canOperate){if(window.toast)toast('Đơn đã khóa hoặc bạn không có quyền thao tác.',1);return}return oldToggle&&oldToggle.apply(this,arguments)};
+    MEEOPS7.__meeOrderActionsInstalled=true;
     return true;
   }
-  function patch(){install();patchShipButtons(qs('#overlay')||document);patchProductionSelection(qs('#content')||document)}
-  function init(){patch();var content=qs('#content'),overlay=qs('#overlay');if(content)new MutationObserver(function(){setTimeout(patch,20)}).observe(content,{childList:true,subtree:true});if(overlay)new MutationObserver(function(){setTimeout(patch,0)}).observe(overlay,{childList:true,subtree:true});}
+  function contentSync(){patchProductionSelection(qs('#content')||document)}
+  function overlaySync(){patchShipButtons(qs('#overlay')||document)}
+  function init(){window.MEE_ORDER_ACTIONS_CONTENT_SYNC=contentSync;window.MEE_ORDER_ACTIONS_OVERLAY_SYNC=overlaySync;install();contentSync();overlaySync()}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

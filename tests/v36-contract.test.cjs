@@ -38,12 +38,14 @@ test('materials authorization fails closed before direct database analysis', () 
 });
 
 test('production/materials owner keeps runtime behavior and static styling separated', () => {
-  assert.match(ui, /Đã thu đủ tiền hoa/);
+  assert.match(fs.readFileSync('html','utf8'), /Đã thanh toán đủ tiền hoa/);
+  assert.doesNotMatch(ui, /patchPaidCopy/);
   assert.match(ui, /Nguyên liệu AI theo đơn/);
   assert.match(ui, /openMaterialDrawer/);
   assert.doesNotMatch(ui, /Doanh thu theo nhân viên \/ ngày/);
   assert.doesNotMatch(ui, /injectV36Styles/);
-  assert.match(css, /body\.mee-page-production \.ops-lines\{display:grid!important/);
+  assert.match(css, /\.mee-production-v2\{display:grid/);
+  assert.match(css, /\.mee-production-kanban\{display:grid/);
   assert.match(css, /\.mee-materials-grid/);
 });
 

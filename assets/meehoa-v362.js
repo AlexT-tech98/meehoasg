@@ -5,7 +5,7 @@
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 
-  function patchMaterialsStatus(){
+  function renderMaterialsStatus(){
     if(!window.S||S.page!=='flowers')return;
     var ff=S.filters&&S.filters.flowers||{};var d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date);
     var r=d&&S.data&&S.data.flowers&&S.data.flowers[d];
@@ -28,7 +28,6 @@
     if(hero)hero.insertAdjacentElement('afterend',box);else el.prepend(box);
   }
 
-  var timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(patchMaterialsStatus,60)}
-  function init(){patchMaterialsStatus();var content=qs('#content');if(content)new MutationObserver(function(m){if(m.some(function(x){return x.type==='childList'&&(x.addedNodes.length||x.removedNodes.length)}))schedule()}).observe(content,{childList:true,subtree:true})}
+  function init(){window.MEE_MATERIALS_STATUS_RENDER=renderMaterialsStatus;if(window.S&&S.page==='flowers')renderMaterialsStatus()}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

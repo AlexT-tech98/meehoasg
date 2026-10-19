@@ -3,64 +3,50 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 
-function loadDashboardTestApi(){
-  const code=fs.readFileSync('assets/meehoa-v361.js','utf8');
-  const window={__MEE_TEST_MODE__:true};
-  const document={readyState:'loading',addEventListener(){},querySelector(){return null}};
-  const context={window,document,Intl,setTimeout,clearTimeout,console};
-  vm.createContext(context);
-  vm.runInContext(code,context);
-  return window.__MEE_DASHBOARD_V361_TEST__;
+const code=fs.readFileSync('assets/meehoa-v361.js','utf8');
+function dashboardFixture(){
+  const root={innerHTML:''},content={querySelector:()=>root};
+  const state={page:'dashboard',user:{username:'fixture'},filters:{dashboard:{start:'2026-10-18',end:'2026-10-18'}},
+    data:{dashboard:{
+      summary:{orders:5,revenue:3000000,debt:0,'Chờ bó':0,'Đã bó':0,'Đã giao':5},
+      attentionGroups:{nearUnpacked:[],packedOverdue:[]},salesDaily:[],
+      hourlyScope:'SELECTED_RANGE',hourlyCounts:[{hour:10,count:1},{hour:15,count:2},{hour:17,count:1},{hour:21,count:1}],hourlyUnknown:0
+    }}};
+  const window={S:state,__MEE_TEST_MODE__:true}, document={
+    readyState:'loading',addEventListener(){},getElementById(id){return id==='content'?content:null}
+  };
+  const context={window,document,S:state,Intl,Date,JSON,Map,Math,Number,String,
+    localStorage:{getItem(){return null},setItem(){}}};
+  vm.createContext(context);vm.runInContext(code,context);
+  return {window,root};
 }
 
-test('hourly model groups real order times into one-hour buckets and omits empty hours',()=>{
-  const api=loadDashboardTestApi();
-  assert.ok(api&&typeof api.hourlyModel==='function');
-  const rows=JSON.parse(JSON.stringify(api.hourlyModel([
-    {time:'09:00'},{time:'09:45'},{time:'11:10'},{time:'16:01'},{time:'16:40'},{time:'16:59'},{time:''},{time:'invalid'}
-  ])));
-  assert.deepEqual(rows.map(x=>({hour:x.hour,label:x.label,count:x.count})),[
-    {hour:9,label:'09:00–09:59',count:2},
-    {hour:11,label:'11:00–11:59',count:1},
-    {hour:16,label:'16:00–16:59',count:3}
+test('dashboard hourly data preserves counts and only groups populated two-hour intervals',()=>{
+  const {window}=dashboardFixture();
+  const rows=JSON.parse(JSON.stringify(window.__MEE_DASHBOARD_TEST__.hourlyData({
+    hourlyCounts:[{hour:9,count:2},{hour:9,count:1},{hour:11,count:1},{hour:16,count:3}]
+  })));
+  assert.deepEqual(rows,[
+    {label:'08–10',count:3},
+    {label:'10–12',count:1},
+    {label:'16–18',count:3}
   ]);
-  assert.equal(rows.some(x=>x.hour===10),false);
+  assert.equal(rows.some(x=>x.label==='12–14'),false);
 });
 
-test('hourly rendered rows preserve labels, counts and proportional bars',()=>{
-  const api=loadDashboardTestApi();
-  const rows=api.hourlyModel([{time:'10:00'},{time:'15:00'},{time:'15:30'},{time:'17:00'},{time:'21:00'}]);
-  const html=api.hourlyHtml(rows);
-  assert.match(html,/10–12/);
-  assert.match(html,/14–16/);
-  assert.match(html,/16–18/);
-  assert.match(html,/20–22/);
-  assert.doesNotMatch(html,/12–14/);
-  const fifteen=rows.find(x=>x.hour===15);
-  const ten=rows.find(x=>x.hour===10);
-  assert.equal(fifteen.count,2);
-  assert.equal(Math.round(fifteen.percent),100);
-  assert.equal(Math.round(ten.percent),50);
+test('dashboard hourly visualization totals agree with selected date range data',()=>{
+  const {window,root}=dashboardFixture();
+  window.MEE_DASHBOARD_RENDER();
+  assert.match(root.innerHTML,/data-hourly-total="5"/);
+  for(const value of ['10–12','14–16','16–18','20–22'])assert.ok(root.innerHTML.includes(value),value);
+  assert.ok(!root.innerHTML.includes('12–14'));
 });
 
-
-test('hourly render is idempotent and does not create a MutationObserver feedback loop',()=>{
-  const code=fs.readFileSync('assets/meehoa-v361.js','utf8');
-  let writes=0;
-  const section={dataset:{},_html:'',set innerHTML(v){writes++;this._html=v},get innerHTML(){return this._html}};
-  const root={querySelector(sel){return sel==='#meeHourlySingleV361'?section:null}};
-  const window={__MEE_TEST_MODE__:true};
-  const document={readyState:'loading',addEventListener(){},querySelector(){return null}};
-  const context={window,document,Intl,setTimeout,clearTimeout,console};
-  vm.createContext(context);
-  vm.runInContext(code,context);
-  const api=window.__MEE_DASHBOARD_V361_TEST__;
-  api.hourlyState.loading=false;
-  api.hourlyState.error='';
-  api.hourlyState.rows=api.hourlyModel([{time:'10:00'},{time:'15:00'},{time:'15:30'}]);
-  api.renderHourly(root);
-  api.renderHourly(root);
-  assert.equal(writes,1);
-  assert.match(section.innerHTML,/10–12/);
-  assert.match(section.innerHTML,/14–16/);
+test('direct dashboard rendering avoids DOM observer feedback loops',()=>{
+  assert.doesNotMatch(code,/MutationObserver/);
+  const {window,root}=dashboardFixture();
+  window.MEE_DASHBOARD_RENDER();
+  const first=root.innerHTML;
+  window.MEE_DASHBOARD_RENDER();
+  assert.equal(root.innerHTML,first,'same data produces identical output');
 });
