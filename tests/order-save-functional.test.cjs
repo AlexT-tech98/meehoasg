@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const src=fs.readFileSync('html','utf8');const baseCss=fs.readFileSync('assets/meehoa-v3.css','utf8');
+const dateClosure=src.slice(src.indexOf('var ORDER_CLOSED_MESSAGE='),src.indexOf('function watchOrderSubmit('));
 const reporter=src.slice(src.indexOf('function reportOrderSaveFailure('),src.indexOf('function validateOrderForm('));
 const save=src.slice(src.indexOf('async function saveOrder(e,id){'),src.indexOf('async function submitSettlement'));
 function harness(values={},options={}){
@@ -20,7 +21,7 @@ function harness(values={},options={}){
     actionRun:fn=>fn(),gas:async(name,p)=>{requests.push({name,p});return options.response?options.response():{ok:true,orderId:'MEE-1',order:{id:'MEE-1'}}},
     orderMutationDirty(){},applyCanonicalOrder(){},refreshOrderEntity:async()=>{},closeOverlay(){},showCreatedOrderCopy(){if(options.displayError)throw Error('render failed');form.isConnected=false}
   };
-  vm.createContext(context);vm.runInContext(reporter+save,context);
+  vm.createContext(context);vm.runInContext(dateClosure+reporter+save,context);
   return {input,run:id=>context.saveOrder({target:form,preventDefault(){}},id||''),form,btn,window,messages,requests,diagnostics,metrics};
 }
 test('invalid required fields never send an order',async()=>{const h=harness({}, {valid:false});await h.run();assert.equal(h.requests.length,0);});
@@ -73,4 +74,19 @@ test('validator exception is visible even when diagnostics cannot reach the serv
  const h=harness({}, {validationError:true,diagnosticError:true});await h.run();
  assert.match(h.messages.at(-1),/Validation crashed/);assert.equal(h.requests.length,0);
  assert.equal(h.diagnostics[0].p.stage,'validate');assert.equal(h.btn.disabled,false);
+});
+
+test('Oct 19-20, 2026: new orders are blocked before image preparation and API calls',async()=>{
+ for(const date of ['2026-10-19','2026-10-20']){
+  const h=harness({date},{samples:[{name:'sample.png'}]});
+  await h.run();
+  assert.equal(h.requests.length,0);
+  assert.match(h.messages.at(-1),/ngưng nhận đơn.*19\/10.*20\/10/);
+  assert.equal(h.btn.disabled,false);
+ }
+});
+test('other dates and edits to existing Oct 19-20 orders remain available',async()=>{
+ const newOrder=harness({date:'2026-10-21'});await newOrder.run();assert.equal(newOrder.requests.length,1);
+ const edit=harness({date:'2026-10-19'});await edit.run('MEE-EXISTING');assert.equal(edit.requests.length,1);
+ assert.equal(edit.requests[0].name,'updateOrder');
 });
