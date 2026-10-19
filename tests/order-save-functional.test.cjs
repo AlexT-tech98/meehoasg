@@ -9,7 +9,7 @@ const save=src.slice(src.indexOf('async function saveOrder(e,id){'),src.indexOf(
 function harness(values={},options={}){
   const diagnostics=[],messages=[],requests=[],metrics=[],window={_orderRequestId:'request-1',_pasted:[],_editExistingUrls:[]};
   const btn={disabled:false,textContent:'Tạo đơn',dataset:{}};
-  const form={dataset:{detailReady:'1'},isConnected:true};
+  const form={dataset:{detailReady:'1'},isConnected:true,querySelector:()=>null};
   const fields={imageFiles:{files:options.samples||[]},fullPaidBillFiles:{files:options.bills||[]},orderSubmit:btn};
   const input={customer:'Khách',date:'2026-10-08',time:'16:00',flower:'Hoa tươi',flowerTotal:'700.000',paymentType:'unpaid',sale:'C Mụi',shipping:'Ghé lấy',...values};
   const context={window,document:{getElementById:k=>fields[k]},S:{user:{role:'ADMIN'},page:'orders',dirty:new Set()},
