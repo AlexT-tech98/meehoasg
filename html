@@ -884,7 +884,13 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         e.preventDefault();var f=e.target,btn=document.getElementById('orderSubmit');f._submitSequence=(f._submitSequence||0)+1;if(f.dataset.saving==='1'){orderFormFeedback(f,'Yêu cầu lưu trước vẫn đang xử lý. Vui lòng không bấm liên tục; giữ nguyên biểu mẫu.',false);return;}if(f.dataset.saved==='1'){orderFormFeedback(f,'Đơn đã báo lưu thành công. Vui lòng kiểm tra đơn trong danh sách trước khi thao tác tiếp.',false);return;}var sent=false,saved=false,stage='validate';
         try{var wasPending=!!f._pendingOperation;if(!wasPending&&!validateOrderForm(f))return;if(id&&f.dataset.detailReady!=='1')return orderFormFeedback(f,'Đang đồng bộ ảnh hiện có, vui lòng chờ một chút.',1);
         stage='serialize';var fd=new FormData(f),order=Object.fromEntries(fd.entries()),oldOrder=id?Object.assign({},orderById(id)):null,paymentType=order.paymentType,files=[...((document.getElementById('imageFiles')||{}).files||[]),...(window._pasted||[])],billFiles=[...((document.getElementById('fullPaidBillFiles')||{}).files||[])],existingSamples=id?((window._editExistingUrls||[]).length):0;
-        stage='payment';if(!wasPending){if(S.user.role==='ADMIN'&&!String(order.sale||'').trim())return orderFormFeedback(f,'Cần chọn Sale phụ trách.',1);order.flowerTotal=moneyDigits(order.flowerTotal);order.shipFee=moneyDigits(order.shipFee||0);order.shipFeeActive=String(order.shipFeeActive||'0');
+        stage='payment';if(!wasPending){
+        // Database prevents changing pickup/delivery when the order is already ready.
+        // Explain before uploading files, without silently changing production status.
+        if(id&&oldOrder&&['Chờ lấy','Chờ giao'].includes(oldOrder.status)&&
+          (String(oldOrder.shipping||'')==='Ghé lấy')!==(String(order.shipping||'')==='Ghé lấy'))
+          return orderFormFeedback(f,'Đơn đã ở trạng thái Chờ lấy/Chờ giao. Vui lòng chuyển về Chờ bó trước khi đổi giữa giao hàng và ghé lấy.',true);
+        if(S.user.role==='ADMIN'&&!String(order.sale||'').trim())return orderFormFeedback(f,'Cần chọn Sale phụ trách.',1);order.flowerTotal=moneyDigits(order.flowerTotal);order.shipFee=moneyDigits(order.shipFee||0);order.shipFeeActive=String(order.shipFeeActive||'0');
         if(paymentType==='full_order'){
             if(existingSamples+files.length<1)return orderFormFeedback(f,'Full Paid bắt buộc có ảnh mẫu hoa.',1);
             if((!id||!(oldOrder&&oldOrder.fullPaid))&&!billFiles.length)return orderFormFeedback(f,'Full Paid bắt buộc có ảnh bill thanh toán.',1);
@@ -1151,14 +1157,25 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         return s.slice(0, 5);
     }
     var signedImageCache = new Map();
+    function signedUrlExpiresAt(value) {
+        try {
+            var token = new URL(value).searchParams.get('token');
+            if (!token || token.split('.').length !== 3) return 0;
+            var raw = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+            var payload = JSON.parse(atob(raw.padEnd(Math.ceil(raw.length / 4) * 4, '=')));
+            return Number.isFinite(Number(payload.exp)) ? Number(payload.exp) * 1000 : 0;
+        } catch (_) { return 0; }
+    }
     function stableSignedImageUrl(value) {
         try {
             var parsed = new URL(value);
             if (!parsed.pathname.startsWith('/storage/v1/object/sign/') || !parsed.searchParams.has('token')) return value;
             var key = parsed.origin + parsed.pathname, now = Date.now(), cached = signedImageCache.get(key);
-            if (cached && now - cached.at < 45 * 60 * 1000) return cached.url;
+            // Cache must never extend an older token beyond its actual signed expiry.
+            if (cached && now - cached.at < 45 * 60 * 1000 && signedUrlExpiresAt(cached.url) > now + 5 * 60 * 1000) return cached.url;
             if (signedImageCache.size >= 500) signedImageCache.clear();
-            signedImageCache.set(key, {url:value, at:now});
+            if (signedUrlExpiresAt(value) > now + 5 * 60 * 1000) signedImageCache.set(key, {url:value, at:now});
+            else signedImageCache.delete(key);
         } catch (e) { /* Keep non-URL image sources unchanged. */ }
         return value;
     }
