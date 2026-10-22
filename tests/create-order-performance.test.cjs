@@ -22,8 +22,10 @@ test('signed image requests overlap, retain order, and preserve existing URLs',a
 });
 test('image previews reuse a signed URL only within its safe lifetime',()=>{
  const source=fs.readFileSync('html','utf8'),start=source.indexOf('var signedImageCache = new Map();'),end=source.indexOf('function imageFallback',start);
- assert.ok(start>=0&&end>start);let now=0;const context={URL,Map,Date:{now:()=>now}};vm.createContext(context);vm.runInContext(source.slice(start,end),context);
- const old='https://qa.supabase.co/storage/v1/object/sign/order-images/sample.jpg?token=old',fresh=old.replace('old','fresh');
+ assert.ok(start>=0&&end>start);let now=0;const context={URL,Map,atob,Date:{now:()=>now}};vm.createContext(context);vm.runInContext(source.slice(start,end),context);
+ const jwt=exp=>'a.'+Buffer.from(JSON.stringify({exp})).toString('base64url')+'.b';
+ const base='https://qa.supabase.co/storage/v1/object/sign/order-images/sample.jpg?token=';
+ const old=base+jwt(3600),fresh=base+jwt(7200);
  context.old=old;context.fresh=fresh;
  assert.equal(vm.runInContext('imageSrc(old,320)',context),old);
  assert.equal(vm.runInContext('imageSrc(fresh,320)',context),old);
