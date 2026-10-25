@@ -16,7 +16,7 @@ function harness(values={},options={}){
     FormData:class{constructor(){if(options.serializeError)throw Error('Form serialization failed');}entries(){return Object.entries(input)}has(k){return k in input}},
     validateOrderForm:()=>{if(options.validationError)throw Error('Validation crashed');return options.valid!==false},orderFormFeedback:(_,m)=>{messages.push(m);return false},toast:m=>messages.push(m),
     moneyDigits:v=>Number(String(v).replace(/\D/g,'')),isShop:v=>/shop/i.test(v),safeUuid:()=> 'fallback-1',orderById:()=>({}),
-    fileData:async f=>{if(options.fileError)throw Error('Không đọc được ảnh');return f},perfClock:()=>Date.now(),recordClientPerf:(...args)=>metrics.push(args),
+    fileData:async f=>{if(options.fileError)throw Error('Không đọc được ảnh');return f},uploadOrderEvidence:async state=>({samples:state.prepared[0].map((_,i)=>({path:'sample'+i,expiresAt:1,proof:'test'})),bills:state.prepared[1].map((_,i)=>({path:'bill'+i,expiresAt:1,proof:'test'}))}),perfClock:()=>Date.now(),recordClientPerf:(...args)=>metrics.push(args),
     actionRun:fn=>fn(),gas:async(name,p)=>{requests.push({name,p});return options.response?options.response():{ok:true,orderId:'MEE-1',order:{id:'MEE-1'}}},
     orderMutationDirty(){},applyCanonicalOrder(){},refreshOrderEntity:async()=>{},closeOverlay(){},showCreatedOrderCopy(){if(options.displayError)throw Error('render failed');form.isConnected=false}
   };
@@ -73,4 +73,28 @@ test('validator exception is visible even when diagnostics cannot reach the serv
  const h=harness({}, {validationError:true,diagnosticError:true});await h.run();
  assert.match(h.messages.at(-1),/Validation crashed/);assert.equal(h.requests.length,0);
  assert.equal(h.diagnostics[0].p.stage,'validate');assert.equal(h.btn.disabled,false);
+});
+
+test('Full Paid submits bounded evidence claims instead of base64 and preserves same request ID',async()=>{
+ const h=harness({paymentType:'full_order'},{samples:[{data:'data:image/jpeg;base64,QQ=='}],bills:[{data:'data:image/jpeg;base64,Qg=='}]});
+ await h.run();
+ assert.equal(h.requests.length,1);
+ const payload=h.requests[0].p.order;
+ assert.deepEqual(Array.from(payload.imageFiles),[]);
+ assert.deepEqual(Array.from(payload.fullPaidBillFiles),[]);
+ assert.equal(payload.preuploadedSamples.length,1);
+ assert.equal(payload.preuploadedBills.length,1);
+ assert.equal(h.requests[0].p.requestId,'request-1');
+});
+test('lost save response with uploaded evidence retries receipt lookup without another upload',async()=>{
+ let calls=0;
+ const h=harness({paymentType:'full_order'},{samples:[{data:'data:image/jpeg;base64,QQ=='}],bills:[{data:'data:image/jpeg;base64,Qg=='}],response:()=>{
+   if(++calls===1)throw Error('NetworkError');
+   return {ok:true,orderId:'MEE-1',order:{id:'MEE-1'}};
+ }});
+ await h.run();assert.equal(h.requests.length,1);
+ const proof=h.requests[0].p.order.preuploadedSamples[0].proof;
+ await h.run();assert.equal(h.requests.length,2);
+ assert.equal(h.requests[1].p.requestId,h.requests[0].p.requestId);
+ assert.equal(h.requests[1].p.order.preuploadedSamples[0].proof,proof);
 });
