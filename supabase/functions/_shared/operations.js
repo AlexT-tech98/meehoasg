@@ -40,7 +40,7 @@ export function privateImageIdentity(value){
   return m?`supabase://${m[1]}/${decodeURIComponent(m[2])}`:s;
 }
 function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(k=>[k,stable(value[k])]));return value;}
-export function createOperationService({db,one,uploadImages,sha256,newId,discardImages=async()=>{}}) {
+export function createOperationService({db,one,uploadImages,sha256,newId,discardImages=async()=>{},verifyStagedUploads=async()=>{throw Error('DIRECT_UPLOAD_UNAVAILABLE')}}) {
   async function rpc(name,body){return db('rpc/'+name,{},'POST',body);}
   async function run(action,payload,user){
     const p=payload||{},requestId=clean(p.requestId);
@@ -68,8 +68,10 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
       if(retained.some(u=>!currentIds.has(privateImageIdentity(u))))return operationFailure('Ảnh không thuộc đơn này.','IMAGE_INVALID');
       const imageFiles=Array.isArray(p.order?.imageFiles)?p.order.imageFiles:[],billFiles=Array.isArray(p.order?.fullPaidBillFiles)?p.order.fullPaidBillFiles:[];
       if(imageFiles.length>10||billFiles.length>10)return operationFailure('Tối đa 10 ảnh trong mỗi nhóm.','IMAGE_INVALID');
-      if(input.fullPaidRequested&&(!retained.length&&!imageFiles.length))return operationFailure('Full Paid cần ảnh mẫu hoa.','FULL_PAID_EVIDENCE_REQUIRED');
-      if(input.fullPaidRequested&&(!current.full_paid&&!billFiles.length))return operationFailure('Full Paid cần ảnh bill mới.','FULL_PAID_EVIDENCE_REQUIRED');
+      const preparedSamples=Array.isArray(p.order?.preuploadedSamples)?p.order.preuploadedSamples:[],preparedBills=Array.isArray(p.order?.preuploadedBills)?p.order.preuploadedBills:[];
+      if(preparedSamples.length+imageFiles.length>10||preparedBills.length+billFiles.length>10)return operationFailure('Tối đa 10 ảnh trong mỗi nhóm.','IMAGE_INVALID');
+      if(input.fullPaidRequested&&(!retained.length&&!imageFiles.length&&!preparedSamples.length))return operationFailure('Full Paid cần ảnh mẫu hoa.','FULL_PAID_EVIDENCE_REQUIRED');
+      if(input.fullPaidRequested&&(!current.full_paid&&!billFiles.length&&!preparedBills.length))return operationFailure('Full Paid cần ảnh bill mới.','FULL_PAID_EVIDENCE_REQUIRED');
       if(input.fullPaidRequested&&input.order.shipping==='Shop book ship'&&!input.order.ship_confirmed)return operationFailure('Full Paid cần phí ship đã xác nhận.','FULL_PAID_EVIDENCE_REQUIRED');
       if(imageFiles.length&&billFiles.length&&imageFiles.length+billFiles.length<=3){
         // Small Full Paid batches can share the existing three-upload limit.
@@ -80,6 +82,12 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
         input.newImageUrls=uploads[0].value;input.newBillUrls=uploads[1].value;
       }else{
         input.newImageUrls=await upload(imageFiles,'order-images');input.newBillUrls=await upload(billFiles,'settlement-bills');
+      }
+      if(preparedSamples.length||preparedBills.length){
+        const direct=await verifyStagedUploads({actor:user.username,requestId,samples:preparedSamples,bills:preparedBills});
+        input.newImageUrls=[...input.newImageUrls,...direct.samples];input.newBillUrls=[...input.newBillUrls,...direct.bills];
+        // Direct uploads are already in Storage: only delete them on a definitive rejected RPC.
+        staged.push(...direct.samples,...direct.bills);
       }
       input.order.image_urls=[...new Set([...retained.map(u=>currentIds.get(privateImageIdentity(u))),...input.newImageUrls])];
     }else if(action==='saveShipFee'){
