@@ -861,18 +861,6 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             },100);
         });
     }
-    function reportOrderSaveFailure(id,stage,error){
-        var diagnosticId='save-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
-        var entry={diagnosticId:diagnosticId,orderId:id||'',stage:stage,build:'20261016-order-save-diagnostics-rc5',
-            sourceLocation:((String(error&&error.stack||'').match(/(?:html|meehoa-core\.js):\d+:\d+/)||[])[0]||''),
-            browser:/iPhone|iPad/.test(navigator.userAgent)?'ios-webkit':/Firefox/.test(navigator.userAgent)?'firefox':/Chrome|Chromium/.test(navigator.userAgent)?'chromium':'other',
-            errorName:String(error&&error.name||'Error').replace(/[^a-zA-Z0-9_]/g,'').slice(0,48),
-            errorCode:String(error&&error.code||'CLIENT_ERROR').replace(/[^a-zA-Z0-9_]/g,'').slice(0,48)};
-        // Never collect the order payload, image contents, session token or raw error text.
-        try{var entries=JSON.parse(sessionStorage.getItem('mee-order-save-diagnostics')||'[]');if(!Array.isArray(entries))entries=[];entries.push(entry);sessionStorage.setItem('mee-order-save-diagnostics',JSON.stringify(entries.slice(-10)));}catch(_){}
-        try{console.warn('meehoa_order_save_failure',entry);var pending=gasOnce('logOrderSaveFailure',entry);if(pending&&pending.catch)pending.catch(function(){});}catch(_){}
-        return diagnosticId;
-    }
     async function uploadOrderEvidence(state){
         var images=state.prepared[0].map(function(item){return {kind:'sample',item:item};}).concat(state.prepared[1].map(function(item){return {kind:'bill',item:item};}));
         if(!images.length)return {samples:[],bills:[]};
@@ -906,6 +894,18 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         }
         var mapped=images.map(function(entry,i){var t=state.tickets[i];return {path:t.path,expiresAt:t.expiresAt,proof:t.proof};});
         return {samples:mapped.slice(0,state.prepared[0].length),bills:mapped.slice(state.prepared[0].length)};
+    }
+    function reportOrderSaveFailure(id,stage,error){
+        var diagnosticId='save-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
+        var entry={diagnosticId:diagnosticId,orderId:id||'',stage:stage,build:'20261016-order-save-diagnostics-rc5',
+            sourceLocation:((String(error&&error.stack||'').match(/(?:html|meehoa-core\.js):\d+:\d+/)||[])[0]||''),
+            browser:/iPhone|iPad/.test(navigator.userAgent)?'ios-webkit':/Firefox/.test(navigator.userAgent)?'firefox':/Chrome|Chromium/.test(navigator.userAgent)?'chromium':'other',
+            errorName:String(error&&error.name||'Error').replace(/[^a-zA-Z0-9_]/g,'').slice(0,48),
+            errorCode:String(error&&error.code||'CLIENT_ERROR').replace(/[^a-zA-Z0-9_]/g,'').slice(0,48)};
+        // Never collect the order payload, image contents, session token or raw error text.
+        try{var entries=JSON.parse(sessionStorage.getItem('mee-order-save-diagnostics')||'[]');if(!Array.isArray(entries))entries=[];entries.push(entry);sessionStorage.setItem('mee-order-save-diagnostics',JSON.stringify(entries.slice(-10)));}catch(_){}
+        try{console.warn('meehoa_order_save_failure',entry);var pending=gasOnce('logOrderSaveFailure',entry);if(pending&&pending.catch)pending.catch(function(){});}catch(_){}
+        return diagnosticId;
     }
     function validateOrderForm(form){
         var fields=Array.from(form.querySelectorAll('input,select,textarea'));
