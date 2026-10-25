@@ -62,3 +62,22 @@ test('image previews accept a fresh signed URL immediately',()=>{
  assert.equal(vm.runInContext('imageSrc(fresh,320)',context),fresh);
  assert.equal(vm.runInContext("imageSrc('https://example.com/plain.jpg',320)",context),'https://example.com/plain.jpg');
 });
+
+
+test('order detail fetch overlaps independent user, settlement, sample and bill reads',async()=>{
+ const c=core();c.active=0;c.peak=0;
+ vm.runInContext(`
+  requireUser=async()=>({username:'qa',role:'ADMIN'});
+  one=async()=>({id:'QA',image_urls:['sample'],full_paid_bill_urls:['bill']});
+  async function slot(){active++;peak=Math.max(active,peak);await Promise.resolve();await Promise.resolve();active--;}
+  saleDirectory=async()=>{await slot();return {users:[],map:new Map()};};
+  settlementMap=async()=>{await slot();return {};};
+  displayUrls=async urls=>{await slot();return urls;};
+  decorate=row=>({id:row.id,imageUrls:row.image_urls});
+ `,c);
+ const res=await vm.runInContext("fastOrder({orderId:'QA'})",c);
+ assert.equal(res.ok,true);
+ assert.equal(c.peak,4,'independent detail reads should not form a serial waterfall');
+ assert.deepEqual(Array.from(res.order.imageUrls),['sample']);
+ assert.deepEqual(Array.from(res.order.fullPaidBillUrls),['bill']);
+});
