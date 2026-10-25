@@ -880,7 +880,41 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         var label=invalid.parentElement&&invalid.parentElement.querySelector('label');
         return orderFormFeedback(form,'Vui lòng kiểm tra '+String(label&&label.textContent||invalid.name||'thông tin bắt buộc').trim()+'.',true,invalid);
     }
-        async function saveOrder(e,id){
+        async function uploadOrderEvidence(state){
+        var images=state.prepared[0].map(function(item){return {kind:'sample',item:item};}).concat(state.prepared[1].map(function(item){return {kind:'bill',item:item};}));
+        if(!images.length)return {samples:[],bills:[]};
+        if(!state.tickets){
+            var signed=await gas('prepareOrderUploads',{requestId:state.requestId,samples:state.prepared[0].length,bills:state.prepared[1].length});
+            if(!signed||!signed.ok||!Array.isArray(signed.tickets)||signed.tickets.length!==images.length)throw new Error(signed&&signed.message||'Không cấp được quyền tải ảnh lên.');
+            state.tickets=signed.tickets;
+        }
+        state.complete=state.complete||{};
+        // Only three uploads at a time. Keep successes for a network-error retry.
+        for(var offset=0;offset<images.length;offset+=3){
+            var attempts=await Promise.allSettled(images.slice(offset,offset+3).map(async function(entry,index){
+                var n=offset+index,ticket=state.tickets[n];
+                if(!ticket||ticket.kind!==entry.kind||!ticket.uploadUrl||!ticket.proof)throw new Error('Quyền tải ảnh không khớp.');
+                if(state.complete[n])return;
+                var encoded=String(entry.item.data||''),base64=encoded.split(',')[1]||'',raw=atob(base64);
+                if(!raw.length||raw.length>5*1024*1024)throw new Error('Ảnh vượt giới hạn 5 MB.');
+                var binary=new Uint8Array(raw.length);
+                for(var i=0;i<raw.length;i++)binary[i]=raw.charCodeAt(i);
+                var response=await fetch(ticket.uploadUrl,{method:'PUT',headers:{'Content-Type':'image/jpeg','x-upsert':'false'},body:binary});
+                if(!response.ok){
+                    // If a prior interrupted attempt reached Storage, the object exists.
+                    // The server re-verifies the object via authenticated HEAD before SQL commit.
+                    var errorText=await response.text();
+                    if(response.status!==400||!/already exists/i.test(errorText))throw new Error('Không tải được ảnh lên Storage ('+response.status+').');
+                }
+                state.complete[n]=true;
+            }));
+            var failed=attempts.find(function(r){return r.status==='rejected';});
+            if(failed)throw failed.reason;
+        }
+        var mapped=images.map(function(entry,i){var t=state.tickets[i];return {path:t.path,expiresAt:t.expiresAt,proof:t.proof};});
+        return {samples:mapped.slice(0,state.prepared[0].length),bills:mapped.slice(state.prepared[0].length)};
+    }
+    async function saveOrder(e,id){
         e.preventDefault();var f=e.target,btn=document.getElementById('orderSubmit');f._submitSequence=(f._submitSequence||0)+1;if(f.dataset.saving==='1'){orderFormFeedback(f,'Yêu cầu lưu trước vẫn đang xử lý. Vui lòng không bấm liên tục; giữ nguyên biểu mẫu.',false);return;}if(f.dataset.saved==='1'){orderFormFeedback(f,'Đơn đã báo lưu thành công. Vui lòng kiểm tra đơn trong danh sách trước khi thao tác tiếp.',false);return;}var sent=false,saved=false,stage='validate';
         try{var wasPending=!!f._pendingOperation;if(!wasPending&&!validateOrderForm(f))return;if(id&&f.dataset.detailReady!=='1')return orderFormFeedback(f,'Đang đồng bộ ảnh hiện có, vui lòng chờ một chút.',1);
         stage='serialize';var fd=new FormData(f),order=Object.fromEntries(fd.entries()),oldOrder=id?Object.assign({},orderById(id)):null,paymentType=order.paymentType,files=[...((document.getElementById('imageFiles')||{}).files||[]),...(window._pasted||[])],billFiles=[...((document.getElementById('fullPaidBillFiles')||{}).files||[])],existingSamples=id?((window._editExistingUrls||[]).length):0;
@@ -895,7 +929,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         }else{order.payment='Chưa thanh toán (0 đ)';order.fullPaidRequested=false;}
         delete order.paymentType;delete order.depositAmount;['card','banner'].forEach(function(k){order[k]=fd.has(k);});}
         var requestId=id?(f.dataset.mutationRequestId||(f.dataset.mutationRequestId=safeUuid())):(window._orderRequestId||safeUuid());if(!id)window._orderRequestId=requestId;f.dataset.saving='1';orderFormFeedback(f,id?'Đang lưu thay đổi…':'Đang chuẩn bị ảnh và tạo đơn…',false);if(btn){btn.disabled=true;btn.dataset.oldText=btn.textContent;btn.textContent=id?'Đang lưu…':'Đang tạo đơn…';}
-        stage='files';if(!f._pendingOperation){var imageStart=perfClock(),prepared=await Promise.all([Promise.all(files.map(function(file){return fileData(file,'sample');})),Promise.all(billFiles.map(function(file){return fileData(file,'bill');}))]);order.imageFiles=prepared[0];order.fullPaidBillFiles=prepared[1];if(!id&&files.length+billFiles.length)recordClientPerf('createOrder:prepareImages',null,perfClock()-imageStart,false,true);if(id)order.imageUrls=window._editExistingUrls||[];f._pendingOperation={requestId:requestId,expectedUpdatedAt:id?f.dataset.orderVersion:'',orderId:id,sourceSheet:oldOrder&&oldOrder.sourceSheet||'',sourceRow:oldOrder&&oldOrder.sourceRow||0,order:JSON.parse(JSON.stringify(order))};}else{order=f._pendingOperation.order;orderFormFeedback(f,'Đang xác minh lần gửi trước. Nội dung vừa sửa chưa được gửi.',false);}stage='request';var r=await actionRun(function(){sent=true;return gas(id?'updateOrder':'createOrder',f._pendingOperation);},id?'Đang lưu thay đổi…':'Đang tạo đơn…');if(!r||!r.ok){sent=!!(r&&r.code==='SERVER_ERROR')||!r;var rejected=new Error(r&&r.message||'Không lưu được đơn.');rejected.code=r&&r.code||'';if(r&&r.code!=='SERVER_ERROR'&&!(wasPending&&['AUTH_REQUIRED','REQUEST_CHANGED'].includes(r.code))){delete f._pendingOperation;f.dataset.mutationRequestId='';if(!id)window._orderRequestId='';}throw rejected;}saved=true;stage='render';f.dataset.saved='1';
+        stage='files';if(!f._pendingOperation){var imageStart=perfClock(),prepared=await Promise.all([Promise.all(files.map(function(file){return fileData(file,'sample');})),Promise.all(billFiles.map(function(file){return fileData(file,'bill');}))]);if(!id&&files.length+billFiles.length)recordClientPerf('createOrder:prepareImages',null,perfClock()-imageStart,false,true);order.imageFiles=[];order.fullPaidBillFiles=[];if(id)order.imageUrls=window._editExistingUrls||[];f._pendingOperation={requestId:requestId,expectedUpdatedAt:id?f.dataset.orderVersion:'',orderId:id,sourceSheet:oldOrder&&oldOrder.sourceSheet||'',sourceRow:oldOrder&&oldOrder.sourceRow||0,order:JSON.parse(JSON.stringify(order))};if(prepared[0].length||prepared[1].length)f._directUploads={requestId:requestId,prepared:prepared,complete:{}};}else{order=f._pendingOperation.order;orderFormFeedback(f,'Đang xác minh lần gửi trước. Nội dung vừa sửa chưa được gửi.',false);}if(f._directUploads&&!f._directUploads.done){stage='upload';orderFormFeedback(f,'Đang tải ảnh trực tiếp lên Storage…',false);var uploaded=await uploadOrderEvidence(f._directUploads);f._pendingOperation.order.preuploadedSamples=uploaded.samples;f._pendingOperation.order.preuploadedBills=uploaded.bills;f._directUploads.done=true;}stage='request';var r=await actionRun(function(){sent=true;return gas(id?'updateOrder':'createOrder',f._pendingOperation);},id?'Đang lưu thay đổi…':'Đang tạo đơn…');if(!r||!r.ok){sent=!!(r&&r.code==='SERVER_ERROR')||!r;var rejected=new Error(r&&r.message||'Không lưu được đơn.');rejected.code=r&&r.code||'';if(r&&r.code!=='SERVER_ERROR'&&!(wasPending&&['AUTH_REQUIRED','REQUEST_CHANGED'].includes(r.code))){delete f._pendingOperation;delete f._directUploads;f.dataset.mutationRequestId='';if(!id)window._orderRequestId='';}throw rejected;}saved=true;stage='render';f.dataset.saved='1';delete f._directUploads;
             orderMutationDirty();var canonical;if(r.order){applyCanonicalOrder(r.order,oldOrder);canonical=r.order;}else{canonical=Object.assign({},oldOrder||order,{id:r.orderId||id});refreshOrderEntity(r.orderId||id,r.sourceSheet||(oldOrder&&oldOrder.sourceSheet),r.sourceRow||(oldOrder&&oldOrder.sourceRow),oldOrder).catch(function(e){console.warn('Không tải lại được chi tiết đơn:',e);});}if(S.page==='dashboard')S.dirty.delete('getDashboardSummary');if(S.page==='production')S.dirty.delete('getProductionOrders');if(S.page==='orders')S.dirty.delete('getOrders');if(S.page==='debt')S.dirty.delete('getDebtReview');
             if(id){closeOverlay();toast(r.message||'Đã lưu thay đổi.');}else{window._orderRequestId='';showCreatedOrderCopy(canonical||order,r.orderId);toast(r.message||'Đã tạo đơn.');}
         }catch(err){var diagnosticId=reportOrderSaveFailure(id,stage,err);var message=err.code==='ORDER_CONFLICT'||err.code==='VERSION_REQUIRED'||err.code==='REQUEST_CHANGED'?String(err.message):saved?'Đơn đã được lưu nhưng chưa hiển thị được. Vui lòng kiểm tra danh sách đơn trước khi tạo tiếp.':sent?'Chưa xác nhận được kết quả lưu. Giữ form này và thử lại để kiểm tra cùng đơn, tránh tạo trùng.':String(err.message||'Không lưu được đơn.');message+=' Mã lỗi: '+diagnosticId;orderFormFeedback(f,message,true);toast(message,1);}finally{f.dataset.saving='0';if(btn&&f.isConnected){btn.disabled=saved;btn.textContent=saved?'Đã lưu — kiểm tra danh sách':(btn.dataset.oldText||(id?'Lưu thay đổi':'＋ Tạo đơn ngay'));}}
