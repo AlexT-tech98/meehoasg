@@ -69,6 +69,65 @@ async function signedImageUrl(url){
 }
 async function displayUrls(urls){const out=[];const values=urls||[];for(let offset=0;offset<values.length;offset+=3){const batch=await Promise.all(values.slice(offset,offset+3).map(signedImageUrl));out.push(...batch.filter(u=>u!==null))}return out}
 
+
+/* Direct evidence upload: only a signed upload URL reaches the browser.
+ * Claim signatures bind each uploaded object to the authenticated operator
+ * and immutable order request; a HEAD confirms it exists before SQL commit. */
+const evidenceBuckets={sample:'order-images',bill:'settlement-bills'};
+let evidenceProofKey;
+async function evidenceSignature(actor,requestId,bucket,path,expiresAt){
+  if(!evidenceProofKey)evidenceProofKey=crypto.subtle.importKey('raw',new TextEncoder().encode('meehoa-upload-proof-v1:'+SERVICE_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const key=await evidenceProofKey;
+  const mac=await crypto.subtle.sign('HMAC',key,new TextEncoder().encode([actor,requestId,bucket,path,String(expiresAt)].join('|')));
+  return [...new Uint8Array(mac)].map(n=>n.toString(16).padStart(2,'0')).join('');
+}
+async function prepareOrderUploads(payload){
+  const user=await requireUser(payload,['ADMIN','SALE']);
+  const requestId=clean(payload.requestId),samples=Number(payload.samples),bills=Number(payload.bills);
+  if(!requestId||requestId.length>128||!Number.isInteger(samples)||!Number.isInteger(bills)||samples<0||bills<0||samples>10||bills>10||!samples&&!bills)
+    return fail('Thông tin tải ảnh không hợp lệ.','UPLOAD_INPUT_INVALID');
+  const tasks=[...Array(samples).fill('sample'),...Array(bills).fill('bill')],tickets=[];
+  const expiresAt=Date.now()+110*60*1000; // safely shorter than Storage's 2-hour ticket
+  for(let i=0;i<tasks.length;i+=3){
+    const batch=await Promise.all(tasks.slice(i,i+3).map(async kind=>{
+      const bucket=evidenceBuckets[kind],path=crypto.randomUUID()+'.jpg';
+      const response=await fetch(`${SUPABASE_URL}/storage/v1/object/upload/sign/${bucket}/${path}`,{
+        method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:'{}'
+      });
+      if(!response.ok)throw Error('Không cấp được quyền tải ảnh lên.');
+      const data=await response.json(),signedPath=String(data.url||'');
+      if(!signedPath.startsWith(`/object/upload/sign/${bucket}/${path}?`)||!signedPath.includes('token='))throw Error('Storage không trả về URL tải ảnh hợp lệ.');
+      return {kind,path,expiresAt,proof:await evidenceSignature(user.username,requestId,bucket,path,expiresAt),
+        uploadUrl:`${SUPABASE_URL}/storage/v1${signedPath}`};
+    }));
+    tickets.push(...batch);
+  }
+  return {ok:true,tickets};
+}
+async function verifyStagedUploads({actor,requestId,samples=[],bills=[]}){
+  if(samples.length>10||bills.length>10)throw Error('UPLOAD_INPUT_INVALID');
+  const seen=new Set(),result={samples:[],bills:[]};
+  const check=async(item,kind)=>{
+    const bucket=evidenceBuckets[kind],path=clean(item?.path),expiresAt=Number(item?.expiresAt),proof=clean(item?.proof);
+    if(!/^[0-9a-f-]{36}\.jpg$/.test(path)||!Number.isSafeInteger(expiresAt)||expiresAt<Date.now()||expiresAt>Date.now()+2*60*60*1000||!/^[0-9a-f]{64}$/.test(proof))
+      throw Error('UPLOAD_CLAIM_INVALID');
+    const ref=`supabase://${bucket}/${path}`;
+    if(seen.has(ref))throw Error('UPLOAD_CLAIM_DUPLICATE');
+    seen.add(ref);
+    const expected=await evidenceSignature(actor,requestId,bucket,path,expiresAt);
+    if(!same(expected,proof))throw Error('UPLOAD_CLAIM_INVALID');
+    const response=await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${bucket}/${path}`,{
+      method:'HEAD',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`}
+    });
+    const length=Number(response.headers.get('content-length'));
+    if(!response.ok||!Number.isFinite(length)||length<1||length>5*1024*1024)throw Error('UPLOAD_NOT_READY');
+    return ref;
+  };
+  result.samples=await Promise.all(samples.map(item=>check(item,'sample')));
+  result.bills=await Promise.all(bills.map(item=>check(item,'bill')));
+  return result;
+}
+
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
 const uploadEvidenceImages=operationStorage.uploadImages;
 async function settlementMap(ids){if(!ids.length)return {};const unique=[...new Set(ids)],parts=[];for(let i=0;i<unique.length;i+=30){const chunk=unique.slice(i,i+30);parts.push(all('settlement_requests',{order_id:'in.('+chunk.map(id=>'"'+String(id).replaceAll('"','')+'"').join(',')+')',order:'submitted_at.desc'}))}const rows=(await Promise.all(parts)).flat(),map={};for(const row of rows)if(!map[row.order_id])map[row.order_id]=row;return map}
@@ -76,7 +135,7 @@ function fulfillmentStatus(row){return row.status==='Đã bó'?(row.shipping==='
 function decorate(row,user,settlement,dir){const contact=contactFields(row),acc=accessoryTotal(row),ship=norm(row.shipping).includes('shop')&&row.ship_confirmed?num(row.ship_fee):0,base=num(row.flower_total)+acc+num(row.vat),total=base+ship,fullPaid=!!row.full_paid,verified=!!row.settled||fullPaid,paid=fullPaid?(num(row.full_paid_total)||total):paidAmount(row.payment,num(row.flower_total),row.settled?total:0),ss=fullPaid?'AUTO_FULL_PAID':(settlement?.status||'NONE'),locked=!!row.settled||['PENDING','APPROVED'].includes(ss),canon=canonicalSale(row.sale,dir),owner=canon.known&&saleKey(canon.username)===saleKey(user.username),canEdit=!locked&&(user.role!=='SALE'||owner);return {id:row.id,updatedAt:row.updated_at,sourceSheet:row.source_sheet||'',sourceRow:row.source_row||0,customer:row.customer,phone:contact.phone,date:row.order_date,time:cleanTime(row.order_time),flower:row.flower,imageUrls:row.image_urls||[],driveUrls:row.image_urls||[],note:row.note,shipping:row.shipping,address:contact.address,flowerTotal:num(row.flower_total),payment:row.payment,paid,sale:canon.displayName,saleUsername:canon.username,settled:!!row.settled,fullPaid,fullPaidTotal:num(row.full_paid_total),fullPaidBillUrls:row.full_paid_bill_urls||[],fullPaidBy:clean(row.full_paid_by),fullPaidAt:row.full_paid_at||null,fullPaidInvalidatedAt:row.full_paid_invalidated_at||null,fullPaidInvalidatedReason:clean(row.full_paid_invalidated_reason),paymentVerified:verified,verificationMode:fullPaid?'FULL_PAID_AUTO':(row.settled?'PAYMENT_CHECK':''),status:fulfillmentStatus(row),shipFee:num(row.ship_fee),shipConfirmed:!!row.ship_confirmed,shipFeePending:norm(row.shipping).includes('shop')&&!row.ship_confirmed,card:!!row.card,cardQty:cardQty(row),cardFee:cardQty(row)*10000,cardText:row.card_text,banner:!!row.banner,bannerQty:bannerQty(row),bannerText:row.banner_text,charmFee:num(row.charm_fee),charmText:row.charm_text,paperFee:num(row.paper_fee),paperText:row.paper_text,vat:num(row.vat),accessoryTotal:acc,totalDue:total,debt:verified?0:Math.max(0,total-paid),hasAccessories:acc>0,settlementStatus:ss,settlementRequestId:settlement?.id||'',settlementReason:settlement?.rejection_reason||'',locked,canEdit,canShip:!locked,canOperate:!locked&&['ADMIN','THO_OPS'].includes(user.role),canSubmitSettlement:owner&&!locked&&!fullPaid&&row.status==='Đã giao',detailLoaded:true}}
 
 
-const operations=createOperationService({db,one,uploadImages:uploadEvidenceImages,discardImages:operationStorage.discard,sha256,newId:prefix=>prefix+'-'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase()});
+const operations=createOperationService({db,one,uploadImages:uploadEvidenceImages,discardImages:operationStorage.discard,verifyStagedUploads,sha256,newId:prefix=>prefix+'-'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase()});
 async function operationResult(action,payload,user){
   const result=await operations.run(action,payload,user);
   if(!result?.ok)return result;
@@ -160,6 +219,7 @@ Deno.serve(async request=>{
     else if(name==='getKpi')result=await fastKpi(payload);
     else if(name==='getFlowerInventory')result=await flowerInventory(payload);
     else if(name==='logOrderSaveFailure')result=await logOrderSaveFailure(payload);
+    else if(name==='prepareOrderUploads')result=await prepareOrderUploads(payload);
     else if(name==='getOrder')result=await fastOrder(payload);
     else if(name==='getDebtReview')result=await fastDebt(payload);
     else if(name==='getFullPaidReport')result=await fullPaidReport(payload);
