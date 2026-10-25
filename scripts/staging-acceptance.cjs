@@ -59,7 +59,36 @@ async function main(){
    const retry=await call('createOrder',p,'qa_sale');assert.equal(retry.orderId,r.orderId);assert.equal(retry.idempotent,true);
    assert.equal(Number((await db.query('select count(*) from operation_receipts where actor=$1 and request_id=$2',['qa_sale',p.requestId])).rows[0].count),1);return{total:order.totalDue};
   });
-  await check('flower-only payment preserves accessory debt',async()=>{const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),payment:'Đã thanh toán đủ tiền hoa (Full)'}},'qa_sale');assert.equal(r.ok,true,r.message);assert.equal(r.order.paid,500000);assert.equal(r.order.debt,125000);assert.equal(r.order.fullPaid,false);return {orderId:r.orderId,customer:r.order.customer};});
+
+  await check('direct upload: SALE creates Full Paid with samples/bills and idempotent retry; other Sale cannot claim',async()=>{
+   const requestId=crypto.randomUUID();
+   const prepared=await call('prepareOrderUploads',{requestId,samples:1,bills:1},'qa_sale');
+   assert.equal(prepared.ok,true,JSON.stringify(prepared));
+   assert.equal(prepared.tickets.length,2);
+   const thoTicket=await call('prepareOrderUploads',{requestId:crypto.randomUUID(),samples:1,bills:0},'qa_tho');
+   assert.equal(thoTicket.ok,true,'operations staff retains authorized image editing');
+   const bytes=Buffer.from(png.data.split(',')[1],'base64');
+   for(const ticket of prepared.tickets){
+    assert.match(ticket.uploadUrl,/^http:\/\/127\.0\.0\.1:54321\/storage\/v1\/object\/upload\/sign\//);
+    const up=await fetch(ticket.uploadUrl,{method:'PUT',headers:{'Content-Type':'image/jpeg','x-upsert':'false'},body:bytes});
+    assert.equal(up.status,200,'signed direct upload '+ticket.kind+' HTTP '+up.status+' '+(await up.text()));
+   }
+   const proofs=prepared.tickets.map(({path,expiresAt,proof})=>({path,expiresAt,proof}));
+   const payload={requestId,order:{...base(),customer:run+' Direct Full Paid',fullPaidRequested:true,payment:'Đã thanh toán toàn bộ đơn',preuploadedSamples:[proofs[0]],preuploadedBills:[proofs[1]]}};
+   const forged=await call('createOrder',payload,'qa_sale_other');
+   assert.equal(forged.ok,false,'different Sale cannot claim staged evidence');
+   const created=await call('createOrder',payload,'qa_sale');
+   assert.equal(created.ok,true,JSON.stringify(created));assert.equal(created.order.fullPaid,true);
+   assert.equal(created.order.imageUrls.length,1);assert.equal(created.order.fullPaidBillUrls.length,1);
+   const retried=await call('createOrder',payload,'qa_sale');
+   assert.equal(retried.ok,true);assert.equal(retried.idempotent,true);
+   assert.equal(retried.orderId,created.orderId);
+   const stored=(await db.query('select image_urls,full_paid_bill_urls,full_paid from orders where id=$1',[created.orderId])).rows[0];
+   assert.equal(stored.image_urls.length,1);assert.equal(stored.full_paid_bill_urls.length,1);assert.equal(stored.full_paid,true);
+   assert.equal(Number((await db.query('select count(*) from operation_receipts where actor=$1 and request_id=$2',['qa_sale',requestId])).rows[0].count),1);
+   return {orderId:created.orderId,fullPaid:created.order.fullPaid,proofs:2};
+  });
+    await check('flower-only payment preserves accessory debt',async()=>{const r=await call('createOrder',{requestId:crypto.randomUUID(),order:{...base(),payment:'Đã thanh toán đủ tiền hoa (Full)'}},'qa_sale');assert.equal(r.ok,true,r.message);assert.equal(r.order.paid,500000);assert.equal(r.order.debt,125000);assert.equal(r.order.fullPaid,false);return {orderId:r.orderId,customer:r.order.customer};});
   await check('cross-Sale edit denied; explicit production status action only',async()=>{
    assert.ok(order,'create prerequisite');const denied=await call('updateOrder',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,order:{...base(),flower:'Changed'}},'qa_sale_other');assert.equal(denied.code,'NOT_OWNER');
    for(const [status,expected] of [['Đã bó','Chờ lấy'],['Đã giao','Đã giao']]){const r=await call('updateStatus',{requestId:crypto.randomUUID(),orderId:order.id,expectedUpdatedAt:order.updatedAt,status},'qa_tho');assert.equal(r.ok,true,r.message);assert.equal(r.order.status,expected);order=r.order;}

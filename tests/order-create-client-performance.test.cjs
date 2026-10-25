@@ -21,7 +21,7 @@ test('create request preserves the API payload and reports upload time without a
   assert.equal(requests[0].body.payload.requestId,'same-request');
   assert.equal(requests[0].body.payload.token,'session');
   assert.equal(requests[0].headers['Content-Type'],'application/json');
-  assert.equal(metrics[0][0],'createOrder:upload');
+  assert.equal(metrics[0][0],'createOrder:requestUpload');
 });
 
 test('sample photos use fewer pixels while bills retain higher resolution',async()=>{
@@ -50,4 +50,35 @@ test('sale telemetry contains only bounded create-order timings',async()=>{
   const result=await context.logPerformanceBatch({items},{username:'sale',role:'SALE'});
   assert.equal(result.count,2);
   assert.deepEqual(writes.map(x=>x.api),['createOrder:upload','createOrder']);
+});
+
+test('direct Storage uploader sends binary JPEG, separates sample/bill, and resumes after failed network',async()=>{
+ const html=fs.readFileSync('html','utf8');
+ const start=html.indexOf('async function uploadOrderEvidence(state){');
+ const end=html.indexOf('async function saveOrder(e,id){',start);
+ assert.ok(start>0&&end>start);
+ const sent=[];let prepareCalls=0,failOnce=true;
+ const url='https://qa.supabase.co/storage/v1/object/upload/sign/';
+ const ticket=(kind,n)=>({kind,path:'p'+n+'.jpg',expiresAt:10000,proof:'qa'+n,uploadUrl:url+kind+'/p'+n+'.jpg?token=qa'});
+ const ctx={
+   Promise,Uint8Array,atob,gas:async(name,payload)=>{
+     assert.equal(name,'prepareOrderUploads');assert.equal(payload.requestId,'immutable-request');
+     prepareCalls++;return {ok:true,tickets:[ticket('sample',0),ticket('bill',1)]};
+   },fetch:async(u,o)=>{
+     sent.push({url:u,method:o.method,size:o.body.length,contentType:o.headers['Content-Type']});
+     if(u.includes('/bill/')&&failOnce){failOnce=false;throw Error('NetworkError');}
+     return {ok:true,status:200};
+   }
+ };
+ vm.createContext(ctx);vm.runInContext(html.slice(start,end),ctx);
+ const state={requestId:'immutable-request',prepared:[[{data:'data:image/jpeg;base64,QQ=='}],[{data:'data:image/jpeg;base64,Qg=='}]]};
+ ctx.state=state;
+ await assert.rejects(vm.runInContext('uploadOrderEvidence(state)',ctx),/NetworkError/);
+ assert.equal(state.complete[0],true);
+ const res=await vm.runInContext('uploadOrderEvidence(state)',ctx);
+ assert.equal(res.samples.length,1);assert.equal(res.bills.length,1);
+ assert.equal(prepareCalls,1,'network recovery must reuse tickets');
+ assert.equal(sent.filter(x=>x.url.includes('/sample/')).length,1,'successful sample cannot upload twice');
+ assert.equal(sent.filter(x=>x.url.includes('/bill/')).length,2);
+ assert.ok(sent.every(x=>x.method==='PUT'&&x.size===1&&x.contentType==='image/jpeg'));
 });

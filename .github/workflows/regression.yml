@@ -135,9 +135,18 @@ jobs:
         run: |
           MEEHOA_DENO="$(command -v deno)" DENO_DIR="$RUNNER_TEMP/meehoa-deno-cache" node scripts/staging-run.cjs > artifacts/staging/runtime.local.log 2>&1 &
           for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:4173/__qa_health > /dev/null; then exit 0; fi
+            if curl --connect-timeout 2 --max-time 3 --fail --silent http://127.0.0.1:4173/__qa_health > /dev/null; then exit 0; fi
             sleep 1
           done
+          node - <<'NODE'
+          const fs=require('node:fs');
+          for(const file of ['artifacts/staging/runtime.local.log','artifacts/staging/meehoasg-api-core.local.log']){
+            if(!fs.existsSync(file))continue;
+            const lines=fs.readFileSync(file,'utf8').split('\n').filter(x=>/error|uncaught|listen|failed|permission|not found/i.test(x));
+            const safe=lines.slice(-8).map(line=>line.slice(0,230).replace(/eyJ[A-Za-z0-9._-]+/g,'[JWT]').replace(/[A-Za-z0-9_-]{100,}/g,'[REDACTED]'));
+            console.error('QA startup diagnostics',file,safe.join(' | '));
+          }
+          NODE
           exit 1
       - name: Authenticated API, storage, finance and role acceptance
         run: node scripts/staging-acceptance.cjs
