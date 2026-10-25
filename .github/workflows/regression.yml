@@ -135,7 +135,7 @@ jobs:
         run: |
           MEEHOA_DENO="$(command -v deno)" DENO_DIR="$RUNNER_TEMP/meehoa-deno-cache" node scripts/staging-run.cjs > artifacts/staging/runtime.local.log 2>&1 &
           for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:4173/__qa_health > /dev/null; then exit 0; fi
+            if curl --connect-timeout 2 --max-time 3 --fail --silent http://127.0.0.1:4173/__qa_health > /dev/null; then exit 0; fi
             sleep 1
           done
           exit 1
