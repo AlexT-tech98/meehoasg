@@ -65,8 +65,8 @@ async function main(){
    const prepared=await call('prepareOrderUploads',{requestId,samples:1,bills:1},'qa_sale');
    assert.equal(prepared.ok,true,JSON.stringify(prepared));
    assert.equal(prepared.tickets.length,2);
-   const denied=await call('prepareOrderUploads',{requestId:crypto.randomUUID(),samples:1,bills:0},'qa_tho');
-   assert.equal(denied.ok,false);assert.equal(denied.code,'AUTH_REQUIRED');
+   const thoTicket=await call('prepareOrderUploads',{requestId:crypto.randomUUID(),samples:1,bills:0},'qa_tho');
+   assert.equal(thoTicket.ok,true,'operations staff retains authorized image editing');
    const bytes=Buffer.from(png.data.split(',')[1],'base64');
    for(const ticket of prepared.tickets){
     assert.match(ticket.uploadUrl,/^http:\/\/127\.0\.0\.1:54321\/storage\/v1\/object\/upload\/sign\//);
