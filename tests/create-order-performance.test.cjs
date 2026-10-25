@@ -118,8 +118,9 @@ test('direct upload rejects a forged content length and unauthorized ticket role
    if(args.method==='POST')return {ok:true,json:async()=>({url:new URL(url).pathname.replace('/storage/v1','')+'?token=qa'})};
    return {ok:true,headers:{get:()=>String(6*1024*1024)}};
  };
- vm.runInContext("requireUser=async(_p,roles)=>{if(roles&&roles.indexOf('THO_OPS')<0)throw Error('Không có quyền thực hiện.');return {username:'qa_tho',role:'THO_OPS'}}",c);
- await assert.rejects(vm.runInContext("prepareOrderUploads({requestId:'abc',samples:1,bills:0})",c),/Không có quyền/);
+ vm.runInContext("requireUser=async(_p,roles)=>{if(!roles||roles.indexOf('THO_OPS')<0)throw Error('Không có quyền thực hiện.');return {username:'qa_tho',role:'THO_OPS'}}",c);
+ const tho=await vm.runInContext("prepareOrderUploads({requestId:'tho',samples:1,bills:0})",c);
+ assert.equal(tho.ok,true,'THO_OPS can edit order evidence');
  vm.runInContext("requireUser=async()=>({username:'qa_sale',role:'SALE'})",c);
  const signed=await vm.runInContext("prepareOrderUploads({requestId:'abc',samples:1,bills:0})",c);
  c.claims={actor:'qa_sale',requestId:'abc',samples:signed.tickets,bills:[]};
