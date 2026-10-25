@@ -32,7 +32,7 @@ const gateway=http.createServer(async(req,res)=>{
   const headers={...req.headers};delete headers.host;delete headers.connection;delete headers['content-length'];
   const upstream=await fetch(target,{method:req.method,headers,...(['GET','HEAD'].includes(req.method)?{}:{body:Buffer.concat(chunks)})});
   const responseHeaders={'cache-control':'no-store','access-control-allow-origin':'http://127.0.0.1:4173','access-control-allow-methods':'GET,HEAD,POST,PUT,OPTIONS','access-control-allow-headers':'content-type,authorization,apikey,x-upsert','vary':'Origin'};
-  for(const key of ['content-type','content-range','range-unit'])if(upstream.headers.has(key))responseHeaders[key]=upstream.headers.get(key);
+  for(const key of ['content-type','content-length','content-range','range-unit'])if(upstream.headers.has(key))responseHeaders[key]=upstream.headers.get(key);
   res.writeHead(upstream.status,responseHeaders);res.end(Buffer.from(await upstream.arrayBuffer()));
  }catch(e){res.writeHead(502,{'content-type':'application/json'});res.end(JSON.stringify({ok:false,message:'Local QA upstream unavailable: '+e.message}));}
 });
