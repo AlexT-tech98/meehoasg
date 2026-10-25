@@ -82,7 +82,7 @@ async function evidenceSignature(actor,requestId,bucket,path,expiresAt){
   return [...new Uint8Array(mac)].map(n=>n.toString(16).padStart(2,'0')).join('');
 }
 async function prepareOrderUploads(payload){
-  const user=await requireUser(payload,['ADMIN','SALE']);
+  const user=await requireUser(payload,['ADMIN','SALE','THO_OPS']);
   const requestId=clean(payload.requestId),samples=Number(payload.samples),bills=Number(payload.bills);
   if(!requestId||requestId.length>128||!Number.isInteger(samples)||!Number.isInteger(bills)||samples<0||bills<0||samples>10||bills>10||!samples&&!bills)
     return fail('Thông tin tải ảnh không hợp lệ.','UPLOAD_INPUT_INVALID');
