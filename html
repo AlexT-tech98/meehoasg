@@ -873,14 +873,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         try{console.warn('meehoa_order_save_failure',entry);var pending=gasOnce('logOrderSaveFailure',entry);if(pending&&pending.catch)pending.catch(function(){});}catch(_){}
         return diagnosticId;
     }
-    function validateOrderForm(form){
-        var fields=Array.from(form.querySelectorAll('input,select,textarea'));
-        var invalid=fields.find(function(field){return !field.disabled&&field.willValidate&&(!field.checkValidity()||(field.required&&!String(field.value||'').trim()));});
-        if(!invalid)return true;
-        var label=invalid.parentElement&&invalid.parentElement.querySelector('label');
-        return orderFormFeedback(form,'Vui lòng kiểm tra '+String(label&&label.textContent||invalid.name||'thông tin bắt buộc').trim()+'.',true,invalid);
-    }
-        async function uploadOrderEvidence(state){
+    async function uploadOrderEvidence(state){
         var images=state.prepared[0].map(function(item){return {kind:'sample',item:item};}).concat(state.prepared[1].map(function(item){return {kind:'bill',item:item};}));
         if(!images.length)return {samples:[],bills:[]};
         if(!state.tickets){
@@ -914,7 +907,14 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         var mapped=images.map(function(entry,i){var t=state.tickets[i];return {path:t.path,expiresAt:t.expiresAt,proof:t.proof};});
         return {samples:mapped.slice(0,state.prepared[0].length),bills:mapped.slice(state.prepared[0].length)};
     }
-    async function saveOrder(e,id){
+    function validateOrderForm(form){
+        var fields=Array.from(form.querySelectorAll('input,select,textarea'));
+        var invalid=fields.find(function(field){return !field.disabled&&field.willValidate&&(!field.checkValidity()||(field.required&&!String(field.value||'').trim()));});
+        if(!invalid)return true;
+        var label=invalid.parentElement&&invalid.parentElement.querySelector('label');
+        return orderFormFeedback(form,'Vui lòng kiểm tra '+String(label&&label.textContent||invalid.name||'thông tin bắt buộc').trim()+'.',true,invalid);
+    }
+        async function saveOrder(e,id){
         e.preventDefault();var f=e.target,btn=document.getElementById('orderSubmit');f._submitSequence=(f._submitSequence||0)+1;if(f.dataset.saving==='1'){orderFormFeedback(f,'Yêu cầu lưu trước vẫn đang xử lý. Vui lòng không bấm liên tục; giữ nguyên biểu mẫu.',false);return;}if(f.dataset.saved==='1'){orderFormFeedback(f,'Đơn đã báo lưu thành công. Vui lòng kiểm tra đơn trong danh sách trước khi thao tác tiếp.',false);return;}var sent=false,saved=false,stage='validate';
         try{var wasPending=!!f._pendingOperation;if(!wasPending&&!validateOrderForm(f))return;if(id&&f.dataset.detailReady!=='1')return orderFormFeedback(f,'Đang đồng bộ ảnh hiện có, vui lòng chờ một chút.',1);
         stage='serialize';var fd=new FormData(f),order=Object.fromEntries(fd.entries()),oldOrder=id?Object.assign({},orderById(id)):null,paymentType=order.paymentType,files=[...((document.getElementById('imageFiles')||{}).files||[]),...(window._pasted||[])],billFiles=[...((document.getElementById('fullPaidBillFiles')||{}).files||[])],existingSamples=id?((window._editExistingUrls||[]).length):0;
