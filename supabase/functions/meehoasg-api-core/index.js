@@ -28,7 +28,7 @@ function publicUser(user){return {username:user.username,name:user.display_name,
 async function db(table,query={},method='GET',body){
   const url=new URL(`${SUPABASE_URL}/rest/v1/${table}`);
   Object.entries(query).forEach(([k,v])=>{if(v!==undefined&&v!==null)url.searchParams.set(k,String(v))});
-  const res=await fetch(url,{method,headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json',Prefer:method==='GET'?'count=exact':(query.on_conflict?'return=representation,resolution=merge-duplicates':'return=representation')},...(body===undefined?{}:{body:JSON.stringify(body)})});
+  const res=await fetch(url,{method,headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json',...(method==='GET'?{}:{Prefer:query.on_conflict?'return=representation,resolution=merge-duplicates':'return=representation'})},...(body===undefined?{}:{body:JSON.stringify(body)})});
   const text=await res.text();if(!res.ok)throw new Error(`DB ${res.status}: ${text.slice(0,260)}`);return text?JSON.parse(text):[];
 }
 async function all(table,query={}){const out=[];for(let offset=0;;offset+=1000){const part=await db(table,{...query,limit:'1000',offset:String(offset)});out.push(...part);if(part.length<1000)return out}}
@@ -47,7 +47,27 @@ function accessoryTotal(row){return cardQty(row)*10000+bannerQty(row)*35000+num(
 function orderTotal(row){const ship=norm(row?.shipping).includes('shop')&&row?.ship_confirmed?num(row.ship_fee):0;return num(row?.flower_total)+accessoryTotal(row)+num(row?.vat)+ship}
 function paidAmount(payment,base,settled){if(settled>0)return settled;const text=norm(payment);if(!text||/chua/.test(text))return 0;if(/full|da tt|da thanh toan (?:du|toan bo)|thanh toan du/.test(text))return base;const m=text.replace(/\s/g,'').match(/([0-9.,]+)(k|tr|trieu)?/);if(!m)return /da thanh toan/.test(text)?base:0;let a=num(m[1]);if(m[2]==='tr'||m[2]==='trieu')a*=1000000;else if(m[2]==='k'||(a>0&&a<=1000&&!/\d\s*(?:đ|d|vn[dđ])(?:$|[\s),.])/i.test(text)))a*=1000;return Math.max(0,a)}
 function contactFields(row){const contact=clean(row.address);const p=contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);return {phone:clean(row.phone)||(p?clean(p[1]):''),address:contact.replace(/(?:SĐT|SDT)\s*:\s*[^\n]+\n?/i,'').replace(/^Địa chỉ\s*:\s*/i,'').trim()}}
-async function displayUrls(urls){const out=[];const values=urls||[];for(let offset=0;offset<values.length;offset+=3){const batch=await Promise.all(values.slice(offset,offset+3).map(async url=>{const m=String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);if(!m)return url;const r=await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${m[1]}/${m[2]}`,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});if(!r.ok)return null;const s=await r.json();return `${SUPABASE_URL}/storage/v1${s.signedURL}`}));out.push(...batch.filter(u=>u!==null))}return out}
+const signedImageUrls=new Map();
+async function signedImageUrl(url){
+ const m=String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
+ if(!m)return url;
+ const now=Date.now(),cached=signedImageUrls.get(url);
+ if(cached&&cached.expiresAt>now)return cached.value;
+ if(cached?.pending)return cached.pending;
+ const pending=(async()=>{
+  const r=await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${m[1]}/${m[2]}`,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});
+  if(!r.ok)return null;
+  const s=await r.json();
+  const value=`${SUPABASE_URL}/storage/v1${s.signedURL}`;
+  if(signedImageUrls.size>=500)signedImageUrls.clear();
+  signedImageUrls.set(url,{value,expiresAt:Date.now()+45*60*1000});
+  return value;
+ })();
+ signedImageUrls.set(url,{pending});
+ try{return await pending}catch(error){signedImageUrls.delete(url);throw error}
+ finally{if(signedImageUrls.get(url)?.pending===pending)signedImageUrls.delete(url)}
+}
+async function displayUrls(urls){const out=[];const values=urls||[];for(let offset=0;offset<values.length;offset+=3){const batch=await Promise.all(values.slice(offset,offset+3).map(signedImageUrl));out.push(...batch.filter(u=>u!==null))}return out}
 
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
 const uploadEvidenceImages=operationStorage.uploadImages;

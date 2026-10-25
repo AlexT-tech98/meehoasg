@@ -1150,23 +1150,10 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         if (m) return ('0' + m[1]).slice(-2) + ':' + m[2];
         return s.slice(0, 5);
     }
-    var signedImageCache = new Map();
-    function stableSignedImageUrl(value) {
-        try {
-            var parsed = new URL(value);
-            if (!parsed.pathname.startsWith('/storage/v1/object/sign/') || !parsed.searchParams.has('token')) return value;
-            var key = parsed.origin + parsed.pathname, now = Date.now(), cached = signedImageCache.get(key);
-            if (cached && now - cached.at < 45 * 60 * 1000) return cached.url;
-            if (signedImageCache.size >= 500) signedImageCache.clear();
-            signedImageCache.set(key, {url:value, at:now});
-        } catch (e) { /* Keep non-URL image sources unchanged. */ }
-        return value;
-    }
     function imageSrc(u,size) {
         var s = String(u || '');
         size = Math.max(120, Math.min(1200, Number(size) || 1000));
         if (!s) return '';
-        s = stableSignedImageUrl(s);
         var id = '', p = s.indexOf('/d/');
         if (p >= 0) id = s.slice(p + 3).split('/')[0].split('?')[0].split('#')[0];
         if (!id) {
@@ -1178,6 +1165,31 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     }
     function imageFallback(img) {
         if (!img) return;
+        var failed = String(img.src || '');
+        if (!img.dataset.signedRetry && /\/storage\/v1\/object\/sign\//.test(failed)) {
+            img.dataset.signedRetry = '1';
+            var failedPath = '';
+            try { failedPath = new URL(failed).pathname; } catch (_) {}
+            var matchOrder = null, matchIndex = -1;
+            S.orders.forEach(function (order) {
+                if (matchOrder) return;
+                (order.imageUrls || []).some(function (url, index) {
+                    try { if (new URL(url).pathname !== failedPath) return false; } catch (_) { return false; }
+                    matchOrder = order; matchIndex = index; return true;
+                });
+            });
+            if (matchOrder) {
+                gas('getOrder', { orderId: matchOrder.id }).then(function (result) {
+                    if (result && result.ok && result.order) {
+                        rememberOrders([result.order]);
+                        var fresh = (result.order.imageUrls || [])[matchIndex];
+                        if (fresh && fresh !== failed) { img.src = imageSrc(fresh, 320); return; }
+                    }
+                    imageFallback(img);
+                }).catch(function () { imageFallback(img); });
+                return;
+            }
+        }
         var step = Number(img.dataset.fallbackStep || 0);
         img.dataset.fallbackStep = String(step + 1);
         var s = String(img.src || '');
