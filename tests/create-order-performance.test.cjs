@@ -81,3 +81,47 @@ test('order detail fetch overlaps independent user, settlement, sample and bill 
  assert.deepEqual(Array.from(res.order.imageUrls),['sample']);
  assert.deepEqual(Array.from(res.order.fullPaidBillUrls),['bill']);
 });
+
+test('direct upload tickets are actor/request bound, Storage verified and reject forgery',async()=>{
+ const {webcrypto}=require('node:crypto');
+ const c=core(),calls=[];c.crypto=webcrypto;
+ c.fetch=async(url,args)=>{
+  calls.push({url,method:args.method});
+  if(args.method==='POST'&&url.includes('/object/upload/sign/'))
+   return {ok:true,json:async()=>({url:new URL(url).pathname.replace('/storage/v1','')+'?token=qa'})};
+  if(args.method==='HEAD')
+   return {ok:true,headers:{get:()=>String(2048)}};
+  throw Error('unexpected storage call');
+ };
+ vm.runInContext("requireUser=async()=>({username:'qa_sale',role:'SALE'})",c);
+ const signed=await vm.runInContext("prepareOrderUploads({requestId:'abc',samples:1,bills:1})",c);
+ assert.equal(signed.ok,true);assert.equal(signed.tickets.length,2);
+ assert.deepEqual(Array.from(signed.tickets.map(x=>x.kind)),['sample','bill']);
+ assert.ok(signed.tickets.every(x=>x.uploadUrl.includes('/storage/v1/object/upload/sign/')));
+ c.claims={actor:'qa_sale',requestId:'abc',samples:[signed.tickets[0]],bills:[signed.tickets[1]]};
+ const verified=await vm.runInContext('verifyStagedUploads(claims)',c);
+ assert.equal(verified.samples.length,1);assert.equal(verified.bills.length,1);
+ assert.match(verified.samples[0],/^supabase:\/\/order-images\//);
+ const before=calls.length;
+ c.claims={actor:'different_sale',requestId:'abc',samples:[signed.tickets[0]],bills:[]};
+ await assert.rejects(vm.runInContext('verifyStagedUploads(claims)',c),/UPLOAD_CLAIM_INVALID/);
+ assert.equal(calls.length,before,'forged claim must not request Storage');
+ c.claims={actor:'qa_sale',requestId:'different-request',samples:[signed.tickets[0]],bills:[]};
+ await assert.rejects(vm.runInContext('verifyStagedUploads(claims)',c),/UPLOAD_CLAIM_INVALID/);
+ c.claims={actor:'qa_sale',requestId:'abc',samples:[signed.tickets[0],signed.tickets[0]],bills:[]};
+ await assert.rejects(vm.runInContext('verifyStagedUploads(claims)',c),/UPLOAD_CLAIM_DUPLICATE/);
+});
+test('direct upload rejects a forged content length and unauthorized ticket roles',async()=>{
+ const {webcrypto}=require('node:crypto');
+ const c=core();c.crypto=webcrypto;
+ c.fetch=async(url,args)=>{
+   if(args.method==='POST')return {ok:true,json:async()=>({url:new URL(url).pathname.replace('/storage/v1','')+'?token=qa'})};
+   return {ok:true,headers:{get:()=>String(6*1024*1024)}};
+ };
+ vm.runInContext("requireUser=async(_p,roles)=>{if(roles&&roles.indexOf('THO_OPS')<0)throw Error('Không có quyền thực hiện.');return {username:'qa_tho',role:'THO_OPS'}}",c);
+ await assert.rejects(vm.runInContext("prepareOrderUploads({requestId:'abc',samples:1,bills:0})",c),/Không có quyền/);
+ vm.runInContext("requireUser=async()=>({username:'qa_sale',role:'SALE'})",c);
+ const signed=await vm.runInContext("prepareOrderUploads({requestId:'abc',samples:1,bills:0})",c);
+ c.claims={actor:'qa_sale',requestId:'abc',samples:signed.tickets,bills:[]};
+ await assert.rejects(vm.runInContext('verifyStagedUploads(claims)',c),/UPLOAD_NOT_READY/);
+});
