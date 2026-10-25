@@ -21,7 +21,7 @@ test('create request preserves the API payload and reports upload time without a
   assert.equal(requests[0].body.payload.requestId,'same-request');
   assert.equal(requests[0].body.payload.token,'session');
   assert.equal(requests[0].headers['Content-Type'],'application/json');
-  assert.equal(metrics[0][0],'createOrder:upload');
+  assert.equal(metrics[0][0],'createOrder:requestUpload');
 });
 
 test('sample photos use fewer pixels while bills retain higher resolution',async()=>{
