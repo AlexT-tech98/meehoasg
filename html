@@ -1213,6 +1213,10 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                     matchOrder = order; matchIndex = index; return true;
                 });
             });
+            if (matchOrder && matchOrder.previewUrl === failed && (matchOrder.imageUrls || [])[0]) {
+                img.src = imageSrc(matchOrder.imageUrls[0], 320);
+                return;
+            }
             if (matchOrder) {
                 gas('getOrder', { orderId: matchOrder.id }).then(function (result) {
                     if (result && result.ok && result.order) {
