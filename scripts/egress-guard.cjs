@@ -1,7 +1,7 @@
 'use strict';
 // Pure billing guard. Inputs MUST come from verified Supabase billing usage, never logs.
 const THRESHOLDS=[2,3,4];
-function evaluate(snapshot, previous=null, alerted=[]){
+function evaluate(snapshot, previous=null, alerted=[], nowMs=Date.now()){
   const alerts=[];
   const valid=x=>typeof x==='number'&&Number.isFinite(x)&&x>=0;
   const fields=['uncachedGB','cachedGB','cycleStart','cycleEnd','observedAt','source','scope'];
@@ -9,7 +9,7 @@ function evaluate(snapshot, previous=null, alerted=[]){
     return {status:'UNKNOWN',alerts:['Không thể xác nhận an toàn: thiếu dữ liệu Supabase Billing đáng tin cậy.']};
   }
   const start=Date.parse(snapshot.cycleStart),end=Date.parse(snapshot.cycleEnd),now=Date.parse(snapshot.observedAt);
-  if(!Number.isFinite(start)||!Number.isFinite(end)||!Number.isFinite(now)||end<=start||now<start||now>end||Date.now()-now>36*3600000||now>Date.now()+300000){
+  if(!Number.isFinite(start)||!Number.isFinite(end)||!Number.isFinite(now)||end<=start||now<start||now>end||nowMs-now>36*3600000||now>nowMs+300000){
     return {status:'UNKNOWN',alerts:['Không thể xác nhận an toàn: dữ liệu billing không hợp lệ hoặc đã cũ.']};
   }
   // Free has two independent 5 GB quotas, never a combined 5 GB quota.
