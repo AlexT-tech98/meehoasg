@@ -1200,11 +1200,12 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function imageFallback(img) {
         if (!img) return;
         var failed = String(img.src || '');
-        if (!img.dataset.signedRetry && /\/storage\/v1\/object\/sign\//.test(failed)) {
+        if (!img.dataset.signedRetry && /\/storage\/v1\/(?:object|render\/image)\/sign\//.test(failed)) {
             img.dataset.signedRetry = '1';
             var failedPath = '';
             try { failedPath = new URL(failed).pathname; } catch (_) {}
             var matchOrder = null, matchIndex = -1;
+            S.orders.forEach(function(order){ if (!matchOrder && order.previewUrl === failed) { matchOrder = order; matchIndex = 0; } });
             S.orders.forEach(function (order) {
                 if (matchOrder) return;
                 (order.imageUrls || []).some(function (url, index) {
@@ -1297,7 +1298,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function paymentLabel(o){if(o.fullPaid)return 'Đã thanh toán toàn bộ đơn (Full Paid)';if(o.settled)return 'Đã tất toán';var raw=String(o.payment||'');if(/full|đủ tiền hoa|du tien hoa/i.test(raw))return 'Đã thanh toán đủ tiền hoa';return raw||'Chưa thanh toán';}
     function debtBreakdown(o){var x=[];if(o.card){var q=Math.max(1,Number(o.cardQty||1)),fee=Number(o.cardFee)||q*10000;x.push('+'+vnd(fee)+' thiệp'+(q>1?' (×'+q+')':''));}if(o.banner){var bq=Math.max(1,Number(o.bannerQty||1));x.push('+'+vnd(bq*35000)+' banner'+(bq>1?' (×'+bq+')':''));}if(Number(o.charmFee))x.push('+'+vnd(o.charmFee)+' charm');if(Number(o.paperFee))x.push('+'+vnd(o.paperFee)+' thay giấy');if(Number(o.vat))x.push('+'+vnd(o.vat)+' VAT');if(isShop(o.shipping)&&o.shipConfirmed)x.push('+'+vnd(o.shipFee)+' phí ship');return x.length?'<div class="debt-breakdown">'+x.map(esc).join('<br>')+'</div>':'';}
     function multiline(s){return esc(s).replace(/\r?\n/g,'<br>');}
-    function firstImage(o,size){var a=o&&o.imageUrls||[];return a.length?imageSrc(a[0],size||320):'';}
+    function firstImage(o,size){var a=o&&o.imageUrls||[];return o&&o.previewUrl?imageSrc(o.previewUrl,size||320):(a.length?imageSrc(a[0],size||320):'');}
     function orderPreview(o){var u=firstImage(o,480);return u?'<img class="order-preview" src="'+attr(u)+'" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)">':'';}
     function tableSample(o) {
   var u = firstImage(o, 180),
