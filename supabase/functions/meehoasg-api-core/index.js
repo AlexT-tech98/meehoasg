@@ -48,25 +48,27 @@ function orderTotal(row){const ship=norm(row?.shipping).includes('shop')&&row?.s
 function paidAmount(payment,base,settled){if(settled>0)return settled;const text=norm(payment);if(!text||/chua/.test(text))return 0;if(/full|da tt|da thanh toan (?:du|toan bo)|thanh toan du/.test(text))return base;const m=text.replace(/\s/g,'').match(/([0-9.,]+)(k|tr|trieu)?/);if(!m)return /da thanh toan/.test(text)?base:0;let a=num(m[1]);if(m[2]==='tr'||m[2]==='trieu')a*=1000000;else if(m[2]==='k'||(a>0&&a<=1000&&!/\d\s*(?:đ|d|vn[dđ])(?:$|[\s),.])/i.test(text)))a*=1000;return Math.max(0,a)}
 function contactFields(row){const contact=clean(row.address);const p=contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);return {phone:clean(row.phone)||(p?clean(p[1]):''),address:contact.replace(/(?:SĐT|SDT)\s*:\s*[^\n]+\n?/i,'').replace(/^Địa chỉ\s*:\s*/i,'').trim()}}
 const signedImageUrls=new Map();
-async function signedImageUrl(url){
+async function signedImageUrl(url,preview=false){
  const m=String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
  if(!m)return url;
- const now=Date.now(),cached=signedImageUrls.get(url);
+ const cacheKey=preview?url+'#preview':url;
+ const now=Date.now(),cached=signedImageUrls.get(cacheKey);
  if(cached&&cached.expiresAt>now)return cached.value;
  if(cached?.pending)return cached.pending;
  const pending=(async()=>{
-  const r=await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${m[1]}/${m[2]}`,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});
+  const r=await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${m[1]}/${m[2]}`,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify(preview?{expiresIn:3600,transform:{width:480,quality:60,resize:'contain'}}:{expiresIn:3600})});
   if(!r.ok)return null;
   const s=await r.json();
   const value=`${SUPABASE_URL}/storage/v1${s.signedURL}`;
   if(signedImageUrls.size>=500)signedImageUrls.clear();
-  signedImageUrls.set(url,{value,expiresAt:Date.now()+45*60*1000});
+  signedImageUrls.set(cacheKey,{value,expiresAt:Date.now()+45*60*1000});
   return value;
  })();
- signedImageUrls.set(url,{pending});
- try{return await pending}catch(error){signedImageUrls.delete(url);throw error}
- finally{if(signedImageUrls.get(url)?.pending===pending)signedImageUrls.delete(url)}
+ signedImageUrls.set(cacheKey,{pending});
+ try{return await pending}catch(error){signedImageUrls.delete(cacheKey);throw error}
+ finally{if(signedImageUrls.get(cacheKey)?.pending===pending)signedImageUrls.delete(cacheKey)}
 }
+async function previewUrl(url){try{return await signedImageUrl(url,true)||await signedImageUrl(url)}catch(_){return await signedImageUrl(url)}}
 async function displayUrls(urls){const out=[];const values=urls||[];for(let offset=0;offset<values.length;offset+=3){const batch=await Promise.all(values.slice(offset,offset+3).map(signedImageUrl));out.push(...batch.filter(u=>u!==null))}return out}
 
 
@@ -152,11 +154,11 @@ async function decoratedExisting(row,user,dir){
   return decorate({...row,image_urls:images,full_paid_bill_urls:bills},user,sm[row.id],dir);
 }
 async function fastOrder(payload){const user=await requireUser(payload),id=clean(payload.orderId),row=await one('orders',{id:`eq.${id}`});if(!row)return fail('Không tìm thấy đơn.');const [dir,sm,images,bills]=await Promise.all([saleDirectory(),settlementMap([id]),displayUrls(row.image_urls||[]),displayUrls(row.full_paid_bill_urls||[])]);const shown=decorate({...row,image_urls:images},user,sm[id],dir);shown.fullPaidBillUrls=bills;return {ok:true,order:shown}}
-async function fastDebt(payload){const user=await requireUser(payload),dir=await saleDirectory(),start=clean(payload.start)||dateToday(),end=clean(payload.end)||start,sale=user.role==='ADMIN'?norm(payload.sale):'',rows=await all('orders',{and:`(order_date.gte.${start},order_date.lte.${end})`,order:'order_date.asc,order_time.asc'}),sm=await settlementMap(rows.map(r=>r.id));const basic=rows.map(r=>decorate(r,user,sm[r.id],dir));const eligible=basic.filter(o=>!o.paymentVerified&&(user.role==='ADMIN'?(!sale||saleKey(o.saleUsername||o.sale)===saleKey(sale)):!!o.saleUsername&&saleKey(o.saleUsername)===saleKey(user.username)));const items=await Promise.all(eligible.map(async o=>{const urls=await displayUrls(o.imageUrls||[]);return {...o,imageUrls:urls,driveUrls:urls}}));return {ok:true,range:{start,end},items,summary:{orders:items.length,debt:items.reduce((n,o)=>n+o.debt,0),shipFeePending:items.filter(o=>o.shipFeePending).length},scope:user.role==='ADMIN'?'ADMIN':'SELF',fullPaidExcluded:true}}
+async function fastDebt(payload){const user=await requireUser(payload),dir=await saleDirectory(),start=clean(payload.start)||dateToday(),end=clean(payload.end)||start,sale=user.role==='ADMIN'?norm(payload.sale):'',rows=await all('orders',{and:`(order_date.gte.${start},order_date.lte.${end})`,order:'order_date.asc,order_time.asc'}),sm=await settlementMap(rows.map(r=>r.id));const basic=rows.map(r=>decorate(r,user,sm[r.id],dir));const eligible=basic.filter(o=>!o.paymentVerified&&(user.role==='ADMIN'?(!sale||saleKey(o.saleUsername||o.sale)===saleKey(sale)):!!o.saleUsername&&saleKey(o.saleUsername)===saleKey(user.username)));const items=await Promise.all(eligible.map(async o=>{const urls=await displayUrls(o.imageUrls||[]);return {...o,imageUrls:urls,driveUrls:urls,previewUrl:o.imageUrls?.[0]?await previewUrl(o.imageUrls[0]):''}}));return {ok:true,range:{start,end},items,summary:{orders:items.length,debt:items.reduce((n,o)=>n+o.debt,0),shipFeePending:items.filter(o=>o.shipFeePending).length},scope:user.role==='ADMIN'?'ADMIN':'SELF',fullPaidExcluded:true}}
 
 async function fullPaidReport(payload){const user=await requireUser(payload,['ADMIN']),month=clean(payload.month)||dateToday().slice(0,7);if(!/^\d{4}-\d{2}$/.test(month))return fail('Tháng báo cáo không hợp lệ.');const start=month+'-01',end=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0)).toISOString().slice(0,10),dir=await saleDirectory(),rows=await all('orders',{and:`(order_date.gte.${start},order_date.lte.${end})`,order:'order_date.asc,order_time.asc'}),auditRows=rows.filter(r=>r.full_paid||r.full_paid_invalidated_at),items=[];for(let i=0;i<auditRows.length;i+=20){const batch=await Promise.all(auditRows.slice(i,i+20).map(async row=>{const canon=canonicalSale(row.sale,dir),total=orderTotal(row),[bills,samples]=await Promise.all([displayUrls(row.full_paid_bill_urls||[]),displayUrls(row.image_urls||[])]),active=!!row.full_paid,exception=!bills.length||!samples.length||(!active&&!!row.full_paid_invalidated_at)||total>num(row.full_paid_total);return {id:row.id,customer:row.customer,date:row.order_date,time:cleanTime(row.order_time),sale:canon.displayName,saleUsername:canon.username,flower:row.flower,flowerTotal:num(row.flower_total),accessoryTotal:accessoryTotal(row),vat:num(row.vat),shipFee:norm(row.shipping).includes('shop')&&row.ship_confirmed?num(row.ship_fee):0,totalDue:total,paidTotal:num(row.full_paid_total),status:active?'FULL_PAID':'INVALIDATED',fullPaidAt:row.full_paid_at,invalidatedAt:row.full_paid_invalidated_at,invalidatedReason:clean(row.full_paid_invalidated_reason),billUrls:bills,imageUrls:samples,exception}}));items.push(...batch)}return {ok:true,month,items,summary:{orders:items.length,active:items.filter(x=>x.status==='FULL_PAID').length,exceptions:items.filter(x=>x.exception).length,flowerRevenue:items.filter(x=>x.status==='FULL_PAID').reduce((n,x)=>n+x.flowerTotal,0),collected:items.filter(x=>x.status==='FULL_PAID').reduce((n,x)=>n+x.paidTotal,0)},auditRule:'FULL_PAID_WITH_EVIDENCE'}}
 
-async function fastProduction(payload){const user=await requireUser(payload,['ADMIN','THO_OPS']),dir=await saleDirectory(),date=clean(payload.date)||dateToday(),rows=await all('orders',{and:`(order_date.gte.${date},order_date.lte.${date})`,order:'order_time.asc'}),sm=await settlementMap(rows.map(r=>r.id));const orders=await Promise.all(rows.map(async r=>decorate({...r,image_urls:await displayUrls(r.image_urls||[])},user,sm[r.id],dir)));return {ok:true,date,orders,visibilityRule:'SALE_READ_ALL_EDIT_OWN'}}
+async function fastProduction(payload){const user=await requireUser(payload,['ADMIN','THO_OPS']),dir=await saleDirectory(),date=clean(payload.date)||dateToday(),rows=await all('orders',{and:`(order_date.gte.${date},order_date.lte.${date})`,order:'order_time.asc'}),sm=await settlementMap(rows.map(r=>r.id));const orders=await Promise.all(rows.map(async r=>{const o=decorate({...r,image_urls:await displayUrls(r.image_urls||[])},user,sm[r.id],dir);o.previewUrl=r.image_urls?.[0]?await previewUrl(r.image_urls[0]):'';return o}));return {ok:true,date,orders,visibilityRule:'SALE_READ_ALL_EDIT_OWN'}}
 
 async function fastOrders(payload){
  const user=await requireUser(payload),dir=await saleDirectory(),start=clean(payload.start)||dateToday(),end=clean(payload.end)||start,q=norm(payload.q),global=!!q&&payload.globalSearch!==false;
@@ -166,7 +168,7 @@ async function fastOrders(payload){
  if(!global&&(!/^\d{4}-\d{2}-\d{2}$/.test(start)||!/^\d{4}-\d{2}-\d{2}$/.test(end)||end<start))return fail('Khoảng ngày không hợp lệ.','SEARCH_RANGE_INVALID');
  const found=await db('rpc/mee_search_orders_page',{},'POST',{p_query:q,p_start:global?null:start,p_end:global?null:end,p_limit:pageSize,p_offset:(page-1)*pageSize});
  const rows=found.rows||[],sm=await settlementMap(rows.map(r=>r.id));
- const items=await Promise.all(rows.map(async r=>{const o=decorate(r,user,sm[r.id],dir),urls=await displayUrls(o.imageUrls||[]);return {...o,imageUrls:urls,driveUrls:urls}}));
+ const items=await Promise.all(rows.map(async r=>{const o=decorate(r,user,sm[r.id],dir),urls=await displayUrls(o.imageUrls||[]);return {...o,imageUrls:urls,driveUrls:urls,previewUrl:o.imageUrls?.[0]?await previewUrl(o.imageUrls[0]):''}}));
  return{ok:true,range:global?null:{start,end},searchScope:global?'ALL_DATES':'DATE_RANGE',page,pageSize,total:Number(found.total)||0,items,hasMore:page*pageSize<(Number(found.total)||0),visibilityRule:'SALE_READ_ALL_EDIT_OWN'};
 }
 
