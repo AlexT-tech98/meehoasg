@@ -72,8 +72,13 @@ async function main(){
     assert.match(ticket.uploadUrl,/^http:\/\/127\.0\.0\.1:54321\/storage\/v1\/object\/upload\/sign\//);
     const up=await fetch(ticket.uploadUrl,{method:'PUT',headers:{'Content-Type':'image/jpeg','x-upsert':'false'},body:bytes});
     assert.equal(up.status,200,'signed direct upload '+ticket.kind+' HTTP '+up.status+' '+(await up.text()));
+    if(ticket.kind==='sample'){
+     assert.match(ticket.preview.path,/\.preview\.jpg$/);
+     const preview=await fetch(ticket.preview.uploadUrl,{method:'PUT',headers:{'Content-Type':'image/jpeg','x-upsert':'false'},body:bytes});
+     assert.equal(preview.status,200,'signed direct preview upload HTTP '+preview.status+' '+(await preview.text()));
+    }
    }
-   const proofs=prepared.tickets.map(({path,expiresAt,proof})=>({path,expiresAt,proof}));
+   const proofs=prepared.tickets.map(({path,expiresAt,proof,preview})=>({path,expiresAt,proof,...(preview?{preview:{path:preview.path,expiresAt:preview.expiresAt,proof:preview.proof}}:{})}));
    const payload={requestId,order:{...base(),customer:run+' Direct Full Paid',fullPaidRequested:true,payment:'Đã thanh toán toàn bộ đơn',preuploadedSamples:[proofs[0]],preuploadedBills:[proofs[1]]}};
    const forged=await call('createOrder',payload,'qa_sale_other');
    assert.equal(forged.ok,false,'different Sale cannot claim staged evidence');
