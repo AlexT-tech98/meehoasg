@@ -1219,16 +1219,18 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             var matchOrder = null, matchIndex = -1;
             S.orders.forEach(function (order) {
                 if (matchOrder) return;
-                (order.imageUrls || []).some(function (url, index) {
+                [order.previewUrls || [],order.imageUrls || []].some(function (urls) { return urls.some(function (url, index) {
                     try { if (new URL(url).pathname !== failedPath) return false; } catch (_) { return false; }
                     matchOrder = order; matchIndex = index; return true;
-                });
+                }); });
             });
             if (matchOrder) {
-                gas('getOrder', { orderId: matchOrder.id }).then(function (result) {
+                var isPreview=/\.preview\.jpg$/.test(failedPath);
+                gas('getOrder', { orderId: matchOrder.id, refreshPreviewIndex: isPreview ? matchIndex : undefined }).then(function (result) {
                     if (result && result.ok && result.order) {
                         rememberOrders([result.order]);
-                        var fresh = (result.order.imageUrls || [])[matchIndex];
+                        var fresh = (isPreview && result.order.refreshedPreviewUrl) || (result.order.imageUrls || [])[matchIndex];
+                        if(isPreview && result.order.refreshedPreviewUrl){var stored=S.orders.get(matchOrder.id);if(stored && stored.previewUrls)stored.previewUrls[matchIndex]=fresh;}
                         if (fresh && fresh !== failed) { img.src = imageSrc(fresh, 320); return; }
                     }
                     imageFallback(img);

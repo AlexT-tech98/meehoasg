@@ -53,6 +53,31 @@ test('expired signed image renews through its order before showing fallback',asy
  vm.runInContext('imageFallback(img)',c);await tick();
  assert.equal(calls,1);assert.equal(c.img.src,fresh);assert.equal(S.orders.get('QA').imageUrls[0],fresh);
 });
+test('expired preview renews the thumbnail through the authorized order detail route',async()=>{
+ const source=fs.readFileSync('html','utf8'),start=source.indexOf('function imageSrc('),end=source.indexOf('function isShop(',start);
+ const old='https://qa.supabase.co/storage/v1/object/sign/order-images/sample.preview.jpg?token=old';
+ const fresh=old.replace('token=old','token=fresh');
+ const original='https://qa.supabase.co/storage/v1/object/sign/order-images/sample.jpg?token=original';
+ const order={id:'QA',imageUrls:[old],previewUrls:[old]},S={orders:new Map([['QA',order]])};
+ const c={URL,S,encodeURIComponent,gas:async(name,payload)=>{assert.equal(name,'getOrder');assert.equal(payload.orderId,'QA');assert.equal(payload.refreshPreviewIndex,0);return {ok:true,order:{id:'QA',imageUrls:[original],refreshedPreviewUrl:fresh}}},rememberOrders:items=>items.forEach(item=>S.orders.set(item.id,{...S.orders.get(item.id),...item}))};
+ vm.createContext(c);vm.runInContext(source.slice(start,end),c);
+ c.img={src:old,dataset:{},onerror:()=>{}};
+ vm.runInContext('imageFallback(img)',c);await tick();
+ assert.equal(c.img.src,fresh);assert.equal(S.orders.get('QA').previewUrls[0],fresh);
+ assert.equal(S.orders.get('QA').imageUrls[0],original);
+});
+test('detail preview refresh signs only a canonical image referenced by the order',async()=>{
+ const c=core(),refs=[];
+ vm.runInContext("requireUser=async(_payload,roles)=>{if(roles.join(',')!=='ADMIN,SALE,THO_OPS')throw Error('roles');return {username:'sale',role:'SALE'}}",c);
+ c.one=async()=>({id:'QA',image_urls:['supabase://order-images/00000000-0000-4000-8000-000000000001.jpg','https://example.com/other.jpg'],full_paid_bill_urls:[]});
+ c.saleDirectory=async()=>({});c.settlementMap=async()=>({});c.displayUrls=async urls=>urls;
+ c.decorate=row=>({imageUrls:row.image_urls});c.signedImageUrl=async ref=>{refs.push(ref);return 'https://qa/preview?token=new'};
+ let result=await vm.runInContext("fastOrder({orderId:'QA',refreshPreviewIndex:0})",c);
+ assert.equal(result.order.refreshedPreviewUrl,'https://qa/preview?token=new');
+ assert.deepEqual(refs,['supabase://order-images/00000000-0000-4000-8000-000000000001.preview.jpg']);
+ result=await vm.runInContext("fastOrder({orderId:'QA',refreshPreviewIndex:1})",c);
+ assert.equal(result.order.refreshedPreviewUrl,undefined);assert.equal(refs.length,1);
+});
 test('image previews accept a fresh signed URL immediately',()=>{
  const source=fs.readFileSync('html','utf8'),start=source.indexOf('function imageSrc('),end=source.indexOf('function imageFallback',start);
  assert.ok(start>=0&&end>start);const context={URL};vm.createContext(context);vm.runInContext(source.slice(start,end),context);
