@@ -7,7 +7,7 @@ Baseline and release gates for project `zxnfhshnavbmvdthrmrd`. This document rec
 - Billing period: 14 October–14 November 2026.
 - 27 October: 22.454 GB uncached and 0.256 GB cached egress for the organization and the Meehoa project.
 - 26 October: 373.339 MB Storage, 62.829 MB PostgREST and 63.268 MB Functions egress (499.436 MB total).
-- 31 October: 23.535 GB uncached and 0.341 GB cached cumulative. Full days after Sheet sync stopped: 28 October ~228 MB (Storage 220.914 MB); 29 October ~286 MB (Storage 274.271 MB); 30 October ~372 MB (Storage 363.781 MB). Storage remains the dominant source and all three days exceed the Free daily pace.
+- 31 October: 23.535 GB uncached and 0.341 GB cached at the earlier reading; at about 16:33 Vietnam time, the official Usage page showed 24.013 GB uncached and 0.36 GB cached. The same day included a one-time download of about 367 MiB of originals for preview backfill, so do not use its total as an ordinary daily run rate. Full days after Sheet sync stopped: 28 October ~228 MB (Storage 220.914 MB); 29 October ~286 MB (Storage 274.271 MB); 30 October ~372 MB (Storage 363.781 MB). Storage remains the dominant source and all three days exceed the Free daily pace.
 - Free allows 5 GB uncached and 5 GB cached per billing period. Budget a maximum of 140 MB uncached per day to leave headroom below roughly 167 MB/day over 30 days.
 
 ## Measured sources and required changes
