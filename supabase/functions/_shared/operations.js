@@ -87,7 +87,7 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
         const direct=await verifyStagedUploads({actor:user.username,requestId,samples:preparedSamples,bills:preparedBills});
         input.newImageUrls=[...input.newImageUrls,...direct.samples];input.newBillUrls=[...input.newBillUrls,...direct.bills];
         // Direct uploads are already in Storage: only delete them on a definitive rejected RPC.
-        staged.push(...direct.samples,...direct.bills);
+        staged.push(...direct.samples,...direct.bills,...(direct.previews||[]));
       }
       input.order.image_urls=[...new Set([...retained.map(u=>currentIds.get(privateImageIdentity(u))),...input.newImageUrls])];
     }else if(action==='saveShipFee'){
@@ -104,7 +104,13 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
     submitted=true;
     const result=await rpc('mee_ops_mutate',{...args,p_input:input});
     if(result?.ok===false)await discard(staged);
-    else if(result?.idempotent){const used=new Set([...(result.row?.image_urls||[]),...(result.row?.full_paid_bill_urls||[])]);await discard(staged.filter(u=>!used.has(u)));}
+    else if(result?.idempotent){
+      const used=new Set([...(result.row?.image_urls||[]),...(result.row?.full_paid_bill_urls||[])]);
+      for(const original of result.row?.image_urls||[]){
+        if(/^supabase:\/\/order-images\/[0-9a-f-]{36}\.jpg$/.test(original))used.add(original.replace(/\.jpg$/,'.preview.jpg'));
+      }
+      await discard(staged.filter(u=>!used.has(u)));
+    }
     return result;
     }catch(e){
       // Once the SQL request is sent its result is unknown: retain evidence for receipt recovery.

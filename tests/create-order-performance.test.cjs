@@ -98,9 +98,13 @@ test('direct upload tickets are actor/request bound, Storage verified and reject
  assert.equal(signed.ok,true);assert.equal(signed.tickets.length,2);
  assert.deepEqual(Array.from(signed.tickets.map(x=>x.kind)),['sample','bill']);
  assert.ok(signed.tickets.every(x=>x.uploadUrl.includes('/storage/v1/object/upload/sign/')));
+ assert.match(signed.tickets[0].preview.path,/\.preview\.jpg$/);
+ assert.equal(signed.tickets[1].preview,undefined);
  c.claims={actor:'qa_sale',requestId:'abc',samples:[signed.tickets[0]],bills:[signed.tickets[1]]};
  const verified=await vm.runInContext('verifyStagedUploads(claims)',c);
  assert.equal(verified.samples.length,1);assert.equal(verified.bills.length,1);
+ assert.equal(verified.previews.length,1);
+ assert.match(verified.previews[0],/\.preview\.jpg$/);
  assert.match(verified.samples[0],/^supabase:\/\/order-images\//);
  const before=calls.length;
  c.claims={actor:'different_sale',requestId:'abc',samples:[signed.tickets[0]],bills:[]};
