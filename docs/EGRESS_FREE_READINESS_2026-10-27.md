@@ -10,6 +10,13 @@ Baseline and release gates for project `zxnfhshnavbmvdthrmrd`. This document rec
 - 31 October: 23.535 GB uncached and 0.341 GB cached at the earlier reading; at about 16:33 Vietnam time, the official Usage page showed 24.013 GB uncached and 0.36 GB cached. The same day included a one-time download of about 367 MiB of originals for preview backfill, so do not use its total as an ordinary daily run rate. Full days after Sheet sync stopped: 28 October ~228 MB (Storage 220.914 MB); 29 October ~286 MB (Storage 274.271 MB); 30 October ~372 MB (Storage 363.781 MB). Storage remains the dominant source and all three days exceed the Free daily pace.
 - Free allows 5 GB uncached and 5 GB cached per billing period. Budget a maximum of 140 MB uncached per day to leave headroom below roughly 167 MB/day over 30 days.
 
+## Other Free limits at the 31 October review
+
+- The current database is 49 MB versus the Free limit of 500 MB per project.
+- Storage objects total about 0.556 GiB across `order-images` and `settlement-bills`, below the Free 1 GB organization quota. The official Usage page showed 0.437 GB average in the billing period; these are different measurements.
+- The official Usage page showed 35,401 Edge Function invocations in the current period, below the Free 500,000 invocation quota.
+- These figures do not prove production performance on Free's smaller compute tier. Do not change the plan before the preview release has a complete billing cycle below the Egress quota and operational checks pass.
+
 ## Measured sources and required changes
 
 - `meehoasg-writeback-feed` returned 63.77 MiB in 1,401 calls on 26 October. Its two Apps Script schedules were removed on 27 October by the account owner. Verify calls remain at zero and measure Billing after its hourly refresh.
@@ -21,4 +28,4 @@ Baseline and release gates for project `zxnfhshnavbmvdthrmrd`. This document rec
 - Run `scripts/backfill-order-previews.mjs` first in dry-run mode, then with `--apply` using a temporary service-role credential in the operator's environment. The script lists the bucket again after upload and fails if any canonical preview is missing. Never put the credential in a file, command argument, CI artifact or commit.
 - Evaluate Free from a complete post-release billing cycle, using the official organization totals. Do not change the plan before that evidence exists.
 
-Sources: Supabase organization Usage page and project Storage/Functions logs, 27–31 October 2026; Supabase docs on [egress](https://supabase.com/docs/guides/platform/manage-your-usage/egress) and [image transformations](https://supabase.com/docs/guides/storage/serving/image-transformations).
+Sources: Supabase organization Usage page, project SQL and Storage/Functions logs, 27–31 October 2026; Supabase docs on [billing limits](https://supabase.com/docs/guides/platform/billing-on-supabase), [egress](https://supabase.com/docs/guides/platform/manage-your-usage/egress), [compute](https://supabase.com/docs/guides/platform/compute-and-disk) and [image transformations](https://supabase.com/docs/guides/storage/serving/image-transformations).
