@@ -72,7 +72,8 @@ if(apply){
     if(completed%60===0||completed===missing.length)console.log(JSON.stringify({completed,total:missing.length,previewMiB:Number((totalBytes/1048576).toFixed(2))}));
   }
   const after=await listObjects();
-  const remaining=originals.filter(name=>!after.has(name.replace(/\.jpg$/i,'.preview.jpg')));
-  console.log(JSON.stringify({verified:remaining.length===0,remaining:remaining.length,previewMiB:Number((totalBytes/1048576).toFixed(2))}));
+  const currentOriginals=[...after].filter(name=>canonical.test(name));
+  const remaining=currentOriginals.filter(name=>!after.has(name.replace(/\.jpg$/i,'.preview.jpg')));
+  console.log(JSON.stringify({verified:remaining.length===0,originals:currentOriginals.length,remaining:remaining.length,previewMiB:Number((totalBytes/1048576).toFixed(2))}));
   if(remaining.length)process.exitCode=1;
 }
