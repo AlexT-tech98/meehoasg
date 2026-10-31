@@ -876,23 +876,29 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                 var n=offset+index,ticket=state.tickets[n];
                 if(!ticket||ticket.kind!==entry.kind||!ticket.uploadUrl||!ticket.proof)throw new Error('Quyền tải ảnh không khớp.');
                 if(state.complete[n])return;
-                var encoded=String(entry.item.data||''),base64=encoded.split(',')[1]||'',raw=atob(base64);
-                if(!raw.length||raw.length>5*1024*1024)throw new Error('Ảnh vượt giới hạn 5 MB.');
-                var binary=new Uint8Array(raw.length);
-                for(var i=0;i<raw.length;i++)binary[i]=raw.charCodeAt(i);
-                var response=await fetch(ticket.uploadUrl,{method:'PUT',headers:{'Content-Type':'image/jpeg','x-upsert':'false'},body:binary});
-                if(!response.ok){
-                    // If a prior interrupted attempt reached Storage, the object exists.
-                    // The server re-verifies the object via authenticated HEAD before SQL commit.
-                    var errorText=await response.text();
-                    if(response.status!==400||!/already exists/i.test(errorText))throw new Error('Không tải được ảnh lên Storage ('+response.status+').');
+                async function putImage(encoded,uploadUrl){
+                    var base64=String(encoded||'').split(',')[1]||'',raw=atob(base64);
+                    if(!raw.length||raw.length>5*1024*1024)throw new Error('Ảnh vượt giới hạn 5 MB.');
+                    var binary=new Uint8Array(raw.length);
+                    for(var i=0;i<raw.length;i++)binary[i]=raw.charCodeAt(i);
+                    var response=await fetch(uploadUrl,{method:'PUT',headers:{'Content-Type':'image/jpeg','x-upsert':'false'},body:binary});
+                    if(!response.ok){
+                        // An interrupted attempt may already have reached Storage.
+                        var errorText=await response.text();
+                        if(response.status!==400||!/already exists/i.test(errorText))throw new Error('Không tải được ảnh lên Storage ('+response.status+').');
+                    }
                 }
+                if(entry.kind==='sample'){
+                    if(!ticket.preview||!ticket.preview.uploadUrl||!ticket.preview.proof||!entry.item.previewData)throw new Error('Thiếu ảnh xem trước.');
+                    if(!state.complete[n+'_preview']){await putImage(entry.item.previewData,ticket.preview.uploadUrl);state.complete[n+'_preview']=true;}
+                }
+                await putImage(entry.item.data,ticket.uploadUrl);
                 state.complete[n]=true;
             }));
             var failed=attempts.find(function(r){return r.status==='rejected';});
             if(failed)throw failed.reason;
         }
-        var mapped=images.map(function(entry,i){var t=state.tickets[i];return {path:t.path,expiresAt:t.expiresAt,proof:t.proof};});
+        var mapped=images.map(function(entry,i){var t=state.tickets[i];return {path:t.path,expiresAt:t.expiresAt,proof:t.proof,preview:t.preview?{path:t.preview.path,expiresAt:t.preview.expiresAt,proof:t.preview.proof}:undefined};});
         return {samples:mapped.slice(0,state.prepared[0].length),bills:mapped.slice(state.prepared[0].length)};
     }
     function reportOrderSaveFailure(id,stage,error){
@@ -1042,9 +1048,15 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             var limit=bill?1600:1280,scale=Math.min(1,limit/Math.max(img.naturalWidth,img.naturalHeight)),canvas=document.createElement('canvas');
             canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
             canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
-            var data=canvas.toDataURL('image/jpeg',bill ? 0.82 : 0.74);
+            var data=canvas.toDataURL('image/jpeg',bill ? 0.82 : 0.74),previewData='';
+            if(!bill){
+                var previewScale=Math.min(1,360/Math.max(img.naturalWidth,img.naturalHeight)),preview=document.createElement('canvas');
+                preview.width=Math.max(1,Math.round(img.naturalWidth*previewScale));preview.height=Math.max(1,Math.round(img.naturalHeight*previewScale));
+                preview.getContext('2d').drawImage(img,0,0,preview.width,preview.height);
+                previewData=preview.toDataURL('image/jpeg',0.55);
+            }
             URL.revokeObjectURL(url);
-            res({data:data,mimeType:'image/jpeg',name:(f.name||'image').replace(/\.[^.]+$/,'')+'.jpg'});
+            res({data:data,previewData:previewData,mimeType:'image/jpeg',name:(f.name||'image').replace(/\.[^.]+$/,'')+'.jpg'});
         }catch(e){URL.revokeObjectURL(url);rej(e);}};
         img.onerror=function(){URL.revokeObjectURL(url);rej(new Error('Không đọc được ảnh '+(f.name||'')));};img.src=url;
     }); }
@@ -1207,16 +1219,18 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             var matchOrder = null, matchIndex = -1;
             S.orders.forEach(function (order) {
                 if (matchOrder) return;
-                (order.imageUrls || []).some(function (url, index) {
+                [order.previewUrls || [],order.imageUrls || []].some(function (urls) { return urls.some(function (url, index) {
                     try { if (new URL(url).pathname !== failedPath) return false; } catch (_) { return false; }
                     matchOrder = order; matchIndex = index; return true;
-                });
+                }); });
             });
             if (matchOrder) {
-                gas('getOrder', { orderId: matchOrder.id }).then(function (result) {
+                var isPreview=/\.preview\.jpg$/.test(failedPath);
+                gas('getOrder', { orderId: matchOrder.id, refreshPreviewIndex: isPreview ? matchIndex : undefined }).then(function (result) {
                     if (result && result.ok && result.order) {
                         rememberOrders([result.order]);
-                        var fresh = (result.order.imageUrls || [])[matchIndex];
+                        var fresh = (isPreview && result.order.refreshedPreviewUrl) || (result.order.imageUrls || [])[matchIndex];
+                        if(isPreview && result.order.refreshedPreviewUrl){var stored=S.orders.get(matchOrder.id);if(stored && stored.previewUrls)stored.previewUrls[matchIndex]=fresh;}
                         if (fresh && fresh !== failed) { img.src = imageSrc(fresh, 320); return; }
                     }
                     imageFallback(img);
@@ -1297,7 +1311,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function paymentLabel(o){if(o.fullPaid)return 'Đã thanh toán toàn bộ đơn (Full Paid)';if(o.settled)return 'Đã tất toán';var raw=String(o.payment||'');if(/full|đủ tiền hoa|du tien hoa/i.test(raw))return 'Đã thanh toán đủ tiền hoa';return raw||'Chưa thanh toán';}
     function debtBreakdown(o){var x=[];if(o.card){var q=Math.max(1,Number(o.cardQty||1)),fee=Number(o.cardFee)||q*10000;x.push('+'+vnd(fee)+' thiệp'+(q>1?' (×'+q+')':''));}if(o.banner){var bq=Math.max(1,Number(o.bannerQty||1));x.push('+'+vnd(bq*35000)+' banner'+(bq>1?' (×'+bq+')':''));}if(Number(o.charmFee))x.push('+'+vnd(o.charmFee)+' charm');if(Number(o.paperFee))x.push('+'+vnd(o.paperFee)+' thay giấy');if(Number(o.vat))x.push('+'+vnd(o.vat)+' VAT');if(isShop(o.shipping)&&o.shipConfirmed)x.push('+'+vnd(o.shipFee)+' phí ship');return x.length?'<div class="debt-breakdown">'+x.map(esc).join('<br>')+'</div>':'';}
     function multiline(s){return esc(s).replace(/\r?\n/g,'<br>');}
-    function firstImage(o,size){var a=o&&o.imageUrls||[];return a.length?imageSrc(a[0],size||320):'';}
+    function firstImage(o,size){var a=o&&(o.previewUrls&&o.previewUrls.length?o.previewUrls:o.imageUrls)||[];return a.length?imageSrc(a[0],size||320):'';}
     function orderPreview(o){var u=firstImage(o,480);return u?'<img class="order-preview" src="'+attr(u)+'" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)">':'';}
     function tableSample(o) {
   var u = firstImage(o, 180),
@@ -1760,7 +1774,8 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
   if (!ov) return;
   var ctx = S.drawerContext || S.page, isDebt = ctx === 'debt';
   var imgs = (o.imageUrls || []).map(function(u, i) {
-    return '<a href="' + attr((o.driveUrls || [])[i] || u) + '" target="_blank" title="Xem ảnh gốc"><img src="' + attr(imageSrc(u, 1000)) + '" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)"></a>';
+    var img='<img src="' + attr(imageSrc(u, loadingDetail?360:1000)) + '" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)">';
+    return loadingDetail?img:'<a href="' + attr((o.driveUrls || [])[i] || u) + '" target="_blank" title="Xem ảnh gốc">'+img+'</a>';
   }).join('');
   var actions = shipFeeAction(o) + (isDebt ? settlementAction(o) : ((o.canEdit ? '<button type="button" class="btn primary" data-mee-order-action="edit" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settlementAction(o))) + (S.user&&S.user.role==='ADMIN'?'<button type="button" class="btn danger full mee-delete-order" data-mee-delete-order="'+attr(o.id)+'">Xóa đơn</button>':'');
 

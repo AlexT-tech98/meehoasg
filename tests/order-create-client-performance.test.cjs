@@ -35,7 +35,9 @@ test('sample photos use fewer pixels while bills retain higher resolution',async
   const photo=await context.fileData({type:'image/png',name:'flower.png'},'sample');
   const bill=await context.fileData({type:'image/png',name:'bill.png'},'bill');
   assert.equal(photo.mimeType,'image/jpeg');
-  assert.deepEqual(outputs.map(x=>[x.width,x.height,x.quality]),[[1280,960,.74],[1600,1200,.82]]);
+  assert.deepEqual(outputs.map(x=>[x.width,x.height,x.quality]),[[1280,960,.74],[360,270,.55],[1600,1200,.82]]);
+  assert.equal(photo.previewData,'data:image/jpeg;base64,QQ==');
+  assert.equal(bill.previewData,'');
   assert.equal(revoked,2);
   assert.equal(bill.name,'bill.jpg');
 });
@@ -59,7 +61,7 @@ test('direct Storage uploader sends binary JPEG, separates sample/bill, and resu
  assert.ok(start>0&&end>start);
  const sent=[];let prepareCalls=0,failOnce=true;
  const url='https://qa.supabase.co/storage/v1/object/upload/sign/';
- const ticket=(kind,n)=>({kind,path:'p'+n+'.jpg',expiresAt:10000,proof:'qa'+n,uploadUrl:url+kind+'/p'+n+'.jpg?token=qa'});
+ const ticket=(kind,n)=>({kind,path:'p'+n+'.jpg',expiresAt:10000,proof:'qa'+n,uploadUrl:url+kind+'/p'+n+'.jpg?token=qa',...(kind==='sample'?{preview:{path:'p'+n+'.preview.jpg',expiresAt:10000,proof:'preview'+n,uploadUrl:url+kind+'/p'+n+'.preview.jpg?token=qa'}}:{})});
  const ctx={
    Promise,Uint8Array,atob,gas:async(name,payload)=>{
      assert.equal(name,'prepareOrderUploads');assert.equal(payload.requestId,'immutable-request');
@@ -71,14 +73,16 @@ test('direct Storage uploader sends binary JPEG, separates sample/bill, and resu
    }
  };
  vm.createContext(ctx);vm.runInContext(html.slice(start,end),ctx);
- const state={requestId:'immutable-request',prepared:[[{data:'data:image/jpeg;base64,QQ=='}],[{data:'data:image/jpeg;base64,Qg=='}]]};
+ const state={requestId:'immutable-request',prepared:[[{data:'data:image/jpeg;base64,QQ==',previewData:'data:image/jpeg;base64,Qw=='}],[{data:'data:image/jpeg;base64,Qg=='}]]};
  ctx.state=state;
  await assert.rejects(vm.runInContext('uploadOrderEvidence(state)',ctx),/NetworkError/);
  assert.equal(state.complete[0],true);
+ assert.equal(state.complete['0_preview'],true);
  const res=await vm.runInContext('uploadOrderEvidence(state)',ctx);
  assert.equal(res.samples.length,1);assert.equal(res.bills.length,1);
+ assert.equal(res.samples[0].preview.path,'p0.preview.jpg');
  assert.equal(prepareCalls,1,'network recovery must reuse tickets');
- assert.equal(sent.filter(x=>x.url.includes('/sample/')).length,1,'successful sample cannot upload twice');
+ assert.equal(sent.filter(x=>x.url.includes('/sample/')).length,2,'original and preview each upload once');
  assert.equal(sent.filter(x=>x.url.includes('/bill/')).length,2);
  assert.ok(sent.every(x=>x.method==='PUT'&&x.size===1&&x.contentType==='image/jpeg'));
 });

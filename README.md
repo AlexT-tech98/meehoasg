@@ -2,7 +2,7 @@
 
 `index.html` is the GitHub Pages entry point for `ops.meehoasg.com`. Since the 04/10/2026 runtime consolidation, the browser loads one frontend runtime (`meehoa-core.css` + `meehoa-core.js`) and calls one canonical API endpoint (`meehoasg-api-core`). Supabase project: `zxnfhshnavbmvdthrmrd`.
 
-> **Production status — GO-LIVE 01/10/2026:** the website is the primary operations interface and **Supabase is the production source of truth**. Production writeback uses **v9.2 FAST** every 1 minute; a full duplicate-ID health audit runs every 15 minutes. The old Apps Script web app / legacy Sheet flow is retained only for rollback and historical reference and must not be used as the primary writer during normal production.
+> **Production status — 27/10/2026:** the website is the primary operations interface and **Supabase is the production source of truth**. The `syncProductionV92` and `auditProductionV92Health` Apps Script schedules were removed with the owner's approval. No automatic Supabase ↔ Sheet flow should be restarted. The old Apps Script code is retained only as a historical reference.
 
 > **Runtime consolidation — 04/10/2026:** the previous v3→v365 frontend/API layering was consolidated. The UI V2 branch now builds 15 canonical CSS/JS sources into 2 browser runtime requests and uses direct render hooks with 0 UI MutationObservers. Critical login/bootstrap, Orders, Production, Dashboard, KPI and Materials reads are served directly by `meehoasg-api-core`. Historical versioned assets/functions remain temporarily as rollback references, not as the normal browser route.
 
@@ -30,17 +30,14 @@ meehoasg-api-core (core2)
     ▼
 Supabase  ← SOURCE OF TRUTH
     │
-    ├────────► Google Order Sheet (A:O)
-    │              identity = Order ID in column O
-    │
-    └────────► MEE_OPS_DATABASE / MIG_ORDER_META_V6
+    └── Storage (private order images and settlement bills)
 ```
 
 There is no normal browser path through `meehoasg-api-v36 → v361 → v362 → v363 → v364 → v365`. Those historical functions are retained for rollback/audit only.
 
 Production rules:
 - Website/Supabase is authoritative for new and edited production orders.
-- Google Sheets are synchronized downstream for operations, reporting, fallback and audit.
+- Google Sheets are historical records; automatic writeback to Sheets is disabled.
 - `source_row` / `source_sheet` are location caches only; they never identify a row for overwrite.
 - Automatic legacy Sheet/web-app → Supabase writers are stopped in production mode.
 - Payment Check is operationally sourced from Supabase `settlement_requests`; legacy settlement sync is retained only for rollback/history.
@@ -140,13 +137,13 @@ Safety guarantees:
 - `source_row` is never used to choose a row to overwrite.
 - Failed/incomplete writeback batches keep the previous cursor for retry.
 
-### v9.2 FAST — active production writer
+### v9.2 FAST — retired production writer
 
 Source: `supabase/functions/meehoasg-ingest/apps-script-production-sync-v9.2-fast.gs`
 
-v9.2 is the **active production trigger**:
-- `syncProductionV92()` every 1 minute.
-- `auditProductionV92Health()` every 15 minutes.
+These schedules were removed on 27/10/2026. Do not reinstall them or resume Sheet synchronization. The following describes their former behavior:
+- `syncProductionV92()` ran every 1 minute.
+- `auditProductionV92Health()` ran every 15 minutes.
 
 Performance change from v9.1:
 - checks the Supabase delta **before** scanning legacy Sheets;
@@ -154,7 +151,7 @@ Performance change from v9.1:
 - when there are changes, validates only the changed Order IDs with `TextFinder`;
 - a separate full duplicate health audit runs every 15 minutes.
 
-This removes the execution overlap observed in v9.1 while preserving Order-ID safety.
+This formerly removed the execution overlap observed in v9.1 while preserving Order-ID safety.
 
 ## Data-integrity repair completed before go-live
 
@@ -177,7 +174,7 @@ Final repair result on 01/10/2026:
 
 Do **not** rerun the duplicate repair on current production data unless performing a deliberate recovery from the recorded backup state.
 
-## Go-live acceptance evidence
+## Historical go-live acceptance evidence (01/10/2026)
 
 Initial production acceptance used order `MEE-133EA255B4234859`:
 
@@ -202,15 +199,11 @@ At go-live verification, there were no `APPROVED` settlement requests whose corr
 
 ## Rollback policy
 
-Normal production must **not** mix legacy writers with the Supabase-authoritative writer.
+Normal production uses the website and Supabase without an automatic Sheet writer. Do not reinstate Sheet synchronization without a separate owner decision.
 
-For a data-flow rollback:
-1. stop v9.2 production triggers;
-2. use `rollbackToParallelV91()`;
-3. verify trigger state before allowing the old app/Sheet to write again;
-4. reconcile changes made during production mode before a future recutover.
+The former data-flow rollback through Sheets is retired. Investigate and resolve any Supabase issue directly before considering a separate, explicitly authorized recovery plan.
 
-For a **frontend/API runtime rollback**, revert the consolidation merge commit while leaving v9.2 production data flow untouched. Historical API functions and source assets are intentionally retained during the stabilization window.
+For a **frontend/API runtime rollback**, revert the consolidation merge commit while leaving the disabled Sheet schedules untouched. Historical API functions and source assets are intentionally retained during the stabilization window.
 
 Do not manually enable `syncDelta` or settlement legacy triggers while `MEE_SYNC_MODE=PRODUCTION`.
 
