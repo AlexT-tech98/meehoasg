@@ -95,5 +95,5 @@ test('Production has no second local-matching search engine or fake date-bound e
   assert.match(html,/loadMoreProductionSearch: loadMoreProductionSearch/);
   assert.match(html,/setProductionSearchDateScope: setProductionSearchDateScope/);
   assert.match(dateOwner,/MEEOPS7\.loadProductionRange=loadProductionRange/);
-  assert.match(release,/20261025-stability-direct-evidence-1/);
+  assert.match(release,/var RELEASE='20261101-preview-upload-2'/);
 });
