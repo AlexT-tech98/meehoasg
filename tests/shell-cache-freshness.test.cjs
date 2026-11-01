@@ -13,6 +13,8 @@ test('shell cache is release-bound and browser HTTP cache cannot resurrect an ol
   assert.match(entry,/var SHELL_URL='\/html\?prod-base='\+RELEASE/);
   assert.match(entry,/fetch\(SHELL_URL,\{cache:'no-store'\}\)/);
   assert.doesNotMatch(entry,/fetch\(SHELL_URL,\{cache:'force-cache'\}\)/);
+  assert.doesNotMatch(entry,/if\(cached\).*mount\(cached\).*return/);
+  assert.match(entry,/catch\(error\)\{if\(!cached\)throw error;html=cached\}/);
 });
 
 test('preloaded shell and consolidated assets use the same release token',()=>{

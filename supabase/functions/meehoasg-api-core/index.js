@@ -134,9 +134,13 @@ async function verifyStagedUploads({actor,requestId,samples=[],bills=[]}){
   result.samples=await Promise.all(samples.map(item=>check(item,'sample')));
   result.previews=await Promise.all(samples.map(async item=>{
     const expected=clean(item?.path).replace(/\.jpg$/,'.preview.jpg');
-    if(!item?.preview||clean(item.preview.path)!==expected)throw Error('UPLOAD_CLAIM_INVALID');
+    // Tabs opened before the preview release hold valid original-only upload tickets.
+    // Verify their actor-bound original above, then let that pending save finish.
+    if(!item?.preview)return '';
+    if(clean(item.preview.path)!==expected)throw Error('UPLOAD_CLAIM_INVALID');
     return check(item.preview,'sample');
   }));
+  result.previews=result.previews.filter(Boolean);
   result.bills=await Promise.all(bills.map(item=>check(item,'bill')));
   return result;
 }

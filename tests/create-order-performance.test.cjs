@@ -131,6 +131,10 @@ test('direct upload tickets are actor/request bound, Storage verified and reject
  assert.equal(verified.previews.length,1);
  assert.match(verified.previews[0],/\.preview\.jpg$/);
  assert.match(verified.samples[0],/^supabase:\/\/order-images\//);
+ c.claims={actor:'qa_sale',requestId:'abc',samples:[{path:signed.tickets[0].path,expiresAt:signed.tickets[0].expiresAt,proof:signed.tickets[0].proof}],bills:[]};
+ const legacy=await vm.runInContext('verifyStagedUploads(claims)',c);
+ assert.equal(legacy.samples.length,1,'pending original-only upload from an older tab can finish');
+ assert.equal(legacy.previews.length,0);
  const before=calls.length;
  c.claims={actor:'different_sale',requestId:'abc',samples:[signed.tickets[0]],bills:[]};
  await assert.rejects(vm.runInContext('verifyStagedUploads(claims)',c),/UPLOAD_CLAIM_INVALID/);
