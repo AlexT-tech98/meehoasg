@@ -1,4 +1,4 @@
-import { AwsClient } from 'npm:aws4fetch@1.0.20';
+import { AwsClient } from './vendor/aws4fetch.esm.mjs';
 
 const PATH = /^(order-images|settlement-bills)\/[0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp)$/;
 
