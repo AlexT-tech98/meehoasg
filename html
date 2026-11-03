@@ -256,8 +256,10 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     }
     function actionRun(fn_1) {
         return __awaiter(this, arguments, void 0, function (fn, msg) {
-            var shown, t;
+            var shown, t, activeBtn;
             if (msg === void 0) { msg = 'Đang xử lý…'; }
+            activeBtn = document.activeElement && (document.activeElement.tagName === 'BUTTON' || document.activeElement.classList.contains('btn')) ? document.activeElement : null;
+            if (activeBtn) activeBtn.classList.add('is-loading');
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -270,6 +272,8 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                     case 2: return [2 /*return*/, _a.sent()];
                     case 3:
                         clearTimeout(t);
+                        if (activeBtn)
+                            activeBtn.classList.remove('is-loading');
                         if (shown)
                             loading(0);
                         return [7 /*endfinally*/];
@@ -280,6 +284,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     }
     function loginBusy(v) { var b = document.getElementById('loginBtn'); if (b) {
         b.disabled = !!v;
+        b.classList.toggle('is-loading', !!v);
         b.textContent = v ? 'Đang vào hệ thống…' : 'Đăng nhập';
     } }
     function showBootSplash(msg) {

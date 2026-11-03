@@ -388,14 +388,8 @@ async function getKpi(payload, user) {
   const grouped = {};
   for (const o of orders) {
     const u = resolveUser(o.sale);
-    if (user.role === 'SALE') {
-      const isMe = (u && norm(u.username) === norm(user.username)) ||
-                   norm(o.sale) === norm(user.username) ||
-                   norm(o.sale) === norm(user.display_name);
-      if (!isMe) continue;
-    } else if (user.role !== 'ADMIN') {
-      if (u && norm(u.username) === 'cmui') continue;
-    }
+    const isCmui = (u && norm(u.username) === 'cmui') || norm(o.sale) === 'c mui' || norm(o.sale) === 'cmui';
+    if (isCmui && user.role !== 'ADMIN' && norm(user.username) !== 'cmui') continue;
     const saleKey = u ? u.display_name : (o.sale || 'Chưa gán');
     const item = grouped[saleKey] ||= { sale: saleKey, username: u ? u.username : '', revenue: 0, orders: 0, bigOrders: 0 };
     item.revenue += o.flowerTotal;

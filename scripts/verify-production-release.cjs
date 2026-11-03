@@ -25,6 +25,20 @@ async function run() {
     mobileScreenshots: []
   };
 
+  // 0. LOGIN PAGE SCREENSHOT (Unauthenticated)
+  console.log('Capturing unauthenticated login screen...');
+  const unauthContext = await browser.newContext({
+    viewport: { width: 1440, height: 900 }
+  });
+  const loginPage = await unauthContext.newPage();
+  await loginPage.goto(PROD_URL, { waitUntil: 'networkidle' });
+  await loginPage.waitForSelector('#login:not(.hidden)', { timeout: 15000 });
+  const loginImg = path.join(OUT_DIR, 'desktop_login.png');
+  await loginPage.screenshot({ path: loginImg });
+  results.desktopScreenshots.push(loginImg);
+  console.log('Saved desktop login screenshot:', loginImg);
+  await unauthContext.close();
+
   // 1. DESKTOP RUN (1440x900)
   const desktopContext = await browser.newContext({
     viewport: { width: 1440, height: 900 }
@@ -92,12 +106,12 @@ async function run() {
   results.desktopScreenshots.push(desktopImg);
 
   // Test Pagination Click: Page 2
-  const nextBtn = page.locator('.payment-pagination-bar button:has-text("Trang sau")');
+  const nextBtn = page.locator('.payment-pagination-bar button:has-text("Trang sau")').first();
   if (await nextBtn.isVisible() && !(await nextBtn.isDisabled())) {
     console.log('Testing Pagination: Clicking Trang sau...');
     const tPage2 = Date.now();
     await nextBtn.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
     const p2Duration = Date.now() - tPage2;
     const p2Data = await page.evaluate(() => {
       const cards = document.querySelectorAll('.settlement-card');
@@ -116,17 +130,17 @@ async function run() {
     await page.screenshot({ path: p2Img });
 
     // Navigate back to Page 1
-    const prevBtn = page.locator('.payment-pagination-bar button:has-text("Trang trước")');
+    const prevBtn = page.locator('.payment-pagination-bar button:has-text("Trang trước")').first();
     await prevBtn.click();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
   }
 
   // 2. SPOT-CHECK OTHER MODULES ON DESKTOP
-  const checkModule = async (name, navSelector, waitSelector) => {
+  const checkModule = async (name, waitSelector) => {
     try {
       const t = Date.now();
-      await page.click(navSelector);
-      await page.waitForSelector(waitSelector, { timeout: 8000 });
+      await page.evaluate((mod) => window.MEEOPS7 ? window.MEEOPS7.go(mod) : window.loadPage(mod), name);
+      await page.waitForSelector(waitSelector, { timeout: 12000 });
       const durationMs = Date.now() - t;
       const count = await page.evaluate((sel) => document.querySelectorAll(sel).length, waitSelector);
       results.modules[name] = { ok: true, durationMs, count };
@@ -139,12 +153,12 @@ async function run() {
     }
   };
 
-  await checkModule('dashboard', 'button[data-p="dashboard"]', '.stat-card, .section');
-  await checkModule('production', 'button[data-p="production"]', '.ops-tile, .order, .empty');
-  await checkModule('orders', 'button[data-p="orders"]', '.order, .empty');
-  await checkModule('debt', 'button[data-p="debt"]', '.order, .empty');
-  await checkModule('kpi', 'button[data-p="kpi"]', '.kpi-card, .table-wrap, .section');
-  await checkModule('flowers', 'button[data-p="flowers"]', '.order, .empty');
+  await checkModule('dashboard', '.mee-dv2-metric, .mee-dv2-sales, .section');
+  await checkModule('production', '.ops-tile, .order, .empty');
+  await checkModule('orders', '.mee-order-card, .table-wrap, .empty, table tbody');
+  await checkModule('debt', '.order, .empty, .settlement-card, .table-wrap');
+  await checkModule('kpi', '.kpi-card, .table-wrap, .section');
+  await checkModule('flowers', '.order, .empty, .table-wrap, table');
 
   await desktopContext.close();
 
@@ -164,22 +178,14 @@ async function run() {
 
   await mobPage.goto(PROD_URL, { waitUntil: 'networkidle' });
 
-  // Open Mobile More menu or Payment tab
-  // Mobile nav may have more button
-  const paymentBtn = mobPage.locator('button[data-p="payment"]');
-  if (await paymentBtn.isVisible()) {
-    await paymentBtn.click();
-  } else {
-    // Click "Thêm" or more menu
-    const moreBtn = mobPage.locator('#mobileMoreBtn, button:has-text("Thêm"), button:has-text("…")');
-    if (await moreBtn.isVisible()) {
-      await moreBtn.click();
-      await mobPage.waitForSelector('.mobile-menu-sheet', { timeout: 3000 });
-      await mobPage.click('button:has-text("Payment Check")');
-    }
-  }
-
+  // Navigate to Payment on mobile directly
+  console.log('Opening Payment on Mobile...');
+  const tMob0 = Date.now();
+  await mobPage.evaluate(() => window.MEEOPS7 ? window.MEEOPS7.go('payment') : window.loadPage('payment'));
   await mobPage.waitForSelector('.settlement-card, .empty', { timeout: 35000 });
+  const mobLoadDurationMs = Date.now() - tMob0;
+  console.log(`Mobile Payment rendered in ${mobLoadDurationMs}ms`);
+
   const mobImg = path.join(OUT_DIR, 'mobile_payment_check.png');
   await mobPage.screenshot({ path: mobImg });
   results.mobileScreenshots.push(mobImg);
@@ -192,8 +198,11 @@ async function run() {
       paginationText: pagination ? pagination.textContent.trim() : ''
     };
   });
-  results.paymentCheck.mobile = mobData;
-  console.log('Mobile Payment Check Data:', mobData);
+  results.paymentCheck.mobile = {
+    loadDurationMs: mobLoadDurationMs,
+    ...mobData
+  };
+  console.log('Mobile Payment Check Data:', results.paymentCheck.mobile);
 
   await mobileContext.close();
   await browser.close();

@@ -12,9 +12,9 @@
 <link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=7">
 <link rel="manifest" href="/manifest.webmanifest?v=7">
 <link rel="preconnect" href="https://zxnfhshnavbmvdthrmrd.supabase.co" crossorigin>
-<link rel="preload" href="/html?prod-base=20261103-payment-check-2" as="fetch">
-<link rel="preload" href="/assets/meehoa-core.css?v=20261103-payment-check-2" as="style">
-<link rel="preload" href="/assets/meehoa-core.js?v=20261103-payment-check-2" as="script">
+<link rel="preload" href="/html?prod-base=20261103-complete-plan-1" as="fetch">
+<link rel="preload" href="/assets/meehoa-core.css?v=20261103-complete-plan-1" as="style">
+<link rel="preload" href="/assets/meehoa-core.js?v=20261103-complete-plan-1" as="script">
 <style>
 html,body{margin:0;min-height:100%;background:#f6f7f9;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 #meeBoot{min-height:100dvh;background:#f6f7f9}
@@ -23,21 +23,19 @@ html,body{margin:0;min-height:100%;background:#f6f7f9;font-family:Inter,-apple-s
 </style>
 <script>
 (function(){
-  var RELEASE='20261103-payment-check-2';
+  var RELEASE='20261103-complete-plan-1';
   var SHELL_KEY='meehoa-shell-core-'+RELEASE;
   var SHELL_URL='/html?prod-base='+RELEASE;
   var API_LEGACY='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api';
   var API_CORE='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-core';
   var OLD_SPLASH='<div id="bootSplash" class="boot-splash hidden"><div class="boot-splash-card"><div class="brand-mark">M</div><div><div>MEEHOASG</div><small id="bootSplashText" class="sub">Đang mở dữ liệu hôm nay…</small></div></div></div>';
   var NEW_SPLASH='<div id="bootSplash" class="boot-splash hidden">'+
-    '<svg class="mee-splash-flower mee-splash-flower-a" viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="#e99bad" stroke-width="5" stroke-linecap="round"><path d="M50 44C22 8 4 39 32 52C1 61 22 88 48 62C52 94 86 78 67 56C96 57 92 23 61 39C62 9 32 11 42 39"/><circle cx="52" cy="51" r="8" fill="#ffe2a3" stroke="none"/></g></svg>'+
-    '<svg class="mee-splash-flower mee-splash-flower-b" viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="#77b99d" stroke-width="5" stroke-linecap="round"><path d="M50 44C22 8 4 39 32 52C1 61 22 88 48 62C52 94 86 78 67 56C96 57 92 23 61 39C62 9 32 11 42 39"/><circle cx="52" cy="51" r="8" fill="#ffe6af" stroke="none"/></g></svg>'+
+    '<span class="mee-splash-pet mee-splash-cat" style="display:none" aria-hidden="true"></span>'+
+    '<span class="mee-splash-pet mee-splash-dog" style="display:none" aria-hidden="true"></span>'+
     '<div class="boot-splash-card mee-splash-card">'+
-      '<svg class="mee-splash-pet mee-splash-cat" viewBox="0 0 120 120" aria-hidden="true"><path d="M31 39L24 15L46 29C52 26 59 24 66 24C74 24 82 27 88 31L108 17L103 42C111 51 115 63 113 77C110 97 93 108 69 108C43 108 24 95 22 74C20 60 23 48 31 39Z" fill="#f4b4bd"/><path d="M39 63C43 59 48 59 52 63M77 63C81 59 86 59 90 63" stroke="#5f4d4a" stroke-width="4" stroke-linecap="round" fill="none"/><path d="M62 72L68 72L65 77Z" fill="#5f4d4a"/><path d="M65 78C61 84 55 84 52 81M65 78C69 84 75 84 78 81" stroke="#5f4d4a" stroke-width="3" stroke-linecap="round" fill="none"/></svg>'+
-      '<svg class="mee-splash-pet mee-splash-dog" viewBox="0 0 120 120" aria-hidden="true"><path d="M38 31C19 30 12 49 20 68C25 81 37 87 47 76L48 105H91L91 74C103 83 114 74 115 57C116 39 103 30 91 34C83 25 73 20 62 20C53 20 45 24 38 31Z" fill="#d9ae80"/><path d="M30 37C19 35 16 48 23 58C28 64 35 60 38 52Z" fill="#9c744f"/><path d="M95 38C107 34 112 46 106 57C101 65 94 60 90 52Z" fill="#9c744f"/><circle cx="50" cy="57" r="4" fill="#4f443d"/><circle cx="80" cy="57" r="4" fill="#4f443d"/><path d="M60 67C63 64 68 64 71 67L66 72Z" fill="#4f443d"/><path d="M66 73C61 80 53 79 50 75M66 73C71 80 79 79 82 75" stroke="#4f443d" stroke-width="3" stroke-linecap="round" fill="none"/></svg>'+
       '<div class="mee-splash-badge">MEEHOA · VẬN HÀNH MỖI NGÀY</div>'+
       '<div class="mee-splash-logo"><img src="/assets/meehoa-mark.svg?v=7" alt="Meehoa"></div>'+
-      '<div class="mee-splash-title">MEEHOASG</div>'+
+      '<div class="mee-splash-title">MEEHOA OPS</div>'+
       '<small id="bootSplashText" class="sub">Đang mở Meehoa Ops…</small>'+
       '<div class="mee-splash-progress" aria-hidden="true"><i></i><i></i><i></i></div>'+
     '</div></div>';
@@ -48,8 +46,8 @@ html,body{margin:0;min-height:100%;background:#f6f7f9;font-family:Inter,-apple-s
       "window.S=S;window.gas=gas;window.loadFlowers=loadFlowers;window.loadPage=loadPage;window.renderProduction=renderProduction;window.rememberOrders=rememberOrders;window.validateBuild=validateBuild;window.closeOverlay=closeOverlay;window.toast=toast;window.__MEE_BOOT_STAGE__='ready';");
     html=html.replace(/<head>/i,'<head><base href="/"><meta name="theme-color" content="#050b17"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Meehoa OPS"><link rel="icon" type="image/svg+xml" href="/assets/meehoa-mark.svg?v=7"><link rel="apple-touch-icon" href="/assets/meehoa-mark.svg?v=7"><link rel="manifest" href="/manifest.webmanifest?v=7">');
     html=html.replace(/<title>[^<]*<\/title>/i,'<title>Meehoa OPS</title>');
-    html=html.replace(/<\/head>/i,'<link rel="stylesheet" href="/assets/meehoa-core.css?v=20261103-payment-check-2"></head>');
-    html=html.replace(/<\/body>/i,'<script src="/assets/meehoa-core.js?v=20261103-payment-check-2"><\/script></body>');
+    html=html.replace(/<\/head>/i,'<link rel="stylesheet" href="/assets/meehoa-core.css?v=20261103-complete-plan-1"></head>');
+    html=html.replace(/<\/body>/i,'<script src="/assets/meehoa-core.js?v=20261103-complete-plan-1"><\/script></body>');
     return html;
   }
   function mount(raw){document.open();document.write(prepare(raw));document.close()}
