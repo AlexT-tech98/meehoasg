@@ -14,7 +14,7 @@ const LEGACY_API=`${SUPABASE_URL}/functions/v1/meehoasg-api`;
 const ALLOWED=['https://ops.meehoasg.com','http://ops.meehoasg.com','https://meehoasg.com','http://meehoasg.com'];
 const R2_UPLOADS_ENABLED=Deno.env.get('R2_UPLOADS_ENABLED')==='true';
 const R2_READS_ENABLED=Deno.env.get('R2_READS_ENABLED')==='true';
-const r2Media=Deno.env.get('R2_ACCESS_KEY_ID')?createR2Media({accountId:Deno.env.get('R2_ACCOUNT_ID'),accessKeyId:Deno.env.get('R2_ACCESS_KEY_ID'),secretAccessKey:Deno.env.get('R2_SECRET_ACCESS_KEY'),bucket:Deno.env.get('R2_MEDIA_BUCKET')}):null;
+const r2Media=(R2_UPLOADS_ENABLED||R2_READS_ENABLED)&&Deno.env.get('R2_ACCESS_KEY_ID')?createR2Media({accountId:Deno.env.get('R2_ACCOUNT_ID'),accessKeyId:Deno.env.get('R2_ACCESS_KEY_ID'),secretAccessKey:Deno.env.get('R2_SECRET_ACCESS_KEY'),bucket:Deno.env.get('R2_MEDIA_BUCKET')}):null;
 
 function clean(v){return String(v??'').trim()}
 function num(v){if(typeof v==='number')return Number.isFinite(v)?v:0;let raw=String(v??'0').replace(/[^\d.,-]/g,'');if(raw.includes(',')&&raw.includes('.'))raw=raw.replaceAll('.','').replace(',','.');else if(/^-?\d{1,3}(?:[.,]\d{3})+$/.test(raw))raw=raw.replace(/[.,]/g,'');else raw=raw.replace(',','.');const n=Number(raw);return Number.isFinite(n)?n:0}
