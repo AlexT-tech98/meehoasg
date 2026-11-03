@@ -245,17 +245,21 @@ function newId(prefix) { return prefix + '-' + crypto.randomUUID().replaceAll('-
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
 const uploadImages=operationStorage.uploadImages;
 async function billDisplayUrls(urls) {
+  const values = urls || [];
   const out = [];
-  for (const url of urls || []) {
-    const match = String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
-    if (!match) { out.push(url); continue; }
-    const bucket = match[1], path = match[2];
-    const response = await fetch(SUPABASE_URL + '/storage/v1/object/sign/' + bucket + '/' + path, {
-      method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600 })
-    });
-    if (!response.ok) continue;
-    const signed = await response.json();
-    out.push(SUPABASE_URL + '/storage/v1' + signed.signedURL);
+  for (let i = 0; i < values.length; i += 3) {
+    const batch = await Promise.all(values.slice(i, i + 3).map(async url => {
+      const match = String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
+      if (!match) return url;
+      const bucket = match[1], path = match[2];
+      const response = await fetch(SUPABASE_URL + '/storage/v1/object/sign/' + bucket + '/' + path, {
+        method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600 })
+      });
+      if (!response.ok) return '';
+      const signed = await response.json();
+      return SUPABASE_URL + '/storage/v1' + signed.signedURL;
+    }));
+    out.push(...batch.filter(Boolean));
   }
   return out;
 }
@@ -294,39 +298,48 @@ async function updateStatusBulk(payload,user){
 async function settlementQueue(payload, user) {
   const status = clean(payload.status || 'PENDING').toUpperCase();
   if (!['PENDING', 'APPROVED', 'REJECTED', 'ALL'].includes(status)) return fail('Trạng thái đối soát không hợp lệ.');
+  const page = Math.floor(num(payload.page) || 1);
+  const pageSize = Math.min(100, Math.max(10, Math.floor(num(payload.pageSize) || 20)));
   const query = { order: 'submitted_at.desc' };
   if (status !== 'ALL') query.status = 'eq.' + status;
-  if (payload.start) query.submitted_at = 'gte.' + payload.start + 'T00:00:00+07:00';
+  const isDateFiltered = Boolean(payload.start && !payload.allPending);
+  if (isDateFiltered) query.submitted_at = 'gte.' + payload.start + 'T00:00:00+07:00';
   const rows = await all('settlement_requests', query);
-  const end = payload.end ? Date.parse(payload.end + 'T23:59:59+07:00') : Infinity;
-  const filtered = rows.filter(x => Date.parse(x.submitted_at) <= end);
+  const end = isDateFiltered && payload.end ? Date.parse(payload.end + 'T23:59:59+07:00') : Infinity;
+  const filtered = isDateFiltered ? rows.filter(x => Date.parse(x.submitted_at) <= end) : rows;
   const groups = new Map();
   for (const row of filtered) {
     const group = groups.get(row.order_id) || [];
     group.push(row);
     groups.set(row.order_id, group);
   }
-  const ids = [...groups.keys()];
+  const allGroups = [...groups.entries()];
+  const total = allGroups.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.max(1, Math.min(page, totalPages));
+  const offset = (safePage - 1) * pageSize;
+  const pagedGroups = allGroups.slice(offset, offset + pageSize);
+  const ids = pagedGroups.map(([orderId]) => orderId);
   const orderParts = [];
   for (let i = 0; i < ids.length; i += 30) orderParts.push(ids.slice(i, i + 30));
-  const orders = (await Promise.all(orderParts.map(chunk =>
-    all('orders', { id: 'in.(' + chunk.map(x => '"' + x.replaceAll('"', '') + '"').join(',') + ')' })))).flat();
+  const orders = ids.length ? (await Promise.all(orderParts.map(chunk =>
+    all('orders', { id: 'in.(' + chunk.map(x => '"' + x.replaceAll('"', '') + '"').join(',') + ')' })))).flat() : [];
   const byId = Object.fromEntries(orders.map(x => [x.id, x]));
-  const items = [];
-  for (const [orderId, requests] of groups) {
+  const items = await Promise.all(pagedGroups.map(async ([orderId, requests]) => {
     const x = requests[0];
     const allBills = [...new Set(requests.flatMap(request => Array.isArray(request.bill_urls) ? request.bill_urls : []))];
-    items.push({
+    const signedBills = await billDisplayUrls(allBills);
+    return {
       requestId: x.id, orderId: x.order_id, saleUsername: x.sale_username, saleName: x.sale_name,
       flowerTotal: num(x.flower_total), accessoryTotal: num(x.accessory_total), vat: num(x.vat),
-      shipFee: num(x.ship_fee), requiredAmount: num(x.required_amount), billUrls: await billDisplayUrls(allBills),
+      shipFee: num(x.ship_fee), requiredAmount: num(x.required_amount), billUrls: signedBills,
       requestIds: requests.map(request => request.id), duplicateCount: requests.length - 1,
       note: x.note, status: x.status, createdAt: x.submitted_at, adminUsername: x.admin_username,
       adminName: x.admin_name, reviewedAt: x.reviewed_at, reason: x.rejection_reason,
-      order: byId[orderId] ? decorate(await visibleOrder(byId[orderId]), user, x) : null
-    });
-  }
-  return { ok: true, status, range: payload.start || payload.end ? { start: payload.start || '', end: payload.end || '' } : null, items };
+      order: byId[orderId] ? decorate(byId[orderId], user, x) : null
+    };
+  }));
+  return { ok: true, status, range: isDateFiltered ? { start: payload.start || '', end: payload.end || '' } : null, allPending: !isDateFiltered, page: safePage, pageSize, total, totalPages, hasMore: safePage < totalPages, items };
 }
 async function reviewSettlement(payload,user){
   return atomicWrite('reviewSettlement',{...payload,settlementId:payload.settlementId||payload.requestId,requestId:payload.mutationRequestId||payload.requestId},user);

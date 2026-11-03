@@ -160,7 +160,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         options: { shipping: SHIPPING_DEFAULT.slice(), sales: [], statuses: PRODUCTION_STATUSES.slice() }, optionsLoaded: false, optionsPromise: null,
         filters: {
             dashboard: { start: today(), end: today() }, production: { date: today(), q: '', searchWithinRange: false, statusTab: 'Chờ bó' }, orders: { start: today(), end: today(), q: '', searchWithinRange: false, page: 1, pageSize: 80 },
-            debt: { start: today(), end: today(), sale: '' }, payment: { start: today(), end: today(), status: 'PENDING' }, kpi: { month: today().slice(0, 7) }, flowers: { date: today(), start: today(), end: today() }
+            debt: { start: today(), end: today(), sale: '' }, payment: { status: 'PENDING', page: 1, pageSize: 20, allPending: true, start: today(), end: today() }, kpi: { month: today().slice(0, 7) }, flowers: { date: today(), start: today(), end: today() }
         },
         data: { dashboard: null, production: null, productionSearch: null, orders: null, debt: null, payment: null, kpi: {}, flowers: {}, admin: null },
         cache: new Map(), orders: new Map(), detailAt: new Map(), activeLoads: {}, loadSeq: {}, viewAt: {}, currentDrawer: '', adminAt: 0, dirty: new Set(), perf: { buffer: [], flushTimer: null, flushing: false }
@@ -168,7 +168,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     var pages = [['dashboard', 'Tổng quan', '⌂'], ['production', 'Sản xuất', '✿'], ['orders', 'Đơn hàng', '▦'], ['debt', 'Công nợ', '₫'], ['payment', 'Payment Check', '✓'], ['kpi', 'Báo cáo / KPI', '★'], ['flowers', 'Nguyên liệu', '❀'], ['admin', 'Cài đặt', '⚙']];
     function gasOnce(name, p) {
         if (p === void 0) { p = {}; }
-        var timeoutMs = name === 'getFlowerInventory' || name === 'createOrder' || name === 'updateOrder' ? 90000 : 30000;
+        var timeoutMs = name === 'getFlowerInventory' || name === 'createOrder' || name === 'updateOrder' || name === 'getSettlementQueue' || name === 'reviewSettlementsBulk' ? 90000 : 30000;
         var requestHeaders = { 'Content-Type': 'application/json',
                 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp4bmZoc2huYXZibXZkdGhybXJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0OTc5MDksImV4cCI6MjEwNjA3MzkwOX0.YCi2HBT78iFI5aVJSTqIhesHR_5E6hji6jzpM9X74fU', 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp4bmZoc2huYXZibXZkdGhybXJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0OTc5MDksImV4cCI6MjEwNjA3MzkwOX0.YCi2HBT78iFI5aVJSTqIhesHR_5E6hji6jzpM9X74fU' };
         var requestBody = JSON.stringify({ name: name, payload: Object.assign({ token: S.token }, p) });
@@ -525,7 +525,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         return '<span class="badge">ĐÃ TẤT TOÁN</span>'; return o.canSubmitSettlement ? "<button class=\"btn gold\" onclick=\"event.stopPropagation();MEEOPS7.settlementForm('".concat(o.id, "')\">G\u1EEDi y\u00EAu c\u1EA7u t\u1EA5t to\u00E1n</button>") : '<span class="sub">—</span>'; }
     function loadPayment() {
         return __awaiter(this, arguments, void 0, function (force) {
-            var f, r, e_5;
+            var f, r, args, e_5;
             if (force === void 0) { force = false; }
             return __generator(this, function (_a) {
                 switch (_a.label) {
@@ -536,11 +536,17 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                         _a.label = 1;
                     case 1:
                         _a.trys.push([1, 3, , 4]);
-                        return [4 /*yield*/, requestPage('getSettlementQueue', { status: 'PENDING', start: f.start, end: f.end }, 10000, force, 'Đang tải Payment Check…')];
+                        args = { status: f.status || 'PENDING', page: f.page || 1, pageSize: f.pageSize || 20, allPending: f.allPending !== false };
+                        if (!args.allPending && f.start && f.end) { args.start = f.start; args.end = f.end; }
+                        return [4 /*yield*/, requestPage('getSettlementQueue', args, 10000, force, 'Đang tải Payment Check…')];
                     case 2:
                         r = _a.sent();
                         if (!r)
                             return [2 /*return*/];
+                        if (r.total == null) r.total = (r.items || []).length;
+                        if (!r.pageSize) r.pageSize = f.pageSize || 20;
+                        if (!r.totalPages) r.totalPages = Math.max(1, Math.ceil(r.total / r.pageSize));
+                        if (!r.page) r.page = f.page || 1;
                         S.data.payment = r;
                         if (S.page === 'payment')
                             renderPayment();
@@ -555,8 +561,64 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             });
         });
     }
-    function renderPayment() { var f = S.filters.payment, r = S.data.payment || {}, el = document.getElementById('content'); if (!el)
-        return; el.innerHTML = rangeFilters('payment') + "<div class=\"section-head\"><div><h3 style=\"margin:0\">ADMIN PAYMENT CHECK</h3><div class=\"sub\">Ch\u1EC9 c\u00E1c \u0111\u01A1n \u0111ang PENDING \u00B7 ".concat((r.items || []).length, " \u0111\u01A1n</div></div><button class=\"btn primary\" onclick=\"MEEOPS7.bulkApprove()\">Duy\u1EC7t c\u00E1c m\u1EE5c \u0111\u00E3 ch\u1ECDn</button></div><div class=\"order-grid\">").concat((r.items || []).map(settleCard).join('') || empty(), "</div>"); if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();}
+    function paymentFilterBar() {
+        var f = S.filters.payment || {}, allPending = f.allPending !== false;
+        var modeBtn = '<div class="payment-scope-tabs" style="display:inline-flex;gap:6px;margin-bottom:8px">' +
+            '<button type="button" class="btn ' + (allPending ? 'primary' : 'secondary') + '" onclick="MEEOPS7.paymentSetScope(true)">Toàn bộ chờ duyệt (Mặc định)</button>' +
+            '<button type="button" class="btn ' + (!allPending ? 'primary' : 'secondary') + '" onclick="MEEOPS7.paymentSetScope(false)">Lọc theo ngày</button>' +
+            '</div>';
+        var dateFilter = !allPending ? rangeFilters('payment') : '';
+        return '<div class="payment-filter-wrapper">' + modeBtn + dateFilter + '</div>';
+    }
+    function paymentPaginationHtml(r) {
+        var page = r.page || 1, totalPages = r.totalPages || 1, total = r.total != null ? r.total : (r.items || []).length;
+        if (totalPages <= 1) return '';
+        return '<div class="payment-pagination-bar" style="display:flex;align-items:center;justify-content:space-between;margin:12px 0;padding:10px 14px;background:#fff;border-radius:10px;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,.04)">' +
+            '<button type="button" class="btn ' + (page <= 1 ? 'disabled' : '') + '" onclick="MEEOPS7.paymentPrevPage()" ' + (page <= 1 ? 'disabled' : '') + '>← Trang trước</button>' +
+            '<span class="sub" style="font-weight:600">Trang ' + page + ' / ' + totalPages + ' (' + total + ' yêu cầu)</span>' +
+            '<button type="button" class="btn ' + (page >= totalPages ? 'disabled' : '') + '" onclick="MEEOPS7.paymentNextPage()" ' + (page >= totalPages ? 'disabled' : '') + '>Trang sau →</button>' +
+            '</div>';
+    }
+    function renderPayment() {
+        var f = S.filters.payment, r = S.data.payment || {}, el = document.getElementById('content');
+        if (!el) return;
+        var total = r.total != null ? r.total : (r.items || []).length, page = r.page || 1, totalPages = r.totalPages || 1;
+        var subtitle = (f.allPending !== false ? 'Toàn bộ chờ duyệt' : (dateVN(f.start) + ' → ' + dateVN(f.end))) +
+            ' · ' + total + ' yêu cầu' + (totalPages > 1 ? (' (Trang ' + page + '/' + totalPages + ')') : '');
+        var pagination = paymentPaginationHtml(r);
+        el.innerHTML = paymentFilterBar() +
+            "<div class=\"section-head\"><div><h3 style=\"margin:0\">ADMIN PAYMENT CHECK</h3><div class=\"sub\">" + esc(subtitle) + "</div></div><button class=\"btn primary\" onclick=\"MEEOPS7.bulkApprove()\">Duyệt các mục đã chọn</button></div>" +
+            pagination +
+            "<div class=\"order-grid\">" + ((r.items || []).map(settleCard).join('') || empty()) + "</div>" +
+            (totalPages > 1 ? pagination : '');
+        if (window.MEE_SHELL_CONTENT_SYNC) window.MEE_SHELL_CONTENT_SYNC();
+        if (window.MEE_V364_CONTENT_SYNC) window.MEE_V364_CONTENT_SYNC();
+    }
+    function paymentPrevPage() {
+        var f = S.filters.payment;
+        if ((f.page || 1) > 1) {
+            f.page = (f.page || 1) - 1;
+            loadPayment(true);
+        }
+    }
+    function paymentNextPage() {
+        var f = S.filters.payment, r = S.data.payment || {};
+        var totalPages = r.totalPages || 1;
+        if ((f.page || 1) < totalPages) {
+            f.page = (f.page || 1) + 1;
+            loadPayment(true);
+        }
+    }
+    function paymentSetScope(allPending) {
+        var f = S.filters.payment;
+        f.allPending = !!allPending;
+        f.page = 1;
+        if (!f.allPending && (!f.start || !f.end)) {
+            f.start = today();
+            f.end = today();
+        }
+        loadPayment(true);
+    }
     function loadKpiPage() {
         return __awaiter(this, arguments, void 0, function (force) {
             var m, key, cached, r, _a, _b, e_6;
@@ -948,14 +1010,14 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     async function nextStatus(id){var o=orderById(id);if(o)await changeStatus(id,nextStatusValue(o));}
     function togglePick(id,v){v?S.selected.add(id):S.selected.delete(id);if(S.page==='production')renderProduction();}
     function reviewMutationKey(id,decision){window._reviewMutationKeys=window._reviewMutationKeys||{};var k=id+'|'+decision;return window._reviewMutationKeys[k]||(window._reviewMutationKeys[k]=safeUuid());}
-    async function review(id,decision,reason){if(reason===void 0)reason='';try{var r=await actionRun(function(){return gas('reviewSettlement',{settlementId:id,mutationRequestId:reviewMutationKey(id,decision),decision:decision,reason:reason});},decision==='APPROVED'?'Đang duyệt tất toán…':'Đang trả đơn…');if(!r.ok)throw new Error(r.message);orderMutationDirty();if(S.data.payment){S.data.payment.items=(S.data.payment.items||[]).filter(function(x){return x.requestId!==id;});S.dirty.delete('getSettlementQueue');if(S.page==='payment')renderPayment();}toast(r.message);}catch(e){toast(e.message,1);}}
+    async function review(id,decision,reason){if(reason===void 0)reason='';try{var r=await actionRun(function(){return gas('reviewSettlement',{settlementId:id,mutationRequestId:reviewMutationKey(id,decision),decision:decision,reason:reason});},decision==='APPROVED'?'Đang duyệt tất toán…':'Đang trả đơn…');if(!r.ok)throw new Error(r.message);orderMutationDirty();if(S.data.payment){S.data.payment.items=(S.data.payment.items||[]).filter(function(x){return x.requestId!==id;});if(S.data.payment.total>0)S.data.payment.total--;S.dirty.delete('getSettlementQueue');if(S.page==='payment')renderPayment();}toast(r.message);}catch(e){toast(e.message,1);}}
     function reject(id) { var reason = prompt('Lý do từ chối:'); if (reason !== null && String(reason).trim())
         review(id, 'REJECTED', reason);
     else if (reason !== null)
         toast('Cần nhập lý do từ chối.', 1); }
     async function bulkApprove(){
         var ids=[...document.querySelectorAll('.settle-check:checked')].map(function(x){return x.value;});if(!ids.length)return toast('Chưa chọn yêu cầu nào.',1);
-        try{var r=await actionRun(function(){return gas('reviewSettlementsBulk',{requestIds:ids,mutationRequestId:safeUuid()});},'Đang duyệt hàng loạt…');if(!r||(!r.ok&&!r.approved))throw new Error(r&&r.message?r.message:'Không duyệt được các đơn đã chọn.');orderMutationDirty();var approvedOrders=new Set(r.approvedOrderIds||[]);if(S.data.payment){S.data.payment.items=(S.data.payment.items||[]).filter(function(x){return !approvedOrders.has(x.orderId);});S.dirty.delete('getSettlementQueue');if(S.page==='payment')renderPayment();}toast(r.message||('Đã duyệt '+(r.approved||0)+' đơn.'),Boolean(r.failed));if(r.failedItems&&r.failedItems.length){var detail=r.failedItems.slice(0,8).map(function(x){return (x.orderId||x.requestId)+' — '+x.reason;}).join('\n');window.alert('Kết quả duyệt hàng loạt\n\nĐã duyệt: '+(r.approved||0)+'\nKhông duyệt được: '+r.failed+'\n\n'+detail);}}catch(e){toast(e.message,1);}
+        try{var r=await actionRun(function(){return gas('reviewSettlementsBulk',{requestIds:ids,mutationRequestId:safeUuid()});},'Đang duyệt hàng loạt…');if(!r||(!r.ok&&!r.approved))throw new Error(r&&r.message?r.message:'Không duyệt được các đơn đã chọn.');orderMutationDirty();var approvedOrders=new Set(r.approvedOrderIds||[]);if(S.data.payment){S.data.payment.items=(S.data.payment.items||[]).filter(function(x){return !approvedOrders.has(x.orderId);});if(S.data.payment.total>0)S.data.payment.total=Math.max(0,S.data.payment.total-(r.approved||0));S.dirty.delete('getSettlementQueue');if(S.page==='payment')renderPayment();}toast(r.message||('Đã duyệt '+(r.approved||0)+' đơn.'),Boolean(r.failed));if(r.failedItems&&r.failedItems.length){var detail=r.failedItems.slice(0,8).map(function(x){return (x.orderId||x.requestId)+' — '+x.reason;}).join('\n');window.alert('Kết quả duyệt hàng loạt\n\nĐã duyệt: '+(r.approved||0)+'\nKhông duyệt được: '+r.failed+'\n\n'+detail);}}catch(e){toast(e.message,1);}
     }
     async function fullPaidReport(month){try{var r=validateBuild(await gas('getFullPaidReport',{month:month||S.filters.kpi.month}));if(!r.ok)throw new Error(r.message);window.__MEE_FULL_PAID_REPORT__=r;var ov=document.getElementById('overlay'),rows=(r.items||[]).map(function(x){var proofs=(x.billUrls||[]).map(function(u,i){return '<a href="'+attr(u)+'" target="_blank">Bill '+(i+1)+'</a>';}).join(' · '),samples=(x.imageUrls||[]).map(function(u,i){return '<a href="'+attr(u)+'" target="_blank">Mẫu '+(i+1)+'</a>';}).join(' · ');return '<tr><td><b>'+esc(x.id)+'</b><br><small>'+esc(x.customer)+'</small></td><td>'+dateVN(x.date)+' '+esc(x.time)+'</td><td>'+esc(x.sale)+'</td><td>'+vnd(x.flowerTotal)+'</td><td>'+vnd(x.totalDue)+'</td><td>'+vnd(x.paidTotal)+'</td><td><span class="badge '+(x.status==='FULL_PAID'?'':'red')+'">'+(x.status==='FULL_PAID'?'FULL PAID':'ĐÃ GỠ')+'</span></td><td>'+(proofs||'—')+'</td><td>'+(samples||'—')+'</td><td>'+(x.exception?'<span class="badge red">Cần kiểm</span>':'OK')+'</td></tr>';}).join('');ov.innerHTML='<div class="modal-bg"><div class="modal mee-full-paid-report" style="max-width:1180px"><div class="modal-head"><div><h3 style="margin:0">Báo cáo Full Paid · '+esc(r.month)+'</h3><div class="sub">'+(r.summary.active||0)+' đơn đang Full Paid · '+(r.summary.exceptions||0)+' ngoại lệ</div></div><div><button class="btn" onclick="MEEOPS7.exportFullPaidCsv()">Xuất CSV</button> <button class="close" onclick="MEEOPS7.closeOverlay()">×</button></div></div><div class="stats" style="grid-template-columns:repeat(3,1fr)">'+stat('Đơn Full Paid',String(r.summary.active||0))+stat('Doanh thu hoa',vnd(r.summary.flowerRevenue||0))+stat('Tổng đã thu',vnd(r.summary.collected||0))+'</div><div class="table-wrap"><table><thead><tr><th>Đơn</th><th>Nhận</th><th>Sale</th><th>Tiền hoa</th><th>Tổng đơn</th><th>Đã thu</th><th>Trạng thái</th><th>Bill</th><th>Ảnh mẫu</th><th>Hậu kiểm</th></tr></thead><tbody>'+(rows||'<tr><td colspan="10" class="empty">Chưa có đơn Full Paid trong tháng này.</td></tr>')+'</tbody></table></div></div></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();}catch(e){toast(e.message,1);}}
     function exportFullPaidCsv(){var r=window.__MEE_FULL_PAID_REPORT__;if(!r||!Array.isArray(r.items))return toast('Chưa có báo cáo để xuất.',1);function csv(v){var x=String(v==null?'':v);return '"'+x.replace(/"/g,'""')+'"';}var head=['Mã đơn','Khách','Ngày','Giờ','Sale','Tiền hoa','Phụ kiện','VAT','Ship','Tổng đơn','Đã thu','Trạng thái','Số bill','Số ảnh mẫu','Thời gian Full Paid','Thời gian gỡ','Lý do gỡ','Ngoại lệ'],lines=[head.map(csv).join(',')];r.items.forEach(function(x){lines.push([x.id,x.customer,x.date,x.time,x.sale,x.flowerTotal,x.accessoryTotal,x.vat,x.shipFee,x.totalDue,x.paidTotal,x.status,(x.billUrls||[]).length,(x.imageUrls||[]).length,x.fullPaidAt||'',x.invalidatedAt||'',x.invalidatedReason||'',x.exception?'YES':''].map(csv).join(','));});var blob=new Blob(['\ufeff'+lines.join('\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='meehoa-full-paid-'+r.month+'.csv';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},0);}
@@ -1382,7 +1444,7 @@ function opsTile(o) {
     function datePickerSelect(iso){var x=window._meeDatePicker;if(!x)return;if(x.mode==='single'){x.start=x.end=iso;}else if(!x.awaitingEnd){x.start=iso;x.end='';x.awaitingEnd=true;}else{if(iso<x.start){x.start=iso;x.end='';x.awaitingEnd=true;}else{x.end=iso;x.awaitingEnd=false;}}renderDatePicker();}
     function datePickerShortcut(which){var x=window._meeDatePicker;if(!x)return;var d=which==='tomorrow'?addDaysIso(today(),1):today();x.start=x.end=d;x.awaitingEnd=false;x.month=d.slice(0,7)+'-01';renderDatePicker();}
     function renderDatePicker(){var x=window._meeDatePicker,ov=document.getElementById('overlay');if(!x||!ov)return;var p=x.month.split('-').map(Number),y=p[0],m=p[1]-1,first=new Date(y,m,1),offset=(first.getDay()+6)%7,days=new Date(y,m+1,0).getDate(),prevDays=new Date(y,m,0).getDate(),cells=[];for(var i=0;i<42;i++){var day=i-offset+1,dt,inside=true;if(day<1){dt=new Date(y,m-1,prevDays+day);inside=false;}else if(day>days){dt=new Date(y,m+1,day-days);inside=false;}else dt=new Date(y,m,day);var iso=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'),selected=iso===x.start||iso===x.end,inRange=x.start&&x.end&&iso>x.start&&iso<x.end,cls='calendar-day'+(inside?'':' out')+(selected?' selected':'')+(inRange?' in-range':'')+(iso===today()?' today':'');cells.push('<button type="button" class="'+cls+'" onclick="MEEOPS7.datePickerSelect(\''+iso+'\')">'+dt.getDate()+'</button>');}var title='Tháng '+(m+1)+'/'+y,rangeText=x.mode==='single'?dateVN(x.start):('Từ '+dateVN(x.start)+(x.end?' → '+dateVN(x.end):' → chọn ngày kết thúc'));ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><div class="modal calendar-modal"><div class="modal-head"><h3 style="margin:0">Chọn ngày</h3><button class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="calendar-shortcuts"><button class="btn" onclick="MEEOPS7.datePickerShortcut(\'today\')">Hôm nay</button><button class="btn" onclick="MEEOPS7.datePickerShortcut(\'tomorrow\')">Ngày mai</button></div><div class="calendar-head"><button class="calendar-nav" onclick="MEEOPS7.datePickerMove(-1)">‹</button><strong>'+title+'</strong><button class="calendar-nav" onclick="MEEOPS7.datePickerMove(1)">›</button></div><div class="calendar-grid">'+['T2','T3','T4','T5','T6','T7','CN'].map(function(d){return '<div class="calendar-dow">'+d+'</div>';}).join('')+cells.join('')+'</div><div class="calendar-selection"><span>'+rangeText+'</span><span class="sub">Chưa áp dụng</span></div><div class="calendar-actions"><button class="btn" onclick="MEEOPS7.closeOverlay()">Hủy</button><button class="btn primary" '+(!x.start?'disabled':'')+' onclick="MEEOPS7.datePickerApply()">✓ Áp dụng</button></div></div></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();}
-    async function datePickerApply(){var x=window._meeDatePicker;if(!x||!x.start)return;if(x.mode==='range'){var end=x.end||x.start;S.filters[x.key].start=x.start;S.filters[x.key].end=end;if(x.key==='orders'){S.filters.orders.page=1;if(String(S.filters.orders.q||'').trim())S.filters.orders.searchWithinRange=true;}}else S.filters[x.key].date=x.start;var key=x.key;closeOverlay();if(key==='production')await loadProduction(true);else if(key==='flowers')await loadFlowers(true);else await loadPage(key,true);}
+    async function datePickerApply(){var x=window._meeDatePicker;if(!x||!x.start)return;if(x.mode==='range'){var end=x.end||x.start;S.filters[x.key].start=x.start;S.filters[x.key].end=end;if(x.key==='orders'){S.filters.orders.page=1;if(String(S.filters.orders.q||'').trim())S.filters.orders.searchWithinRange=true;}if(x.key==='payment'){S.filters.payment.page=1;S.filters.payment.allPending=false;}}else S.filters[x.key].date=x.start;var key=x.key;closeOverlay();if(key==='production')await loadProduction(true);else if(key==='flowers')await loadFlowers(true);else await loadPage(key,true);}
     
     function onSearchInput(val) {
         val = String(val || '');
@@ -1875,6 +1937,9 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
         openShipFeeForm: openShipFeeForm,
         submitShipFee: submitShipFee,
         settlementGate: settlementGate,
+        paymentPrevPage: paymentPrevPage,
+        paymentNextPage: paymentNextPage,
+        paymentSetScope: paymentSetScope,
         bulkApprove: bulkApprove,
         performanceReport: performanceReport,
         fullPaidReport: fullPaidReport,

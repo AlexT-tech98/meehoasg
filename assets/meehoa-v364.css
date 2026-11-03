@@ -22,6 +22,10 @@ body.mee-page-settlement-v364 .mee-settlement-grid-v364>.settlement-card{
   border-radius:9px!important;background:#fff!important;border:1px solid var(--border)!important;
   box-shadow:none!important
 }
+.payment-scope-tabs{display:inline-flex;gap:8px;margin-bottom:10px}
+.payment-scope-tabs .btn{font-size:13px;padding:6px 14px}
+.payment-pagination-bar{display:flex;align-items:center;justify-content:space-between;margin:12px 0;padding:8px 12px;background:#fff;border-radius:10px;border:1px solid var(--border,#e2e8f0)}
+.payment-pagination-bar .btn{font-size:13px;padding:6px 12px}
 body.mee-page-settlement-v364 .mee-settlement-grid-v364>.settlement-card>.settle-check{
   width:18px!important;height:18px!important;margin:0 0 8px!important;padding:0!important
 }

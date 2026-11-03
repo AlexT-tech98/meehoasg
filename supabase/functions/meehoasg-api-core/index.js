@@ -209,6 +209,83 @@ async function classifyIngredients(items){const models=aiModels();if(!items.leng
 function localFlowers(text){const n=norm(text),out=[];const add=x=>{if(x&&!out.includes(x))out.push(x)};const ly=clean(text).match(/(?:^|[\s,+;/])(?:ly|li|lily|lilies)\b(?:\s+(?:sơn|nhuộm|xanh|hồng|vàng|cam|kép|tím|pastel|mint|đậm))*/ig);for(const part of ly||[])add(canonicalIngredientName(part.trim()));if(/hong\s*(ecu|ecuador)|ecuador/.test(n))add('Hồng Ecuador');if(/chiet\s*xa/.test(n))add('Chiết xạ');if(/\bohara\b/.test(n))add('Hồng Ohara');if(/\b(phang|phan|carnation)\b/.test(n))add('Hoa phăng');if(/\btulip\b/.test(n))add('Tulip');if(/\bbaby\b/.test(n))add(/xanh/.test(n)?'Baby xanh':'Baby');if(/cam\s*tu\s*cau/.test(n))add('Cẩm tú cầu');if(/thanh\s*lieu/.test(n))add('Thanh liễu');if(/huong\s*duong/.test(n))add('Hướng dương');if(/mao\s*luong/.test(n))add('Mao lương');if(/dong\s*tien/.test(n))add('Đồng tiền');return out}
 async function flowerInventory(payload){const user=await requireUser(payload,['ADMIN','THO_OPS']),date=clean(payload.date)||dateToday(),start=clean(payload.start)||date,end=clean(payload.end)||start,orders=await all('orders',{select:'id,customer,order_date,order_time,flower',and:`(order_date.gte.${start},order_date.lte.${end})`,order:'order_date.asc,order_time.asc'});if(!orders.length)return{ok:true,range:{start,end},status:'empty',totalOrders:0,analyzedOrders:0,reviewCount:0,items:[],reviewOrders:[],aiModel:null};const unique=new Map();for(const o of orders){const key=flowerKey(o.flower);if(key&&!unique.has(key))unique.set(key,clean(o.flower).slice(0,700))}const keyed=await Promise.all([...unique].map(async([key,content])=>({key,content,fingerprint:await sha256(`core6|${key}`)}))),cacheRows=await all('flower_cache',{select:'fingerprint,content,flowers,needs_review,updated_at',order:'updated_at.desc'}),cache=new Map(cacheRows.map(r=>[r.fingerprint,r])),pending=keyed.filter(x=>payload.forceRefresh||!cache.has(x.fingerprint));let aiModel=null,aiStatus='CACHE';for(let i=0;i<pending.length;i+=35){const batch=pending.slice(i,i+35).map(x=>({fingerprint:x.fingerprint,note:x.content})),classified=await classifyIngredients(batch);let rows;if(classified.ok){aiModel=classified.model||aiModel;aiStatus='READY';const by=new Map((classified.results||[]).filter(x=>x?.fingerprint).map(x=>[x.fingerprint,x]));rows=batch.map(item=>{const r=by.get(item.fingerprint)||{},flowers=canonicalIngredients(r.flowers);return{fingerprint:item.fingerprint,content:item.note,flowers,needs_review:!!r.needs_review||!flowers.length,updated_at:new Date().toISOString()}})}else{aiStatus=classified.code||'LOCAL_FALLBACK';rows=batch.map(item=>{const flowers=localFlowers(item.note);return{fingerprint:item.fingerprint,content:item.note,flowers,needs_review:!flowers.length,updated_at:new Date().toISOString()}})}if(rows.length){await db('flower_cache',{on_conflict:'fingerprint'},'POST',rows);rows.forEach(r=>cache.set(r.fingerprint,r))}}const fpByKey=new Map(keyed.map(x=>[x.key,x.fingerprint])),groups=new Map(),reviewOrders=[];let analyzedOrders=0;for(const o of orders){const entry=cache.get(fpByKey.get(flowerKey(o.flower))),names=canonicalIngredients(entry?.flowers);if(entry)analyzedOrders++;if(!entry||entry.needs_review||!names.length)reviewOrders.push({id:o.id,customer:o.customer,flower:o.flower,date:o.order_date,time:cleanTime(o.order_time)});for(const name of names){const k=flowerKey(name),g=groups.get(k)||{name,orders:0,orderList:[]};if(!g.orderList.some(x=>x.id===o.id)){g.orders++;g.orderList.push({id:o.id,customer:o.customer,flower:o.flower,time:cleanTime(o.order_time),date:o.order_date})}groups.set(k,g)}}return{ok:true,range:{start,end},status:reviewOrders.length?'needs_review':'ready',totalOrders:orders.length,analyzedOrders,reviewCount:reviewOrders.length,items:[...groups.values()].sort((a,b)=>b.orders-a.orders||a.name.localeCompare(b.name,'vi')),reviewOrders:reviewOrders.slice(0,100),aiModel,aiStatus,classifierVersion:'core6'}}
 
+async function fastSettlementQueue(payload){
+  const user=await requireUser(payload,['ADMIN']);
+  const status=clean(payload?.status||'PENDING').toUpperCase();
+  if(!['PENDING','APPROVED','REJECTED','ALL'].includes(status))return fail('Trạng thái đối soát không hợp lệ.');
+  const page=Math.floor(num(payload?.page)||1);
+  const pageSize=Math.min(100,Math.max(10,Math.floor(num(payload?.pageSize)||20)));
+  const query={order:'submitted_at.desc'};
+  if(status!=='ALL')query.status='eq.'+status;
+  const start=clean(payload?.start),end=clean(payload?.end)||start;
+  const isDateFiltered=Boolean(start&&!payload?.allPending);
+  if(isDateFiltered)query.submitted_at='gte.'+start+'T00:00:00+07:00';
+  const rows=await all('settlement_requests',query);
+  const endMs=isDateFiltered&&end?Date.parse(end+'T23:59:59+07:00'):Infinity;
+  const filtered=isDateFiltered?rows.filter(x=>Date.parse(x.submitted_at)<=endMs):rows;
+  const groups=new Map();
+  for(const row of filtered){
+    const group=groups.get(row.order_id)||[];
+    group.push(row);
+    groups.set(row.order_id,group);
+  }
+  const allGroups=[...groups.entries()];
+  const total=allGroups.length;
+  const totalPages=Math.max(1,Math.ceil(total/pageSize));
+  const safePage=Math.max(1,Math.min(page,totalPages));
+  const offset=(safePage-1)*pageSize;
+  const pagedGroups=allGroups.slice(offset,offset+pageSize);
+  const pageOrderIds=pagedGroups.map(([orderId])=>orderId);
+  const dir=await saleDirectory();
+  let orders=[];
+  if(pageOrderIds.length>0){
+    const orderParts=[];
+    for(let i=0;i<pageOrderIds.length;i+=30)orderParts.push(pageOrderIds.slice(i,i+30));
+    orders=(await Promise.all(orderParts.map(chunk=>all('orders',{id:'in.('+chunk.map(x=>'"'+String(x).replaceAll('"','')+'"').join(',')+')'})))).flat();
+  }
+  const byId=Object.fromEntries(orders.map(x=>[x.id,x]));
+  const items=await Promise.all(pagedGroups.map(async([orderId,requests])=>{
+    const x=requests[0];
+    const allBills=[...new Set(requests.flatMap(r=>Array.isArray(r.bill_urls)?r.bill_urls:[]))];
+    const signedBills=await displayUrls(allBills);
+    const orderDecorated=byId[orderId]?decorate(byId[orderId],user,x,dir):null;
+    return {
+      requestId:x.id,orderId:x.order_id,saleUsername:x.sale_username,saleName:x.sale_name,
+      flowerTotal:num(x.flower_total),accessoryTotal:num(x.accessory_total),vat:num(x.vat),
+      shipFee:num(x.ship_fee),requiredAmount:num(x.required_amount),billUrls:signedBills,
+      requestIds:requests.map(r=>r.id),duplicateCount:requests.length-1,
+      note:x.note,status:x.status,createdAt:x.submitted_at,adminUsername:x.admin_username,
+      adminName:x.admin_name,reviewedAt:x.reviewed_at,reason:x.rejection_reason,
+      order:orderDecorated
+    };
+  }));
+  return {
+    ok:true,status,range:isDateFiltered?{start,end}:null,allPending:!isDateFiltered,
+    page:safePage,pageSize,total,totalPages,hasMore:safePage<totalPages,items
+  };
+}
+async function reviewSettlementsBulkCore(payload,user){
+  if(user.role!=='ADMIN')throw new Error('Không có quyền thực hiện.');
+  const ids=[...new Set(Array.isArray(payload?.requestIds)?payload.requestIds.map(clean).filter(Boolean):[])].slice(0,100);
+  if(!ids.length)return fail('Chưa chọn yêu cầu nào.');
+  const bulkId=clean(payload?.mutationRequestId||payload?.requestId);
+  if(!bulkId)return fail('Thiếu mã yêu cầu.','REQUEST_ID_REQUIRED');
+  const failedItems=[],approvedOrderIds=[];
+  for(let i=0;i<ids.length;i++){
+    const id=ids[i];
+    try{
+      const result=await operationResult('reviewSettlement',{settlementId:id,requestId:bulkId+':'+id,decision:'APPROVED'},user);
+      if(result?.ok){
+        if(result.orderId&&!approvedOrderIds.includes(result.orderId))approvedOrderIds.push(result.orderId);
+      }else{
+        failedItems.push({requestId:id,reason:result?.message||'Lỗi không xác định.'});
+      }
+    }catch(err){
+      failedItems.push({requestId:id,reason:String(err?.message||'Lỗi xử lý.')});
+    }
+  }
+  return {ok:!failedItems.length,selected:ids.length,approved:approvedOrderIds.length,failed:failedItems.length,failedItems,approvedOrderIds,message:'Đã duyệt '+approvedOrderIds.length+' đơn.'};
+}
 async function initialCore(user,token){const day=dateToday();if(user.role==='ADMIN')return {page:'dashboard',data:await fastDashboard({token,start:day,end:day}),at:Date.now()};if(user.role==='THO_OPS')return {page:'production',data:await fastProduction({token,date:day}),at:Date.now()};return {page:'orders',data:await fastOrders({token,start:day,end:day,page:1,pageSize:80}),at:Date.now()}}
 async function loginAndBootstrapCore(payload){const result=await loginCore(payload);if(!result.ok)return result;return {...result,options:{shipping:['Shop book ship','Khách tự book','Ghé lấy'],statuses:['Chờ bó','Chờ giao','Chờ lấy','Đã giao']},initial:await initialCore(result.user,result.token)}}
 async function currentBootstrapCore(payload){const user=await requireUser(payload);return {ok:true,user:publicUser(user),initial:await initialCore(user,payload.token)}}
@@ -250,6 +327,11 @@ Deno.serve(async request=>{
     else if(name==='getOrder')result=await fastOrder(payload);
     else if(name==='getDebtReview')result=await fastDebt(payload);
     else if(name==='getFullPaidReport')result=await fullPaidReport(payload);
+    else if(name==='getSettlementQueue')result=await fastSettlementQueue(payload);
+    else if(name==='reviewSettlementsBulk'){
+      const user=await requireUser(payload,['ADMIN']);
+      result=await reviewSettlementsBulkCore(payload,user);
+    }
     else if(name==='updateStatusBulk'){
       const user=await requireUser(payload);
       const items=Array.isArray(payload.items)?payload.items:[];
