@@ -192,6 +192,103 @@ test('reviewSettlementsBulkCore processes batch approvals and handles errors gra
   assert.equal(harness.calls[0].p.requestId, 'MUT-BULK-1:REQ-1');
 });
 
+test('benchmark: Payment Check handles 20, 37 and 100+ requests efficiently without timeout', async () => {
+  const makeBatch = (n) => ({
+    requests: Array.from({ length: n }, (_, i) => ({
+      id: 'REQ-' + (i + 1),
+      order_id: 'ORD-' + (i + 1),
+      sale_username: 'test_sale',
+      sale_name: 'Test Sale',
+      flower_total: 500000,
+      accessory_total: 10000,
+      vat: 0,
+      ship_fee: 30000,
+      required_amount: 540000,
+      bill_urls: ['supabase://settlement-bills/bill-' + (i + 1) + '.jpg'],
+      note: 'Yêu cầu ' + (i + 1),
+      status: 'PENDING',
+      submitted_at: '2026-11-03T10:00:00+07:00'
+    })),
+    orders: Array.from({ length: n }, (_, i) => ({
+      id: 'ORD-' + (i + 1),
+      customer: 'Khách ' + (i + 1),
+      order_date: '2026-11-03',
+      order_time: '10:00',
+      flower: 'Hoa bó ' + (i + 1),
+      flower_total: 500000,
+      sale: 'Test Sale',
+      status: 'Đã giao',
+      shipping: 'Shop book ship',
+      ship_fee: 30000,
+      ship_confirmed: true,
+      card: true,
+      card_qty: 1,
+      banner: false,
+      charm_fee: 0,
+      paper_fee: 0,
+      vat: 0,
+      payment: 'Chưa thanh toán'
+    }))
+  });
+
+  // Scenario 1: 20 items (Single page)
+  {
+    const { requests, orders } = makeBatch(20);
+    const harness = createHarness({ role: 'ADMIN', requests, orders });
+    const t0 = Date.now();
+    const res = await vm.runInContext("fastSettlementQueue({ status: 'PENDING', page: 1, pageSize: 20 })", harness);
+    const ms = Date.now() - t0;
+    assert.equal(res.ok, true);
+    assert.equal(res.total, 20);
+    assert.equal(res.totalPages, 1);
+    assert.equal(res.items.length, 20);
+    assert.equal(res.hasMore, false);
+    assert.ok(ms < 3000, '20 items must process in < 3000ms; took ' + ms + 'ms');
+  }
+
+  // Scenario 2: 37 items (Historical backlog scale: 20 on page 1, 17 on page 2)
+  {
+    const { requests, orders } = makeBatch(37);
+    const harness = createHarness({ role: 'ADMIN', requests, orders });
+    const t0 = Date.now();
+    const p1 = await vm.runInContext("fastSettlementQueue({ status: 'PENDING', page: 1, pageSize: 20 })", harness);
+    const p1Ms = Date.now() - t0;
+    assert.equal(p1.ok, true);
+    assert.equal(p1.total, 37);
+    assert.equal(p1.totalPages, 2);
+    assert.equal(p1.items.length, 20);
+    assert.equal(p1.hasMore, true);
+    assert.ok(p1Ms < 3000, '37 items page 1 must process in < 3000ms');
+
+    const p2 = await vm.runInContext("fastSettlementQueue({ status: 'PENDING', page: 2, pageSize: 20 })", harness);
+    assert.equal(p2.ok, true);
+    assert.equal(p2.page, 2);
+    assert.equal(p2.items.length, 17);
+    assert.equal(p2.hasMore, false);
+  }
+
+  // Scenario 3: 105 items (100+ stress scale: 6 pages, page 1 returns 20, page 6 returns 5)
+  {
+    const { requests, orders } = makeBatch(105);
+    const harness = createHarness({ role: 'ADMIN', requests, orders });
+    const t0 = Date.now();
+    const p1 = await vm.runInContext("fastSettlementQueue({ status: 'PENDING', page: 1, pageSize: 20 })", harness);
+    const p1Ms = Date.now() - t0;
+    assert.equal(p1.ok, true);
+    assert.equal(p1.total, 105);
+    assert.equal(p1.totalPages, 6);
+    assert.equal(p1.items.length, 20);
+    assert.equal(p1.hasMore, true);
+    assert.ok(p1Ms < 3000, '105 items page 1 must process in < 3000ms');
+
+    const p6 = await vm.runInContext("fastSettlementQueue({ status: 'PENDING', page: 6, pageSize: 20 })", harness);
+    assert.equal(p6.ok, true);
+    assert.equal(p6.page, 6);
+    assert.equal(p6.items.length, 5);
+    assert.equal(p6.hasMore, false);
+  }
+});
+
 test('frontend shell contract defines pagination, allPending default, and 90s timeout', () => {
   assert.match(htmlSource, /payment:\s*\{\s*status:\s*'PENDING',\s*page:\s*1,\s*pageSize:\s*20,\s*allPending:\s*true/);
   assert.match(htmlSource, /name === 'getSettlementQueue' \|\| name === 'reviewSettlementsBulk'/);

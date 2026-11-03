@@ -259,7 +259,10 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             var shown, t, activeBtn;
             if (msg === void 0) { msg = 'Đang xử lý…'; }
             activeBtn = document.activeElement && (document.activeElement.tagName === 'BUTTON' || document.activeElement.classList.contains('btn')) ? document.activeElement : null;
-            if (activeBtn) activeBtn.classList.add('is-loading');
+            if (activeBtn) {
+                activeBtn.classList.add('is-loading');
+                activeBtn.disabled = true;
+            }
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -272,8 +275,10 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                     case 2: return [2 /*return*/, _a.sent()];
                     case 3:
                         clearTimeout(t);
-                        if (activeBtn)
+                        if (activeBtn) {
                             activeBtn.classList.remove('is-loading');
+                            activeBtn.disabled = false;
+                        }
                         if (shown)
                             loading(0);
                         return [7 /*endfinally*/];
@@ -1115,7 +1120,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     }
     function empty() { return '<div class="empty">Chưa có dữ liệu phù hợp.</div>'; }
     function renderError(e) { var el = document.getElementById('content'); if (el)
-        el.innerHTML = "<div class=\"empty\"><b>Kh\u00F4ng t\u1EA3i \u0111\u01B0\u1EE3c d\u1EEF li\u1EC7u</b><br>".concat(esc((e === null || e === void 0 ? void 0 : e.message) || e), "</div>"); }
+        el.innerHTML = "<div class=\"mee-error-state\"><div class=\"mee-error-icon\">✕</div><b>Kh\u00F4ng t\u1EA3i \u0111\u01B0\u1EE3c d\u1EEF li\u1EC7u</b><div class=\"sub\">".concat(esc((e === null || e === void 0 ? void 0 : e.message) || e), "</div><button class=\"btn secondary\" style=\"margin-top:12px\" onclick=\"MEEOPS7.go(S.page,true)\">Th\u1EED l\u1EA1i</button></div>"); }
     function safeUuid() { if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         try {
             return crypto.randomUUID();
