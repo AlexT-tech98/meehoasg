@@ -967,7 +967,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                     if(!raw.length||raw.length>5*1024*1024)throw new Error('Ảnh vượt giới hạn 5 MB.');
                     var binary=new Uint8Array(raw.length);
                     for(var i=0;i<raw.length;i++)binary[i]=raw.charCodeAt(i);
-                    var response=await fetch(uploadUrl,{method:'PUT',headers:{'Content-Type':'image/jpeg','x-upsert':'false'},body:binary});
+                    var response=await fetch(uploadUrl,{method:'PUT',headers:ticket.storage==='r2'?{'Content-Type':'image/jpeg'}:{'Content-Type':'image/jpeg','x-upsert':'false'},body:binary});
                     if(!response.ok){
                         // An interrupted attempt may already have reached Storage.
                         var errorText=await response.text();
@@ -984,7 +984,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             var failed=attempts.find(function(r){return r.status==='rejected';});
             if(failed)throw failed.reason;
         }
-        var mapped=images.map(function(entry,i){var t=state.tickets[i];return {path:t.path,expiresAt:t.expiresAt,proof:t.proof,preview:t.preview?{path:t.preview.path,expiresAt:t.preview.expiresAt,proof:t.preview.proof}:undefined};});
+        var mapped=images.map(function(entry,i){var t=state.tickets[i];return {path:t.path,storage:t.storage||'supabase',expiresAt:t.expiresAt,proof:t.proof,preview:t.preview?{path:t.preview.path,storage:t.preview.storage||t.storage||'supabase',expiresAt:t.preview.expiresAt,proof:t.preview.proof}:undefined};});
         return {samples:mapped.slice(0,state.prepared[0].length),bills:mapped.slice(state.prepared[0].length)};
     }
     function reportOrderSaveFailure(id,stage,error){
