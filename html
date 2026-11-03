@@ -582,23 +582,32 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function renderPayment() {
         var f = S.filters.payment, r = S.data.payment || {}, el = document.getElementById('content');
         if (!el) return;
-        var total = r.total != null ? r.total : (r.items || []).length, page = r.page || 1, totalPages = r.totalPages || 1;
+        var total = r.total != null ? r.total : (r.items || []).length, page = f.page || 1, pageSize = f.pageSize || 20;
+        var totalPages = Math.max(1, Math.ceil(total / pageSize));
+        r.page = page; r.pageSize = pageSize; r.total = total; r.totalPages = totalPages;
         var subtitle = (f.allPending !== false ? 'Toàn bộ chờ duyệt' : (dateVN(f.start) + ' → ' + dateVN(f.end))) +
             ' · ' + total + ' yêu cầu' + (totalPages > 1 ? (' (Trang ' + page + '/' + totalPages + ')') : '');
         var pagination = paymentPaginationHtml(r);
+        var allItems = r.items || [];
+        var displayItems = allItems.length > pageSize ? allItems.slice((page - 1) * pageSize, page * pageSize) : allItems;
         el.innerHTML = paymentFilterBar() +
             "<div class=\"section-head\"><div><h3 style=\"margin:0\">ADMIN PAYMENT CHECK</h3><div class=\"sub\">" + esc(subtitle) + "</div></div><button class=\"btn primary\" onclick=\"MEEOPS7.bulkApprove()\">Duyệt các mục đã chọn</button></div>" +
             pagination +
-            "<div class=\"order-grid\">" + ((r.items || []).map(settleCard).join('') || empty()) + "</div>" +
+            "<div class=\"order-grid\">" + (displayItems.map(settleCard).join('') || empty()) + "</div>" +
             (totalPages > 1 ? pagination : '');
         if (window.MEE_SHELL_CONTENT_SYNC) window.MEE_SHELL_CONTENT_SYNC();
         if (window.MEE_V364_CONTENT_SYNC) window.MEE_V364_CONTENT_SYNC();
     }
     function paymentPrevPage() {
-        var f = S.filters.payment;
+        var f = S.filters.payment, r = S.data.payment || {};
         if ((f.page || 1) > 1) {
             f.page = (f.page || 1) - 1;
-            loadPayment(true);
+            var allItems = r.items || [];
+            if (allItems.length > (f.pageSize || 20)) {
+                renderPayment();
+            } else {
+                loadPayment(true);
+            }
         }
     }
     function paymentNextPage() {
@@ -606,7 +615,12 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         var totalPages = r.totalPages || 1;
         if ((f.page || 1) < totalPages) {
             f.page = (f.page || 1) + 1;
-            loadPayment(true);
+            var allItems = r.items || [];
+            if (allItems.length > (f.pageSize || 20)) {
+                renderPayment();
+            } else {
+                loadPayment(true);
+            }
         }
     }
     function paymentSetScope(allPending) {
