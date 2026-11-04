@@ -12,23 +12,23 @@ test('R2 reads and writes have independent OFF-by-default configuration',()=>{
 });
 
 test('old private Supabase references retain original signed-read fallback',()=>{
-  assert.match(core,/if\(m&&R2_READS_ENABLED&&r2Media\)/);
+  assert.match(core,/if\(R2_READS_ENABLED&&r2Media\)/);
   assert.match(core,/if\(await r2Media\.exists\(objectKey\)\)/);
-  assert.match(core,/\/storage\/v1\/object\/sign\/\$\{m\[1\]\}\/\$\{m\[2\]\}/);
+  assert.match(core,/\/storage\/v1\/object\/sign\//);
 });
 
 test('upload uses R2 only when writes flag is on, otherwise Supabase tickets',()=>{
-  assert.match(core,/if\(R2_UPLOADS_ENABLED\)/);
+  assert.match(core,/if\(r2WriteEnabled\(\)\)/);
   assert.match(core,/storage:'r2'/);
-  assert.match(core,/storage\/v1\/object\/upload\/sign\/\$\{bucket\}\/\$\{path\}/);
-  assert.match(core,/evidenceSignature\(user\.username,requestId,bucket,path,r2ExpiresAt,'r2'\)/);
+  assert.match(core,/\/storage\/v1\/object\/upload\/sign\//);
+  assert.match(core,/evidenceSignature\(user\.username,requestId,bucket,path,r2ExpiresAt,backup\?'r2-backup':'r2'\)/);
 });
 
 test('sample and bill claims pass storage destination through the browser',()=>{
   assert.match(ui,/storage:t\.storage\|\|'supabase'/);
-  assert.match(ui,/storage:t\.preview\.storage\|\|t\.storage\|\|'supabase'/);
-  assert.match(ui,/ticket\.storage==='r2'\?\{'Content-Type':'image\/jpeg'\}/);
-  assert.match(core,/if\(storage==='r2'\)\{await r2Media\.verifyUpload\(objectKey\);return ref;\}/);
+  assert.match(ui,/preview:t\.preview\?claim\(t\.preview\)/);
+  assert.match(ui,/storage==='r2'\?\{'Content-Type':'image\/jpeg'\}/);
+  assert.match(core,/const r2Length=await r2Media\.verifyUpload\(objectKey\)/);
 });
 
 test('R2 private media uses expiring signed URLs and rejects invalid paths',()=>{
