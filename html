@@ -956,35 +956,48 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             state.tickets=signed.tickets;
         }
         state.complete=state.complete||{};
-        // Only three uploads at a time. Keep successes for a network-error retry.
+        // Upload the original and its temporary Supabase backup under separate
+        // retry markers; never claim a saved order before both copies exist.
+        async function putImage(encoded,uploadUrl,storage){
+            var base64=String(encoded||'').split(',')[1]||'',raw=atob(base64);
+            if(!raw.length||raw.length>5*1024*1024)throw new Error('Ảnh vượt giới hạn 5 MB.');
+            var binary=new Uint8Array(raw.length);
+            for(var i=0;i<raw.length;i++)binary[i]=raw.charCodeAt(i);
+            var response=await fetch(uploadUrl,{method:'PUT',headers:storage==='r2'?{'Content-Type':'image/jpeg'}:{'Content-Type':'image/jpeg','x-upsert':'false'},body:binary});
+            if(!response.ok){
+                var errorText=await response.text();
+                if(storage!=='supabase'||response.status!==400||!/already exists/i.test(errorText))throw new Error('Không tải được ảnh lên Storage ('+response.status+').');
+            }
+        }
+        async function putPart(encoded,part,key){
+            if(state.complete[key])return;
+            if(!part||!part.uploadUrl||!part.proof)throw new Error('Thiếu quyền tải ảnh.');
+            if(!state.complete[key+'_primary']){
+                await putImage(encoded,part.uploadUrl,part.storage||'supabase');
+                state.complete[key+'_primary']=true;
+            }
+            if(part.backup&&!state.complete[key+'_backup']){
+                if(part.backup.path!==part.path||!part.backup.uploadUrl||!part.backup.proof)throw new Error('Thiếu quyền lưu bản dự phòng.');
+                await putImage(encoded,part.backup.uploadUrl,'supabase');
+                state.complete[key+'_backup']=true;
+            }
+            state.complete[key]=true;
+        }
         for(var offset=0;offset<images.length;offset+=3){
             var attempts=await Promise.allSettled(images.slice(offset,offset+3).map(async function(entry,index){
                 var n=offset+index,ticket=state.tickets[n];
                 if(!ticket||ticket.kind!==entry.kind||!ticket.uploadUrl||!ticket.proof)throw new Error('Quyền tải ảnh không khớp.');
-                if(state.complete[n])return;
-                async function putImage(encoded,uploadUrl){
-                    var base64=String(encoded||'').split(',')[1]||'',raw=atob(base64);
-                    if(!raw.length||raw.length>5*1024*1024)throw new Error('Ảnh vượt giới hạn 5 MB.');
-                    var binary=new Uint8Array(raw.length);
-                    for(var i=0;i<raw.length;i++)binary[i]=raw.charCodeAt(i);
-                    var response=await fetch(uploadUrl,{method:'PUT',headers:{'Content-Type':'image/jpeg','x-upsert':'false'},body:binary});
-                    if(!response.ok){
-                        // An interrupted attempt may already have reached Storage.
-                        var errorText=await response.text();
-                        if(response.status!==400||!/already exists/i.test(errorText))throw new Error('Không tải được ảnh lên Storage ('+response.status+').');
-                    }
-                }
                 if(entry.kind==='sample'){
                     if(!ticket.preview||!ticket.preview.uploadUrl||!ticket.preview.proof||!entry.item.previewData)throw new Error('Thiếu ảnh xem trước.');
-                    if(!state.complete[n+'_preview']){await putImage(entry.item.previewData,ticket.preview.uploadUrl);state.complete[n+'_preview']=true;}
+                    await putPart(entry.item.previewData,ticket.preview,n+'_preview');
                 }
-                await putImage(entry.item.data,ticket.uploadUrl);
-                state.complete[n]=true;
+                await putPart(entry.item.data,ticket,n);
             }));
             var failed=attempts.find(function(r){return r.status==='rejected';});
             if(failed)throw failed.reason;
         }
-        var mapped=images.map(function(entry,i){var t=state.tickets[i];return {path:t.path,expiresAt:t.expiresAt,proof:t.proof,preview:t.preview?{path:t.preview.path,expiresAt:t.preview.expiresAt,proof:t.preview.proof}:undefined};});
+        var claim=function(t){return {path:t.path,storage:t.storage||'supabase',expiresAt:t.expiresAt,proof:t.proof,...(t.backup?{backup:{path:t.backup.path,storage:'supabase',expiresAt:t.backup.expiresAt,proof:t.backup.proof}}:{})};};
+        var mapped=images.map(function(entry,i){var t=state.tickets[i];return {...claim(t),preview:t.preview?claim(t.preview):undefined};});
         return {samples:mapped.slice(0,state.prepared[0].length),bills:mapped.slice(state.prepared[0].length)};
     }
     function reportOrderSaveFailure(id,stage,error){

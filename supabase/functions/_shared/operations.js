@@ -107,7 +107,7 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
     else if(result?.idempotent){
       const used=new Set([...(result.row?.image_urls||[]),...(result.row?.full_paid_bill_urls||[])]);
       for(const original of result.row?.image_urls||[]){
-        if(/^supabase:\/\/order-images\/[0-9a-f-]{36}\.jpg$/.test(original))used.add(original.replace(/\.jpg$/,'.preview.jpg'));
+        if(/^(?:supabase:\/\/order-images|r2:\/\/[a-z0-9-]+\/order-images)\/[0-9a-f-]{36}\.jpg$/.test(original))used.add(original.replace(/\.jpg$/,'.preview.jpg'));
       }
       await discard(staged.filter(u=>!used.has(u)));
     }

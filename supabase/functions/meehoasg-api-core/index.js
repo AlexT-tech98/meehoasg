@@ -1,5 +1,6 @@
 import {createOperationStorage} from '../_shared/storage.js';
 import {createOperationService} from '../_shared/operations.js';
+import {createR2Media} from '../_shared/r2-media.js';
 const BUILD='2026.10.08-core6-atomic';
 const UI_BUILD='2026.09.28-supabase-v3';
 const SUPABASE_URL=Deno.env.get('SUPABASE_URL');
@@ -11,6 +12,17 @@ const PASSWORD_SALT=Deno.env.get('LEGACY_PASSWORD_SALT')||'MEE-FLOWER-V4';
 const SESSION_MS=30*24*60*60*1000;
 const LEGACY_API=`${SUPABASE_URL}/functions/v1/meehoasg-api`;
 const ALLOWED=['https://ops.meehoasg.com','http://ops.meehoasg.com','https://meehoasg.com','http://meehoasg.com'];
+const R2_UPLOADS_ENABLED=Deno.env.get('R2_UPLOADS_ENABLED')==='true';
+const R2_READS_ENABLED=Deno.env.get('R2_READS_ENABLED')==='true';
+const r2Media=(R2_UPLOADS_ENABLED||R2_READS_ENABLED)&&Deno.env.get('R2_ACCESS_KEY_ID')?createR2Media({accountId:Deno.env.get('R2_ACCOUNT_ID'),accessKeyId:Deno.env.get('R2_ACCESS_KEY_ID'),secretAccessKey:Deno.env.get('R2_SECRET_ACCESS_KEY'),bucket:Deno.env.get('R2_MEDIA_BUCKET')}):null;
+const R2_TRIAL_BACKUP_ENABLED=Deno.env.get('R2_TRIAL_BACKUP_ENABLED')==='true';
+const R2_TRIAL_START_AT=Deno.env.get('R2_TRIAL_START_AT')||'';
+const R2_TRIAL_START_MS=Date.parse(R2_TRIAL_START_AT);
+const R2_TRIAL_END_MS=R2_TRIAL_START_MS+72*60*60*1000;
+// After 72h, trial uploads revert to Supabase; they never become R2-only without another approval.
+function r2TrialActive(now=Date.now()){return R2_TRIAL_BACKUP_ENABLED&&Number.isFinite(R2_TRIAL_START_MS)&&now>=R2_TRIAL_START_MS&&now<R2_TRIAL_END_MS}
+function r2WriteEnabled(){return R2_UPLOADS_ENABLED&&(!R2_TRIAL_BACKUP_ENABLED||r2TrialActive())}
+function r2BackupEnabled(){return R2_UPLOADS_ENABLED&&r2TrialActive()}
 
 function clean(v){return String(v??'').trim()}
 function num(v){if(typeof v==='number')return Number.isFinite(v)?v:0;let raw=String(v??'0').replace(/[^\d.,-]/g,'');if(raw.includes(',')&&raw.includes('.'))raw=raw.replaceAll('.','').replace(',','.');else if(/^-?\d{1,3}(?:[.,]\d{3})+$/.test(raw))raw=raw.replace(/[.,]/g,'');else raw=raw.replace(',','.');const n=Number(raw);return Number.isFinite(n)?n:0}
@@ -49,19 +61,35 @@ function paidAmount(payment,base,settled){if(settled>0)return settled;const text
 function contactFields(row){const contact=clean(row.address);const p=contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);return {phone:clean(row.phone)||(p?clean(p[1]):''),address:contact.replace(/(?:SĐT|SDT)\s*:\s*[^\n]+\n?/i,'').replace(/^Địa chỉ\s*:\s*/i,'').trim()}}
 const signedImageUrls=new Map();
 async function signedImageUrl(url){
- const m=String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
- if(!m)return url;
+ const value=String(url);
+ const m=value.match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
+ // A private R2 reference uses the same object key as its Supabase trial backup.
+ const r2=value.match(/^r2:\/\/([a-z0-9-]+)\/(order-images|settlement-bills)\/([0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp))$/);
+ const fallback=r2&&r2[1]===Deno.env.get('R2_MEDIA_BUCKET')?[r2[2],r2[3]]:(m?[m[1],m[2]]:null);
+ if(!fallback)return url;
  const now=Date.now(),cached=signedImageUrls.get(url);
  if(cached&&cached.expiresAt>now)return cached.value;
  if(cached?.pending)return cached.pending;
  const pending=(async()=>{
-  const r=await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${m[1]}/${m[2]}`,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});
+  const r2Key=r2Media?.parseReference(value);
+  const objectKey=r2Key||fallback.join('/');
+  if(R2_READS_ENABLED&&r2Media){
+   try{
+    if(await r2Media.exists(objectKey)){
+      const signed=await r2Media.signedUrl('GET',objectKey,{expiresSeconds:3600});
+      if(signedImageUrls.size>=500)signedImageUrls.clear();
+      signedImageUrls.set(url,{value:signed,expiresAt:Date.now()+45*60*1000});
+      return signed;
+    }
+   }catch(error){console.warn('R2_READ_FALLBACK_TO_SUPABASE',String(error?.message||error).slice(0,80))}
+  }
+  const r=await fetch(SUPABASE_URL+'/storage/v1/object/sign/'+fallback[0]+'/'+fallback[1],{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});
   if(!r.ok)return null;
-  const s=await r.json();
-  const value=`${SUPABASE_URL}/storage/v1${s.signedURL}`;
+  const data=await r.json();
+  const signed=SUPABASE_URL+'/storage/v1'+data.signedURL;
   if(signedImageUrls.size>=500)signedImageUrls.clear();
-  signedImageUrls.set(url,{value,expiresAt:Date.now()+45*60*1000});
-  return value;
+  signedImageUrls.set(url,{value:signed,expiresAt:Date.now()+45*60*1000});
+  return signed;
  })();
  signedImageUrls.set(url,{pending});
  try{return await pending}catch(error){signedImageUrls.delete(url);throw error}
@@ -70,7 +98,7 @@ async function signedImageUrl(url){
 async function displayUrls(urls){const out=[];const values=urls||[];for(let offset=0;offset<values.length;offset+=3){const batch=await Promise.all(values.slice(offset,offset+3).map(signedImageUrl));out.push(...batch.filter(u=>u!==null))}return out}
 function previewSource(url){
  const value=String(url);
- return /^supabase:\/\/order-images\/[0-9a-f-]{36}\.jpg$/.test(value)?value.replace(/\.jpg$/,'.preview.jpg'):url;
+ return /^(?:supabase:\/\/order-images|r2:\/\/[a-z0-9-]+\/order-images)\/[0-9a-f-]{36}\.jpg$/.test(value)?value.replace(/\.jpg$/,'.preview.jpg'):url;
 }
 async function displayPreviewUrls(urls){return displayUrls((urls||[]).map(previewSource))}
 
@@ -80,10 +108,11 @@ async function displayPreviewUrls(urls){return displayUrls((urls||[]).map(previe
  * and immutable order request; a HEAD confirms it exists before SQL commit. */
 const evidenceBuckets={sample:'order-images',bill:'settlement-bills'};
 let evidenceProofKey;
-async function evidenceSignature(actor,requestId,bucket,path,expiresAt){
+async function evidenceSignature(actor,requestId,bucket,path,expiresAt,storage='supabase'){
   if(!evidenceProofKey)evidenceProofKey=crypto.subtle.importKey('raw',new TextEncoder().encode('meehoa-upload-proof-v1:'+SERVICE_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   const key=await evidenceProofKey;
-  const mac=await crypto.subtle.sign('HMAC',key,new TextEncoder().encode([actor,requestId,bucket,path,String(expiresAt)].join('|')));
+  const parts=[actor,requestId,bucket,path,String(expiresAt)];if(storage==='r2'||storage==='r2-backup')parts.push(storage);
+  const mac=await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(parts.join('|')));
   return [...new Uint8Array(mac)].map(n=>n.toString(16).padStart(2,'0')).join('');
 }
 async function prepareOrderUploads(payload){
@@ -93,14 +122,25 @@ async function prepareOrderUploads(payload){
     return fail('Thông tin tải ảnh không hợp lệ.','UPLOAD_INPUT_INVALID');
   const tasks=[...Array(samples).fill('sample'),...Array(bills).fill('bill')],tickets=[];
   const expiresAt=Date.now()+110*60*1000; // safely shorter than Storage's 2-hour ticket
-  const signUpload=async(bucket,path)=>{
-    const response=await fetch(`${SUPABASE_URL}/storage/v1/object/upload/sign/${bucket}/${path}`,{
-      method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:'{}'
+  const signSupabase=async(bucket,path)=>{
+    const response=await fetch(SUPABASE_URL+'/storage/v1/object/upload/sign/'+bucket+'/'+path,{
+      method:'POST',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY,'Content-Type':'application/json'},body:'{}'
     });
     if(!response.ok)throw Error('Không cấp được quyền tải ảnh lên.');
     const data=await response.json(),signedPath=String(data.url||'');
-    if(!signedPath.startsWith(`/object/upload/sign/${bucket}/${path}?`)||!signedPath.includes('token='))throw Error('Storage không trả về URL tải ảnh hợp lệ.');
-    return {path,expiresAt,proof:await evidenceSignature(user.username,requestId,bucket,path,expiresAt),uploadUrl:`${SUPABASE_URL}/storage/v1${signedPath}`};
+    if(!signedPath.startsWith('/object/upload/sign/'+bucket+'/'+path+'?')||!signedPath.includes('token='))throw Error('Storage không trả về URL tải ảnh hợp lệ.');
+    return {path,storage:'supabase',expiresAt,proof:await evidenceSignature(user.username,requestId,bucket,path,expiresAt),uploadUrl:SUPABASE_URL+'/storage/v1'+signedPath};
+  };
+  const signUpload=async(bucket,path)=>{
+    if(r2WriteEnabled()){
+      if(!r2Media)throw Error('R2_NOT_CONFIGURED');
+      const backup=r2BackupEnabled()?await signSupabase(bucket,path):null;
+      const objectKey=r2Media.key(bucket==='order-images'?'sample':'bill',path);
+      const r2ExpiresAt=backup?Math.min(Date.now()+14*60*1000,R2_TRIAL_END_MS):Date.now()+14*60*1000;
+      const ttl=Math.max(1,Math.floor((r2ExpiresAt-Date.now())/1000));
+      return {path,storage:'r2',expiresAt:r2ExpiresAt,proof:await evidenceSignature(user.username,requestId,bucket,path,r2ExpiresAt,backup?'r2-backup':'r2'),uploadUrl:await r2Media.signedUrl('PUT',objectKey,{expiresSeconds:ttl,contentType:'image/jpeg'}),...(backup?{backup}:{})};
+    }
+    return signSupabase(bucket,path);
   };
   for(let i=0;i<tasks.length;i+=3){
     const batch=await Promise.all(tasks.slice(i,i+3).map(async kind=>{
@@ -115,20 +155,43 @@ async function prepareOrderUploads(payload){
 async function verifyStagedUploads({actor,requestId,samples=[],bills=[]}){
   if(samples.length>10||bills.length>10)throw Error('UPLOAD_INPUT_INVALID');
   const seen=new Set(),result={samples:[],bills:[],previews:[]};
-  const check=async(item,kind)=>{
-    const bucket=evidenceBuckets[kind],path=clean(item?.path),expiresAt=Number(item?.expiresAt),proof=clean(item?.proof);
-    if(!/^[0-9a-f-]{36}(?:\.preview)?\.jpg$/.test(path)||!Number.isSafeInteger(expiresAt)||expiresAt<Date.now()||expiresAt>Date.now()+2*60*60*1000||!/^[0-9a-f]{64}$/.test(proof))
-      throw Error('UPLOAD_CLAIM_INVALID');
-    const ref=`supabase://${bucket}/${path}`;
-    if(seen.has(ref))throw Error('UPLOAD_CLAIM_DUPLICATE');
-    seen.add(ref);
-    const expected=await evidenceSignature(actor,requestId,bucket,path,expiresAt);
-    if(!same(expected,proof))throw Error('UPLOAD_CLAIM_INVALID');
-    const response=await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${bucket}/${path}`,{
-      method:'HEAD',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`}
+  const verifySupabase=async(bucket,path)=>{
+    const response=await fetch(SUPABASE_URL+'/storage/v1/object/authenticated/'+bucket+'/'+path,{
+      method:'HEAD',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY}
     });
     const length=Number(response.headers.get('content-length'));
     if(!response.ok||!Number.isFinite(length)||length<1||length>5*1024*1024)throw Error('UPLOAD_NOT_READY');
+    return length;
+  };
+  const check=async(item,kind)=>{
+    const bucket=evidenceBuckets[kind],path=clean(item?.path),expiresAt=Number(item?.expiresAt),proof=clean(item?.proof);
+    const storage=item?.storage==='r2'?'r2':'supabase';
+    if(!/^[0-9a-f-]{36}(?:\.preview)?\.jpg$/.test(path)||!Number.isSafeInteger(expiresAt)||expiresAt<Date.now()||expiresAt>Date.now()+2*60*60*1000||!/^[0-9a-f]{64}$/.test(proof))
+      throw Error('UPLOAD_CLAIM_INVALID');
+    const objectKey=bucket+'/'+path;
+    const ref=storage==='r2'?r2Media?.reference(objectKey):'supabase://'+objectKey;
+    if(!ref)throw Error('R2_NOT_CONFIGURED');
+    if(seen.has(ref))throw Error('UPLOAD_CLAIM_DUPLICATE');
+    seen.add(ref);
+    const backup=item?.backup;
+    if(storage==='r2'&&r2BackupEnabled()&&!backup)throw Error('R2_TRIAL_BACKUP_REQUIRED');
+    const mode=storage==='r2'&&backup?'r2-backup':storage;
+    const expected=await evidenceSignature(actor,requestId,bucket,path,expiresAt,mode);
+    if(!same(expected,proof))throw Error('UPLOAD_CLAIM_INVALID');
+    if(storage==='r2'){
+      const r2Length=await r2Media.verifyUpload(objectKey);
+      if(backup){
+        const backupExpires=Number(backup.expiresAt);
+        if(backup.storage!=='supabase'||clean(backup.path)!==path||!Number.isSafeInteger(backupExpires)||backupExpires<Date.now()||backupExpires>Date.now()+2*60*60*1000||!/^[0-9a-f]{64}$/.test(clean(backup.proof)))
+          throw Error('UPLOAD_BACKUP_CLAIM_INVALID');
+        const backupProof=await evidenceSignature(actor,requestId,bucket,path,backupExpires,'supabase');
+        if(!same(backupProof,clean(backup.proof)))throw Error('UPLOAD_BACKUP_CLAIM_INVALID');
+        const backupLength=await verifySupabase(bucket,path);
+        if(backupLength!==r2Length)throw Error('R2_BACKUP_SIZE_MISMATCH');
+      }
+      return ref;
+    }
+    await verifySupabase(bucket,path);
     return ref;
   };
   result.samples=await Promise.all(samples.map(item=>check(item,'sample')));
@@ -146,13 +209,55 @@ async function verifyStagedUploads({actor,requestId,samples=[],bills=[]}){
 }
 
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
-const uploadEvidenceImages=operationStorage.uploadImages;
+async function uploadEvidenceImages(files,bucket){
+  if(!r2WriteEnabled())return operationStorage.uploadImages(files,bucket);
+  if(!r2Media)throw Error('R2_NOT_CONFIGURED');
+  const kind=bucket==='order-images'?'sample':bucket==='settlement-bills'?'bill':null;
+  if(!kind)throw Error('IMAGE_INVALID');
+  const backupEnabled=r2BackupEnabled();
+  const images=(files||[]).map(file=>{
+    const match=String(file?.data||'').match(/^data:(image\/(?:jpeg|png|webp));base64,([\s\S]+)$/);
+    if(!match)throw Error('File ảnh không hợp lệ.');
+    const bytes=Uint8Array.from(atob(match[2]),c=>c.charCodeAt(0));
+    if(!bytes.length||bytes.length>5*1024*1024)throw Error('Mỗi ảnh cần dung lượng 1 byte–5 MB.');
+    const extension=match[1]==='image/jpeg'?'jpg':match[1].split('/')[1];
+    const objectKey=r2Media.key(kind,crypto.randomUUID()+'.'+extension);
+    return {bytes,type:match[1],objectKey,ref:r2Media.reference(objectKey)};
+  });
+  const uploaded=[],backups=[];
+  try{
+    for(let offset=0;offset<images.length;offset+=3){
+      const results=await Promise.allSettled(images.slice(offset,offset+3).map(async image=>{
+        if(backupEnabled){
+          const backupRef='supabase://'+image.objectKey;
+          backups.push(backupRef);
+          const resp=await fetch(SUPABASE_URL+'/storage/v1/object/'+image.objectKey,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY,'Content-Type':image.type,'x-upsert':'false'},body:image.bytes});
+          if(!resp.ok)throw Error('R2_TRIAL_BACKUP_WRITE_FAILED');
+        }
+        uploaded.push(image.ref);
+        const uploadUrl=await r2Media.signedUrl('PUT',image.objectKey,{expiresSeconds:900,contentType:image.type});
+        const response=await fetch(uploadUrl,{method:'PUT',headers:{'Content-Type':image.type},body:image.bytes});
+        if(!response.ok)throw Error('Không lưu được ảnh.');
+        if(backupEnabled){
+          const [r2Size,backupResponse]=await Promise.all([r2Media.verifyUpload(image.objectKey),fetch(SUPABASE_URL+'/storage/v1/object/authenticated/'+image.objectKey,{method:'HEAD',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY}})]);
+          if(!backupResponse.ok||Number(backupResponse.headers.get('content-length'))!==r2Size)throw Error('R2_TRIAL_BACKUP_VERIFY_FAILED');
+        }
+      }));
+      const failed=results.find(x=>x.status==='rejected');if(failed)throw failed.reason;
+    }
+    return images.map(x=>x.ref);
+  }catch(error){
+    await Promise.allSettled([...(uploaded.map(ref=>r2Media.discard(ref))),operationStorage.discard(backups)]);
+    throw error;
+  }
+}
 async function settlementMap(ids){if(!ids.length)return {};const unique=[...new Set(ids)],parts=[];for(let i=0;i<unique.length;i+=30){const chunk=unique.slice(i,i+30);parts.push(all('settlement_requests',{order_id:'in.('+chunk.map(id=>'"'+String(id).replaceAll('"','')+'"').join(',')+')',order:'submitted_at.desc'}))}const rows=(await Promise.all(parts)).flat(),map={};for(const row of rows)if(!map[row.order_id])map[row.order_id]=row;return map}
 function fulfillmentStatus(row){return row.status==='Đã bó'?(row.shipping==='Ghé lấy'?'Chờ lấy':'Chờ giao'):row.status}
 function decorate(row,user,settlement,dir){const contact=contactFields(row),acc=accessoryTotal(row),ship=norm(row.shipping).includes('shop')&&row.ship_confirmed?num(row.ship_fee):0,base=num(row.flower_total)+acc+num(row.vat),total=base+ship,fullPaid=!!row.full_paid,verified=!!row.settled||fullPaid,paid=fullPaid?(num(row.full_paid_total)||total):paidAmount(row.payment,num(row.flower_total),row.settled?total:0),ss=fullPaid?'AUTO_FULL_PAID':(settlement?.status||'NONE'),locked=!!row.settled||['PENDING','APPROVED'].includes(ss),canon=canonicalSale(row.sale,dir),owner=canon.known&&saleKey(canon.username)===saleKey(user.username),canEdit=!locked&&(user.role!=='SALE'||owner);return {id:row.id,updatedAt:row.updated_at,sourceSheet:row.source_sheet||'',sourceRow:row.source_row||0,customer:row.customer,phone:contact.phone,date:row.order_date,time:cleanTime(row.order_time),flower:row.flower,imageUrls:row.image_urls||[],driveUrls:row.image_urls||[],note:row.note,shipping:row.shipping,address:contact.address,flowerTotal:num(row.flower_total),payment:row.payment,paid,sale:canon.displayName,saleUsername:canon.username,settled:!!row.settled,fullPaid,fullPaidTotal:num(row.full_paid_total),fullPaidBillUrls:row.full_paid_bill_urls||[],fullPaidBy:clean(row.full_paid_by),fullPaidAt:row.full_paid_at||null,fullPaidInvalidatedAt:row.full_paid_invalidated_at||null,fullPaidInvalidatedReason:clean(row.full_paid_invalidated_reason),paymentVerified:verified,verificationMode:fullPaid?'FULL_PAID_AUTO':(row.settled?'PAYMENT_CHECK':''),status:fulfillmentStatus(row),shipFee:num(row.ship_fee),shipConfirmed:!!row.ship_confirmed,shipFeePending:norm(row.shipping).includes('shop')&&!row.ship_confirmed,card:!!row.card,cardQty:cardQty(row),cardFee:cardQty(row)*10000,cardText:row.card_text,banner:!!row.banner,bannerQty:bannerQty(row),bannerText:row.banner_text,charmFee:num(row.charm_fee),charmText:row.charm_text,paperFee:num(row.paper_fee),paperText:row.paper_text,vat:num(row.vat),accessoryTotal:acc,totalDue:total,debt:verified?0:Math.max(0,total-paid),hasAccessories:acc>0,settlementStatus:ss,settlementRequestId:settlement?.id||'',settlementReason:settlement?.rejection_reason||'',locked,canEdit,canShip:!locked,canOperate:!locked&&['ADMIN','THO_OPS'].includes(user.role),canSubmitSettlement:owner&&!locked&&!fullPaid&&row.status==='Đã giao',detailLoaded:true}}
 
 
-const operations=createOperationService({db,one,uploadImages:uploadEvidenceImages,discardImages:operationStorage.discard,verifyStagedUploads,sha256,newId:prefix=>prefix+'-'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase()});
+async function discardEvidence(urls){const backups=(urls||[]).map(url=>r2Media?.parseReference(url)).filter(Boolean).map(key=>'supabase://'+key);await operationStorage.discard([...(urls||[]),...backups]);if(r2Media)for(const url of urls||[])await r2Media.discard(url)}
+const operations=createOperationService({db,one,uploadImages:uploadEvidenceImages,discardImages:discardEvidence,verifyStagedUploads,sha256,newId:prefix=>prefix+'-'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase()});
 async function operationResult(action,payload,user){
   const result=await operations.run(action,payload,user);
   if(!result?.ok)return result;
@@ -172,7 +277,7 @@ async function fastOrder(payload){
  const user=await requireUser(payload,['ADMIN','SALE','THO_OPS']),id=clean(payload.orderId),row=await one('orders',{id:`eq.${id}`});
  if(!row)return fail('Không tìm thấy đơn.');
  const index=Number(payload.refreshPreviewIndex),original=Number.isInteger(index)&&index>=0&&index<(row.image_urls||[]).length?row.image_urls[index]:'';
- const preview=/^supabase:\/\/order-images\/[0-9a-f-]{36}\.jpg$/.test(String(original||''))?previewSource(original):'';
+ const preview=/^(?:supabase:\/\/order-images|r2:\/\/[a-z0-9-]+\/order-images)\/[0-9a-f-]{36}\.jpg$/.test(String(original||''))?previewSource(original):'';
  if(preview)signedImageUrls.delete(preview);
  const [dir,sm,images,bills,freshPreview]=await Promise.all([saleDirectory(),settlementMap([id]),displayUrls(row.image_urls||[]),displayUrls(row.full_paid_bill_urls||[]),preview?signedImageUrl(preview):Promise.resolve('')]);
  const shown=decorate({...row,image_urls:images},user,sm[id],dir);shown.fullPaidBillUrls=bills;
