@@ -15,6 +15,14 @@ const ALLOWED=['https://ops.meehoasg.com','http://ops.meehoasg.com','https://mee
 const R2_UPLOADS_ENABLED=Deno.env.get('R2_UPLOADS_ENABLED')==='true';
 const R2_READS_ENABLED=Deno.env.get('R2_READS_ENABLED')==='true';
 const r2Media=(R2_UPLOADS_ENABLED||R2_READS_ENABLED)&&Deno.env.get('R2_ACCESS_KEY_ID')?createR2Media({accountId:Deno.env.get('R2_ACCOUNT_ID'),accessKeyId:Deno.env.get('R2_ACCESS_KEY_ID'),secretAccessKey:Deno.env.get('R2_SECRET_ACCESS_KEY'),bucket:Deno.env.get('R2_MEDIA_BUCKET')}):null;
+const R2_TRIAL_BACKUP_ENABLED=Deno.env.get('R2_TRIAL_BACKUP_ENABLED')==='true';
+const R2_TRIAL_START_AT=Deno.env.get('R2_TRIAL_START_AT')||'';
+const R2_TRIAL_START_MS=Date.parse(R2_TRIAL_START_AT);
+const R2_TRIAL_END_MS=R2_TRIAL_START_MS+72*60*60*1000;
+// After 72h, trial uploads revert to Supabase; they never become R2-only without another approval.
+function r2TrialActive(now=Date.now()){return R2_TRIAL_BACKUP_ENABLED&&Number.isFinite(R2_TRIAL_START_MS)&&now>=R2_TRIAL_START_MS&&now<R2_TRIAL_END_MS}
+function r2WriteEnabled(){return R2_UPLOADS_ENABLED&&(!R2_TRIAL_BACKUP_ENABLED||r2TrialActive())}
+function r2BackupEnabled(){return R2_UPLOADS_ENABLED&&r2TrialActive()}
 
 function clean(v){return String(v??'').trim()}
 function num(v){if(typeof v==='number')return Number.isFinite(v)?v:0;let raw=String(v??'0').replace(/[^\d.,-]/g,'');if(raw.includes(',')&&raw.includes('.'))raw=raw.replaceAll('.','').replace(',','.');else if(/^-?\d{1,3}(?:[.,]\d{3})+$/.test(raw))raw=raw.replace(/[.,]/g,'');else raw=raw.replace(',','.');const n=Number(raw);return Number.isFinite(n)?n:0}
@@ -53,25 +61,35 @@ function paidAmount(payment,base,settled){if(settled>0)return settled;const text
 function contactFields(row){const contact=clean(row.address);const p=contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);return {phone:clean(row.phone)||(p?clean(p[1]):''),address:contact.replace(/(?:SĐT|SDT)\s*:\s*[^\n]+\n?/i,'').replace(/^Địa chỉ\s*:\s*/i,'').trim()}}
 const signedImageUrls=new Map();
 async function signedImageUrl(url){
- const r2Key=r2Media?.parseReference(url);
- const m=String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
- if(!m&&!r2Key)return url;
+ const value=String(url);
+ const m=value.match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
+ // A private R2 reference uses the same object key as its Supabase trial backup.
+ const r2=value.match(/^r2:\/\/([a-z0-9-]+)\/(order-images|settlement-bills)\/([0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp))$/);
+ const fallback=r2&&r2[1]===Deno.env.get('R2_MEDIA_BUCKET')?[r2[2],r2[3]]:(m?[m[1],m[2]]:null);
+ if(!fallback)return url;
  const now=Date.now(),cached=signedImageUrls.get(url);
  if(cached&&cached.expiresAt>now)return cached.value;
  if(cached?.pending)return cached.pending;
  const pending=(async()=>{
-  if(r2Key){const value=await r2Media.signedUrl('GET',r2Key,{expiresSeconds:3600});if(signedImageUrls.size>=500)signedImageUrls.clear();signedImageUrls.set(url,{value,expiresAt:Date.now()+45*60*1000});return value;}
-  if(m&&R2_READS_ENABLED&&r2Media){
-   const objectKey=`${m[1]}/${m[2]}`;
-   if(await r2Media.exists(objectKey)){const value=await r2Media.signedUrl('GET',objectKey,{expiresSeconds:3600});if(signedImageUrls.size>=500)signedImageUrls.clear();signedImageUrls.set(url,{value,expiresAt:Date.now()+45*60*1000});return value;}
+  const r2Key=r2Media?.parseReference(value);
+  const objectKey=r2Key||fallback.join('/');
+  if(R2_READS_ENABLED&&r2Media){
+   try{
+    if(await r2Media.exists(objectKey)){
+      const signed=await r2Media.signedUrl('GET',objectKey,{expiresSeconds:3600});
+      if(signedImageUrls.size>=500)signedImageUrls.clear();
+      signedImageUrls.set(url,{value:signed,expiresAt:Date.now()+45*60*1000});
+      return signed;
+    }
+   }catch(error){console.warn('R2_READ_FALLBACK_TO_SUPABASE',String(error?.message||error).slice(0,80))}
   }
-  const r=await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${m[1]}/${m[2]}`,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});
+  const r=await fetch(SUPABASE_URL+'/storage/v1/object/sign/'+fallback[0]+'/'+fallback[1],{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});
   if(!r.ok)return null;
-  const s=await r.json();
-  const value=`${SUPABASE_URL}/storage/v1${s.signedURL}`;
+  const data=await r.json();
+  const signed=SUPABASE_URL+'/storage/v1'+data.signedURL;
   if(signedImageUrls.size>=500)signedImageUrls.clear();
-  signedImageUrls.set(url,{value,expiresAt:Date.now()+45*60*1000});
-  return value;
+  signedImageUrls.set(url,{value:signed,expiresAt:Date.now()+45*60*1000});
+  return signed;
  })();
  signedImageUrls.set(url,{pending});
  try{return await pending}catch(error){signedImageUrls.delete(url);throw error}
@@ -93,7 +111,7 @@ let evidenceProofKey;
 async function evidenceSignature(actor,requestId,bucket,path,expiresAt,storage='supabase'){
   if(!evidenceProofKey)evidenceProofKey=crypto.subtle.importKey('raw',new TextEncoder().encode('meehoa-upload-proof-v1:'+SERVICE_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   const key=await evidenceProofKey;
-  const parts=[actor,requestId,bucket,path,String(expiresAt)];if(storage==='r2')parts.push('r2');
+  const parts=[actor,requestId,bucket,path,String(expiresAt)];if(storage==='r2'||storage==='r2-backup')parts.push(storage);
   const mac=await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(parts.join('|')));
   return [...new Uint8Array(mac)].map(n=>n.toString(16).padStart(2,'0')).join('');
 }
