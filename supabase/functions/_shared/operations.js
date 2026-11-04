@@ -36,7 +36,18 @@ export function normalizeOperationOrder(input,user,current={}) {
 }
 export function privateImageIdentity(value){
   const s=clean(value);let m=s.match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
+  if(!m)m=s.match(/^r2:\/\/[a-z0-9-]+\/(order-images|settlement-bills)\/(.+)$/);
   if(!m)m=s.match(/\/storage\/v1\/object\/(?:sign|public)\/(order-images|settlement-bills)\/([^?]+)/);
+  if(!m){
+    // With R2 reads enabled, the UI receives an S3 presigned URL, but the
+    // order still stores the private Supabase ref. Compare by the object key;
+    // the saved order's own image allow-list remains the ownership check.
+    try{
+      const url=new URL(s);
+      if(url.protocol==='https:'&&/^[0-9a-f]{32}\.r2\.cloudflarestorage\.com$/i.test(url.hostname)&&url.searchParams.has('X-Amz-Signature'))
+        m=url.pathname.match(/^\/[a-z0-9-]+\/(order-images|settlement-bills)\/([0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp))$/i);
+    }catch(_){/* Preserve unknown image identity; do not bypass ownership. */}
+  }
   return m?`supabase://${m[1]}/${decodeURIComponent(m[2])}`:s;
 }
 function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(k=>[k,stable(value[k])]));return value;}
