@@ -122,20 +122,25 @@ async function prepareOrderUploads(payload){
     return fail('Thông tin tải ảnh không hợp lệ.','UPLOAD_INPUT_INVALID');
   const tasks=[...Array(samples).fill('sample'),...Array(bills).fill('bill')],tickets=[];
   const expiresAt=Date.now()+110*60*1000; // safely shorter than Storage's 2-hour ticket
-  const signUpload=async(bucket,path)=>{
-    if(R2_UPLOADS_ENABLED){
-      if(!r2Media)throw Error('R2_NOT_CONFIGURED');
-      const objectKey=r2Media.key(bucket==='order-images'?'sample':'bill',path);
-      const r2ExpiresAt=Date.now()+14*60*1000;
-      return {path,storage:'r2',expiresAt:r2ExpiresAt,proof:await evidenceSignature(user.username,requestId,bucket,path,r2ExpiresAt,'r2'),uploadUrl:await r2Media.signedUrl('PUT',objectKey,{expiresSeconds:900,contentType:'image/jpeg'})};
-    }
-    const response=await fetch(`${SUPABASE_URL}/storage/v1/object/upload/sign/${bucket}/${path}`,{
-      method:'POST',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json'},body:'{}'
+  const signSupabase=async(bucket,path)=>{
+    const response=await fetch(SUPABASE_URL+'/storage/v1/object/upload/sign/'+bucket+'/'+path,{
+      method:'POST',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY,'Content-Type':'application/json'},body:'{}'
     });
     if(!response.ok)throw Error('Không cấp được quyền tải ảnh lên.');
     const data=await response.json(),signedPath=String(data.url||'');
-    if(!signedPath.startsWith(`/object/upload/sign/${bucket}/${path}?`)||!signedPath.includes('token='))throw Error('Storage không trả về URL tải ảnh hợp lệ.');
-    return {path,expiresAt,proof:await evidenceSignature(user.username,requestId,bucket,path,expiresAt),uploadUrl:`${SUPABASE_URL}/storage/v1${signedPath}`};
+    if(!signedPath.startsWith('/object/upload/sign/'+bucket+'/'+path+'?')||!signedPath.includes('token='))throw Error('Storage không trả về URL tải ảnh hợp lệ.');
+    return {path,storage:'supabase',expiresAt,proof:await evidenceSignature(user.username,requestId,bucket,path,expiresAt),uploadUrl:SUPABASE_URL+'/storage/v1'+signedPath};
+  };
+  const signUpload=async(bucket,path)=>{
+    if(r2WriteEnabled()){
+      if(!r2Media)throw Error('R2_NOT_CONFIGURED');
+      const backup=r2BackupEnabled()?await signSupabase(bucket,path):null;
+      const objectKey=r2Media.key(bucket==='order-images'?'sample':'bill',path);
+      const r2ExpiresAt=backup?Math.min(Date.now()+14*60*1000,R2_TRIAL_END_MS):Date.now()+14*60*1000;
+      const ttl=Math.max(1,Math.floor((r2ExpiresAt-Date.now())/1000));
+      return {path,storage:'r2',expiresAt:r2ExpiresAt,proof:await evidenceSignature(user.username,requestId,bucket,path,r2ExpiresAt,backup?'r2-backup':'r2'),uploadUrl:await r2Media.signedUrl('PUT',objectKey,{expiresSeconds:ttl,contentType:'image/jpeg'}),...(backup?{backup}:{})};
+    }
+    return signSupabase(bucket,path);
   };
   for(let i=0;i<tasks.length;i+=3){
     const batch=await Promise.all(tasks.slice(i,i+3).map(async kind=>{
@@ -150,24 +155,43 @@ async function prepareOrderUploads(payload){
 async function verifyStagedUploads({actor,requestId,samples=[],bills=[]}){
   if(samples.length>10||bills.length>10)throw Error('UPLOAD_INPUT_INVALID');
   const seen=new Set(),result={samples:[],bills:[],previews:[]};
+  const verifySupabase=async(bucket,path)=>{
+    const response=await fetch(SUPABASE_URL+'/storage/v1/object/authenticated/'+bucket+'/'+path,{
+      method:'HEAD',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY}
+    });
+    const length=Number(response.headers.get('content-length'));
+    if(!response.ok||!Number.isFinite(length)||length<1||length>5*1024*1024)throw Error('UPLOAD_NOT_READY');
+    return length;
+  };
   const check=async(item,kind)=>{
     const bucket=evidenceBuckets[kind],path=clean(item?.path),expiresAt=Number(item?.expiresAt),proof=clean(item?.proof);
     const storage=item?.storage==='r2'?'r2':'supabase';
     if(!/^[0-9a-f-]{36}(?:\.preview)?\.jpg$/.test(path)||!Number.isSafeInteger(expiresAt)||expiresAt<Date.now()||expiresAt>Date.now()+2*60*60*1000||!/^[0-9a-f]{64}$/.test(proof))
       throw Error('UPLOAD_CLAIM_INVALID');
-    const objectKey=`${bucket}/${path}`;
-    const ref=storage==='r2'?r2Media?.reference(objectKey):`supabase://${bucket}/${path}`;
+    const objectKey=bucket+'/'+path;
+    const ref=storage==='r2'?r2Media?.reference(objectKey):'supabase://'+objectKey;
     if(!ref)throw Error('R2_NOT_CONFIGURED');
     if(seen.has(ref))throw Error('UPLOAD_CLAIM_DUPLICATE');
     seen.add(ref);
-    const expected=await evidenceSignature(actor,requestId,bucket,path,expiresAt,storage);
+    const backup=item?.backup;
+    if(storage==='r2'&&r2BackupEnabled()&&!backup)throw Error('R2_TRIAL_BACKUP_REQUIRED');
+    const mode=storage==='r2'&&backup?'r2-backup':storage;
+    const expected=await evidenceSignature(actor,requestId,bucket,path,expiresAt,mode);
     if(!same(expected,proof))throw Error('UPLOAD_CLAIM_INVALID');
-    if(storage==='r2'){await r2Media.verifyUpload(objectKey);return ref;}
-    const response=await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${bucket}/${path}`,{
-      method:'HEAD',headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`}
-    });
-    const length=Number(response.headers.get('content-length'));
-    if(!response.ok||!Number.isFinite(length)||length<1||length>5*1024*1024)throw Error('UPLOAD_NOT_READY');
+    if(storage==='r2'){
+      const r2Length=await r2Media.verifyUpload(objectKey);
+      if(backup){
+        const backupExpires=Number(backup.expiresAt);
+        if(backup.storage!=='supabase'||clean(backup.path)!==path||!Number.isSafeInteger(backupExpires)||backupExpires<Date.now()||backupExpires>Date.now()+2*60*60*1000||!/^[0-9a-f]{64}$/.test(clean(backup.proof)))
+          throw Error('UPLOAD_BACKUP_CLAIM_INVALID');
+        const backupProof=await evidenceSignature(actor,requestId,bucket,path,backupExpires,'supabase');
+        if(!same(backupProof,clean(backup.proof)))throw Error('UPLOAD_BACKUP_CLAIM_INVALID');
+        const backupLength=await verifySupabase(bucket,path);
+        if(backupLength!==r2Length)throw Error('R2_BACKUP_SIZE_MISMATCH');
+      }
+      return ref;
+    }
+    await verifySupabase(bucket,path);
     return ref;
   };
   result.samples=await Promise.all(samples.map(item=>check(item,'sample')));
