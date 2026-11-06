@@ -1,0 +1,16 @@
+{
+  "source": "supabase-billing-verified",
+  "sourceMethod": "Supabase Dashboard > Organization Usage > Current billing cycle > All projects",
+  "sourceUrl": "https://supabase.com/dashboard/org/wrrijfopxqixxvovsajd/usage",
+  "scope": "organization",
+  "scopeId": "wrrijfopxqixxvovsajd",
+  "cycleStart": "2026-10-14",
+  "cycleEnd": "2026-11-14",
+  "observedAt": "2026-10-26T15:02:27Z",
+  "uncachedGB": 22.181,
+  "cachedGB": 0.248,
+  "displayedUncached": "22,181 / 250 GB",
+  "displayedCached": "0,248 / 250 GB",
+  "dashboardRefreshLag": "up to 1 hour",
+  "note": "Dashboard gives billing-cycle dates without a timezone; dates are recorded exactly as displayed. No project filter was applied. Current Pro usage is not a Free-plan eligibility result."
+}
