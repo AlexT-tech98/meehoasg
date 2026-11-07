@@ -1,0 +1,40 @@
+name: MEEHOA R2 Staging Private Smoke (test only)
+
+on:
+  push:
+    branches:
+      - test/r2-presigned-security-rollback-20261104
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-r2-staging:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Strict staging-only guard
+        shell: bash
+        run: |
+          test "$GITHUB_REF_NAME" = "test/r2-presigned-security-rollback-20261104" || { echo 'QA_BRANCH_ONLY'; exit 1; }
+          grep -q 'meehoasg-media-staging' scripts/r2-staging-smoke.cjs
+          echo 'Production R2 and OPS flags are not part of this workflow.'
+      - name: Run real R2 test with 1px fake PNGs and cleanup
+        env:
+          R2_TEST_ACCOUNT_ID: 1e6471cd334eaedfa609d98fa1442466
+          R2_TEST_ACCESS_KEY_ID: ${{ secrets.MEEHOA_R2_QA_KEY_ID }}
+          R2_TEST_SECRET_ACCESS_KEY: ${{ secrets.MEEHOA_R2_QA_SECRET }}
+        run: node scripts/r2-staging-smoke.cjs
+      - name: Upload sanitized PASS/FAIL evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2-staging-security-smoke-${{ github.sha }}
+          path: r2-staging-smoke-results.json
+          if-no-files-found: ignore
