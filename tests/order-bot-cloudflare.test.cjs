@@ -31,6 +31,7 @@ function createMockD1() {
   const sqlite = new DatabaseSync(':memory:');
   const schema = fs.readFileSync('order-bot/cloudflare/schema.sql', 'utf8');
   sqlite.exec(schema);
+  sqlite.exec('CREATE TABLE IF NOT EXISTS orders (row_key TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)));');
 
   const makeStmt = (sql, boundArgs = []) => ({
     bind(...args) {
@@ -242,11 +243,12 @@ test('Scenario 3: Concurrent messages are serialized by D1 lock without data los
   assert.equal(res1.status, 200);
   assert.equal(res2.status, 200);
 
-  // Verify database state is valid and consistent (no corruption)
+  // Verify database state is valid and consistent (both concurrent messages processed)
   const drafts = await loadDrafts(db, 5252724920);
   const active = drafts[drafts.__active];
   assert.ok(active);
-  assert.ok(active.fields.customer || active.fields.flower);
+  assert.equal(active.fields.customer, 'Chị Minh');
+  assert.equal(active.fields.flower, 'Bó tulip trắng');
 });
 
 test('Scenario 4: Telegram resends update -> deduplicated by update_id', async () => {
@@ -762,6 +764,152 @@ test('Scenario 15: Image exceeding 5MB or download failure aborts confirmation i
   const active = drafts[drafts.__active];
   // Must reject photo
   assert.equal(active.sampleRefs.length, 0);
+});
+
+test('Scenario 16: Unverified bill is permanently linked directly into D1 orders table upon /confirm', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { linkUnverifiedBillsToD1Order } = await import('../order-bot/cloudflare/d1-store.mjs');
+
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const createdOrderId = 'MEE-STAGING-BILL-01';
+
+  // Seed existing order in D1 orders table
+  await db.prepare('INSERT INTO orders (row_key, data) VALUES (?, ?)').bind(
+    createdOrderId,
+    JSON.stringify({
+      id: createdOrderId,
+      customer: 'Chị Mai',
+      flower: 'Bó hướng dương',
+      payment: 'Chưa thanh toán',
+      full_paid: false,
+      note: 'Giao giờ hành chính',
+      unverified_bill_urls: []
+    })
+  ).run();
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: 'test_ops_token',
+    OPS_API_URL: 'https://ops-staging.local/api-core',
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/getFile')) {
+      return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/bill_ck.jpg', file_size: 1024 } }));
+    }
+    if (url.includes('/file/bot')) {
+      return new Response(new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0]));
+    }
+    if (url.includes('/api-core')) {
+      return new Response(JSON.stringify({ ok: true, orderId: createdOrderId }));
+    }
+    if (url.includes('/sendMessage')) {
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  // 1. /new
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 17001,
+    message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/new' }
+  }), env);
+
+  // 2. Full info
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 17002,
+    message: {
+      chat: { id: 5252724920, type: 'private' },
+      from: { id: 5252724920 },
+      text: 'Tên: Chị Mai\nHoa: Bó hướng dương\nNgày: 2026-12-05\nGiờ: 11:00\nShip: Ghé lấy\nGiá: 650k'
+    }
+  }), env);
+
+  // 3. Bill photo
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 17003,
+    message: {
+      chat: { id: 5252724920, type: 'private' },
+      from: { id: 5252724920 },
+      photo: [{ file_id: 'bill_f1', file_unique_id: 'uniq_bill_1' }],
+      caption: 'Bill chuyển khoản'
+    }
+  }), env);
+
+  // 4. /confirm
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 17004,
+    message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+  }), env);
+
+  // Verify order in D1 orders table
+  const orderRow = await db.prepare('SELECT data FROM orders WHERE row_key = ?').bind(createdOrderId).first();
+  assert.ok(orderRow);
+  const orderData = JSON.parse(orderRow.data);
+
+  // Unverified bills must be linked
+  assert.ok(Array.isArray(orderData.unverified_bill_urls));
+  assert.equal(orderData.unverified_bill_urls.length, 1);
+  assert.match(orderData.unverified_bill_urls[0], /^supabase:\/\/settlement-bills\/unverified-/);
+
+  // Payment invariants must NOT be altered
+  assert.equal(orderData.payment, 'Chưa thanh toán');
+  assert.equal(orderData.full_paid, false);
+
+  // Note must be tagged
+  assert.match(orderData.note, /Bill đính kèm/);
+});
+
+test('Scenario 17: Forwarded rapid messages queue sequentially via withLock backoff without dropping updates', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+
+  const db = createMockD1();
+  const env = {
+    DB: db,
+    BOT_TOKEN: 'fake_bot_token',
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }));
+
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 18001,
+    message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/new' }
+  }), env);
+
+  // Simulate 3 rapid incoming messages sent concurrently in an album/forward batch
+  const promises = [
+    handleTelegramWebhook(makeWebhookRequest({
+      update_id: 18002,
+      message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: 'Tên: Khách VIP' }
+    }), env),
+    handleTelegramWebhook(makeWebhookRequest({
+      update_id: 18003,
+      message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: 'Hoa: Lẵng hoa lan' }
+    }), env),
+    handleTelegramWebhook(makeWebhookRequest({
+      update_id: 18004,
+      message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: 'Giá: 1.8tr' }
+    }), env)
+  ];
+
+  const results = await Promise.all(promises);
+  for (const res of results) {
+    assert.equal(res.status, 200);
+  }
+
+  const drafts = await loadDrafts(db, 5252724920);
+  const active = drafts[drafts.__active];
+  assert.equal(active.fields.customer, 'Khách VIP');
+  assert.equal(active.fields.flower, 'Lẵng hoa lan');
+  assert.equal(active.fields.flowerTotal, '1800000');
 });
 
 test('Performance / CPU Benchmark: Worker synchronous CPU time is well under 10ms Free limit', async () => {

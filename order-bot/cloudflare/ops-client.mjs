@@ -21,6 +21,11 @@
  */
 export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [], unverifiedBillFiles = [], fetcher = fetch) {
   const f = draft.fields || {};
+  let note = String(f.note || '').trim();
+  if (unverifiedBillFiles.length > 0 && !note.includes('Bill đính kèm')) {
+    const billTag = `[🧾 Đính kèm ${unverifiedBillFiles.length} bill chưa xác minh]`;
+    note = note ? `${note} ${billTag}` : billTag;
+  }
 
   // Construct payload adhering strictly to OPS createOrder schema
   const payload = {
@@ -34,7 +39,7 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
         order_date: String(f.date || '').trim(),
         order_time: String(f.time || '').trim(),
         flower: String(f.flower || '').trim(),
-        note: String(f.note || '').trim(),
+        note: note,
         shipping: String(f.shipping || '').trim(),
         address: String(f.address || '').trim(),
         flower_total: Number(f.flowerTotal) || 0,

@@ -107,17 +107,31 @@ export async function releaseLock(db, userId) {
 
 /**
  * Execute a function within a per-user concurrency lock.
- * Automatically acquires and releases the lock.
+ * Uses a retry backoff loop (up to maxWaitMs) so concurrent webhook messages
+ * (e.g. albums, rapid forwarded messages) are queued and executed sequentially
+ * instead of being dropped.
+ *
  * @param {object} db - Cloudflare D1 Database binding
  * @param {number|string} userId - Telegram user ID
  * @param {Function} fn - Async callback to execute while holding lock
+ * @param {number} [maxWaitMs=3500] - Maximum milliseconds to wait for lock
+ * @param {number} [pollIntervalMs=150] - Poll interval in milliseconds
  * @returns {Promise<{ok: boolean, result?: any, busy?: boolean}>}
  */
-export async function withLock(db, userId, fn) {
-  const locked = await acquireLock(db, userId, 30);
+export async function withLock(db, userId, fn, maxWaitMs = 3500, pollIntervalMs = 150) {
+  const start = Date.now();
+  let locked = false;
+
+  while (!locked && (Date.now() - start < maxWaitMs)) {
+    locked = await acquireLock(db, userId, 30);
+    if (locked) break;
+    await new Promise(r => setTimeout(r, pollIntervalMs));
+  }
+
   if (!locked) {
     return { ok: false, busy: true };
   }
+
   try {
     const res = await fn();
     return { ok: true, result: res };
@@ -235,3 +249,44 @@ export async function logAudit(db, userId, action, draftId = null, requestId = n
     console.warn('[d1-store] logAudit failed:', err);
   }
 }
+
+/**
+ * Permanently links unverified bill images directly into the official OPS order in D1.
+ * Ensures the order record in table `orders` has `unverified_bill_urls` populated and tagged,
+ * without modifying any payment invariants (payment remains "Chưa thanh toán", full_paid remains false).
+ *
+ * @param {object} db - Cloudflare D1 Database binding
+ * @param {string} orderId - OPS Order ID (e.g. MEE-...)
+ * @param {Array<object>} billRefs - Array of draft bill references
+ * @returns {Promise<{linked: number, uris?: string[], error?: string}>}
+ */
+export async function linkUnverifiedBillsToD1Order(db, orderId, billRefs = []) {
+  if (!db || !orderId || !billRefs.length) return { linked: 0 };
+  const billUris = billRefs
+    .map(b => b.uri || (b.r2_key ? `supabase://${b.r2_key}` : (b.url || null)))
+    .filter(Boolean);
+  if (!billUris.length) return { linked: 0 };
+
+  try {
+    const row = await db.prepare('SELECT data FROM orders WHERE row_key = ?').bind(orderId).first();
+    if (!row || !row.data) return { linked: 0 };
+
+    const data = JSON.parse(row.data);
+    const existing = Array.isArray(data.unverified_bill_urls) ? data.unverified_bill_urls : [];
+    const combined = [...new Set([...existing, ...billUris])];
+    data.unverified_bill_urls = combined;
+
+    // Append indicator tag to order note if not already tagged
+    if (!String(data.note || '').includes('Bill đính kèm')) {
+      const tag = `[🧾 Bill đính kèm: ${billUris.length} bill chưa xác minh]`;
+      data.note = data.note ? `${data.note} ${tag}` : tag;
+    }
+
+    await db.prepare('UPDATE orders SET data = ? WHERE row_key = ?').bind(JSON.stringify(data), orderId).run();
+    return { linked: billUris.length, uris: combined };
+  } catch (err) {
+    console.error(`[d1-store] Failed to link unverified bills to order ${orderId}:`, err);
+    return { linked: 0, error: err.message };
+  }
+}
+

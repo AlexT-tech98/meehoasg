@@ -149,8 +149,8 @@ Bộ parser tự động chuẩn hóa:
 - [x] Thư mục dữ liệu `order-bot/data/` được thêm vào `.gitignore`.
 - [x] 90/90 unit & integration tests chuyên biệt của bot đạt.
 - [x] 13/13 test kịch bản thực tế đặt hoa (Phase 2) đạt.
-- [x] 16/16 test Cloudflare Workers D1/R2/Webhook và benchmark CPU đạt.
-- [x] Toàn bộ test suite dự án đạt (448 pass, 0 fail, 3 skip).
+- [x] 18/18 test Cloudflare Workers D1/R2/Webhook, bill-linking và benchmark CPU đạt.
+- [x] Toàn bộ test suite dự án đạt (450 pass, 0 fail, 3 skip).
 
 ---
 
@@ -174,7 +174,8 @@ Telegram Webhook -> Cloudflare Worker (meehoa-order-bot-staging)
 - **Runtime**: Cloudflare Workers (`nodejs_compat`, compatibility date `2026-11-21`).
 - **Lưu trữ đơn nháp**: Cloudflare D1 (`meehoasg-ops-staging`), bảng `bot_drafts`, `bot_processed_updates`, `bot_audit_logs`.
 - **Lưu trữ ảnh**: Cloudflare R2 (`meehoasg-media-staging`), lưu trực tiếp ảnh mẫu vào `order-images/` và bill vào `settlement-bills/`.
-- **CPU Time đo được**: Trung bình ~0.52 ms/yêu cầu (giới hạn Cloudflare Free là 10 ms).
+- **Liên kết Bill vào Đơn OPS**: Tự động lưu `unverified_bill_urls` trực tiếp vào bảng `orders` của OPS trong D1 và gắn tag chỉ dẫn vào trường `note`. Giữ nguyên bất biến thanh toán (`Chưa thanh toán`, không tự tất toán).
+- **CPU Time đo được**: Trung bình ~0.79 ms/yêu cầu (giới hạn Cloudflare Free là 10 ms).
 - **Chi phí dự kiến**: **0 VNĐ / $0.00 / tháng** trong hạn mức Free Tier (100.000 requests/ngày).
 
 ### 8.2. Cấu hình Wrangler & Bindings
@@ -190,9 +191,6 @@ File `order-bot/cloudflare/wrangler.toml`:
 ```bash
 # Áp dụng migration cho D1 Staging từ xa (khi được chủ sở hữu phê duyệt):
 npx wrangler d1 execute meehoasg-ops-staging --remote --file=order-bot/cloudflare/schema.sql
-
-# Rollback khi cần hoàn tác:
-npx wrangler d1 execute meehoasg-ops-staging --remote --file=order-bot/cloudflare/rollback.sql
 ```
 
 ### 8.4. Cài đặt Secrets Worker
@@ -221,7 +219,25 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
 ### 8.6. Chạy kiểm thử tự động
 
 ```bash
-# 16 bài kiểm thử toàn diện của Cloudflare Worker (D1 mock, R2 mock, security, ops, benchmark):
+# 18 bài kiểm thử toàn diện của Cloudflare Worker (D1 mock, R2 mock, security, ops, bill linking, benchmark):
 node --test tests/order-bot-cloudflare.test.cjs
 ```
+
+### 8.7. Quy trình Rollback An Toàn & Bảo Toàn Dữ Liệu
+
+> **CHÍNH SÁCH BẢO VỆ DỮ LIỆU:** Rollback vận hành chuẩn **TUYỆT ĐỐI KHÔNG DROP TABLES** trong D1. Mọi đơn nháp và vết xử lý được bảo toàn.
+
+1. **Ngừng nhận Webhook khẩn cấp:**
+   ```bash
+   curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/deleteWebhook?drop_pending_updates=true"
+   ```
+2. **Gỡ bỏ Worker:**
+   ```bash
+   cd order-bot/cloudflare && npx wrangler delete meehoa-order-bot-staging
+   ```
+3. **Dọn dẹp dữ liệu thử nghiệm (Chỉ khi được phê duyệt riêng):**
+   ```bash
+   npx wrangler d1 execute meehoasg-ops-staging --remote --file=order-bot/cloudflare/purge-test-data.sql
+   ```
+
 

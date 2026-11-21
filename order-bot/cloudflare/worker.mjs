@@ -39,7 +39,8 @@ import {
   markUpdateProcessed,
   findStaleConfirming,
   resetStaleConfirming,
-  logAudit
+  logAudit,
+  linkUnverifiedBillsToD1Order
 } from './d1-store.mjs';
 
 import {
@@ -239,6 +240,7 @@ export async function handleTelegramWebhook(request, env) {
         if (list && list.length > 0) {
           list[list.length - 1].data_url = downloadResult.base64Url;
           list[list.length - 1].r2_key = r2Key;
+          list[list.length - 1].uri = r2Key ? `supabase://${r2Key}` : null;
         }
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
         await sendTelegramMessage(env.BOT_TOKEN, chatId, result.reply, 'HTML');
@@ -357,8 +359,11 @@ export async function handleTelegramWebhook(request, env) {
   if (env.DB) {
     const lockResult = await withLock(env.DB, userId, executeProcess);
     if (lockResult.busy) {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⏳ Yêu cầu trước của bạn đang được xử lý, vui lòng chờ trong giây lát...');
-      return new Response('OK: Concurrency Guarded', { status: 200 });
+      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⏳ Hệ thống đang xử lý yêu cầu trước của bạn hoặc đang xác nhận đơn. Vui lòng thử lại sau giây lát.');
+      return new Response('Busy: Update Queued or System Confirming', {
+        status: 503,
+        headers: { 'Retry-After': '3' }
+      });
     }
     await markUpdateProcessed(env.DB, updateId, userId);
   } else {
@@ -442,6 +447,18 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   );
 
   if (opsRes.ok && opsRes.orderId) {
+    // If there are unverified bills, link them directly into the official OPS order in D1
+    if (env.DB && draft.draftBillRefs?.length) {
+      const linkResult = await linkUnverifiedBillsToD1Order(env.DB, opsRes.orderId, draft.draftBillRefs);
+      if (linkResult.linked > 0) {
+        await logAudit(env.DB, userId, 'linkBills', draft.id, confirmedDraft.requestId, {
+          orderId: opsRes.orderId,
+          linkedCount: linkResult.linked,
+          uris: linkResult.uris
+        });
+      }
+    }
+
     drafts = transitionDraftStatus(drafts, draft.id, 'submitted', {
       opsOrderId: opsRes.orderId,
       submittedAt: new Date().toISOString()
