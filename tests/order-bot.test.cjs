@@ -1971,3 +1971,69 @@ test('card text auto-enables card accessory and quantity; banner text auto-enabl
   assert.match(summary, /Thiệp \(1\): Chúc mừng sinh nhật bạn/);
   assert.match(summary, /Banner \(1\): Mừng khai trương hồng phát/);
 });
+
+
+// Regression: OPS must provide an order ID before a draft can be marked submitted.
+test('runConfirm keeps request pending when OPS success has no order ID', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const { saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+  const userId = String(700000 + Math.floor(Math.random() * 100000));
+  const draftId = randomUUID(), requestId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: { id: draftId, requestId, status: 'confirmed',
+      fields: { customer: 'A', flower: 'Hoa', date: '2026-12-05', time: '10:00', shipping: 'Ghé lấy' },
+      sampleRefs: [], draftBillRefs: [] }, __active: draftId
+  });
+  const messages = [];
+  const runner = createOrderBotRunner({
+    botToken: 'fake-bot', opsToken: 'fake-ops',
+    opsApiUrl: 'https://staging.test.invalid/api',
+    fetcher: async (url, options) => {
+      if (url.includes('/sendMessage')) {
+        messages.push(JSON.parse(options.body).text);
+        return { ok: true, json: async () => ({ ok: true, result: {} }) };
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    }
+  });
+  await runner.runConfirm(userId, userId, loadDrafts(userId));
+  const actual = loadDrafts(userId)[draftId];
+  assert.equal(actual.status, 'confirming');
+  assert.equal(actual.requestId, requestId);
+  assert.ok(messages.some(m => m.includes('thiếu mã đơn')));
+  assert.ok(!messages.some(m => m.includes('Đã tạo đơn trong OPS!')));
+});
+
+// Regression: absence of image evidence in OPS response is not reported as verified.
+test('runConfirm warns when OPS does not return sample and bill counts', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const { saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+  const userId = String(800000 + Math.floor(Math.random() * 100000));
+  const draftId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: { id: draftId, requestId: randomUUID(), status: 'confirmed',
+      fields: { customer: 'A', flower: 'Hoa', date: '2026-12-05', time: '10:00', shipping: 'Ghé lấy' },
+      sampleRefs: [{fileId:'sample'}], draftBillRefs: [{fileId:'bill'}] }, __active: draftId
+  });
+  const messages = [];
+  const runner = createOrderBotRunner({
+    botToken: 'fake-bot', opsToken: 'fake-ops',
+    opsApiUrl: 'https://staging.test.invalid/api',
+    fetcher: async (url, options) => {
+      if (url.includes('/sendMessage')) {
+        messages.push(JSON.parse(options.body).text);
+        return { ok: true, json: async () => ({ ok: true, result: {} }) };
+      }
+      if (url.includes('/getFile')) return { ok: true, json: async () => ({ ok: true, result: { file_path: 'photo.jpg' } }) };
+      if (url.includes('/photo.jpg')) return { ok: true, arrayBuffer: async () => Buffer.from('sample-photo') };
+      return { ok: true, json: async () => ({ ok: true, orderId: 'MEE-TEST-COUNT' }) };
+    }
+  });
+  await runner.runConfirm(userId, userId, loadDrafts(userId));
+  assert.equal(loadDrafts(userId)[draftId].status, 'submitted');
+  const last = messages.at(-1);
+  assert.ok(last.includes('Chưa xác minh được số ảnh'));
+  assert.ok(last.includes('Chưa xác minh được số bill'));
+});
