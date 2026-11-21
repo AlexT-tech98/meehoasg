@@ -149,4 +149,79 @@ Bộ parser tự động chuẩn hóa:
 - [x] Thư mục dữ liệu `order-bot/data/` được thêm vào `.gitignore`.
 - [x] 90/90 unit & integration tests chuyên biệt của bot đạt.
 - [x] 13/13 test kịch bản thực tế đặt hoa (Phase 2) đạt.
-- [x] 435/435 test suite toàn bộ dự án đạt (432 pass, 0 fail, 3 skip).
+- [x] 16/16 test Cloudflare Workers D1/R2/Webhook và benchmark CPU đạt.
+- [x] Toàn bộ test suite dự án đạt (448 pass, 0 fail, 3 skip).
+
+---
+
+## 8. Phiên bản Cloudflare Workers Telegram Webhook (Staging)
+
+Thư mục `order-bot/cloudflare/` cung cấp phiên bản serverless chạy hoàn toàn trên Cloudflare Workers Free Tier, loại bỏ hoàn toàn việc phụ thuộc máy chủ riêng / long polling:
+
+### 8.1. Kiến trúc thành phần
+
+```
+Telegram Webhook -> Cloudflare Worker (meehoa-order-bot-staging)
+                         |
+      +------------------+------------------+
+      |                  |                  |
+      v                  v                  v
+ D1 Database        R2 Bucket          OPS Staging
+(bot_drafts,     (sample & bill      (/api-core endpoint
+ bot_updates)     image storage)      với requestId)
+```
+
+- **Runtime**: Cloudflare Workers (`nodejs_compat`, compatibility date `2026-11-21`).
+- **Lưu trữ đơn nháp**: Cloudflare D1 (`meehoasg-ops-staging`), bảng `bot_drafts`, `bot_processed_updates`, `bot_audit_logs`.
+- **Lưu trữ ảnh**: Cloudflare R2 (`meehoasg-media-staging`), lưu trực tiếp ảnh mẫu vào `order-images/` và bill vào `settlement-bills/`.
+- **CPU Time đo được**: Trung bình ~0.52 ms/yêu cầu (giới hạn Cloudflare Free là 10 ms).
+- **Chi phí dự kiến**: **0 VNĐ / $0.00 / tháng** trong hạn mức Free Tier (100.000 requests/ngày).
+
+### 8.2. Cấu hình Wrangler & Bindings
+
+File `order-bot/cloudflare/wrangler.toml`:
+- `DB`: D1 Database `meehoasg-ops-staging` (ID: `16bf0134-64c6-43ea-8098-b40c95251667`).
+- `MEDIA_R2`: R2 Bucket `meehoasg-media-staging`.
+- `MEDIA`: KV Namespace `c483e22ad8c546c5bdf4f6711098fd04`.
+- `ALLOWED_TELEGRAM_USER_ID`: `5252724920`.
+
+### 8.3. Khởi tạo Database Schema D1
+
+```bash
+# Áp dụng migration cho D1 Staging từ xa (khi được chủ sở hữu phê duyệt):
+npx wrangler d1 execute meehoasg-ops-staging --remote --file=order-bot/cloudflare/schema.sql
+
+# Rollback khi cần hoàn tác:
+npx wrangler d1 execute meehoasg-ops-staging --remote --file=order-bot/cloudflare/rollback.sql
+```
+
+### 8.4. Cài đặt Secrets Worker
+
+```bash
+cd order-bot/cloudflare
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_SECRET_TOKEN
+npx wrangler secret put OPS_TOKEN
+npx wrangler secret put OPS_API_URL
+npx wrangler secret put GEMINI_API_KEY
+```
+
+### 8.5. Triển khai & Kích hoạt Webhook
+
+```bash
+# Triển khai Worker:
+npx wrangler deploy
+
+# Đăng ký Telegram Webhook có Secret Token xác thực:
+curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://meehoa-order-bot-staging.meehoasg.workers.dev/webhook","secret_token":"<TELEGRAM_SECRET_TOKEN>","allowed_updates":["message"]}'
+```
+
+### 8.6. Chạy kiểm thử tự động
+
+```bash
+# 16 bài kiểm thử toàn diện của Cloudflare Worker (D1 mock, R2 mock, security, ops, benchmark):
+node --test tests/order-bot-cloudflare.test.cjs
+```
+
