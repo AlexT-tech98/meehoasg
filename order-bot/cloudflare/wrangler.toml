@@ -21,3 +21,7 @@ bucket_name = "meehoasg-media-staging"
 [[kv_namespaces]]
 binding = "MEDIA"
 id = "c483e22ad8c546c5bdf4f6711098fd04"
+
+[[services]]
+binding = "OPS_SERVICE"
+service = "meehoasg-ops-staging"

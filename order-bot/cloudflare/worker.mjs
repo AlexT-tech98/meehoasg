@@ -96,11 +96,38 @@ export default {
     // 2. Status / Diagnostics endpoint (Read-only)
     if (path === '/status') {
       try {
+        let d1Test = false;
+        if (env.DB) {
+          const row = await env.DB.prepare('SELECT 1 as alive').first();
+          d1Test = row?.alive === 1;
+        }
+
+        let opsHealth = false;
+        let opsError = null;
+        try {
+          const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
+          const opsBase = (env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core').replace(/\/api-core\/?$/, '');
+          const opsRes = await fetcher(`${opsBase}/health`, { method: 'GET' });
+          if (opsRes.ok) {
+            const data = await opsRes.json();
+            opsHealth = Boolean(data?.ok);
+          } else {
+            opsError = `HTTP_${opsRes.status}`;
+          }
+        } catch (e) {
+          opsHealth = false;
+          opsError = e.message;
+        }
+
         const stale = env.DB ? await findStaleConfirming(env.DB) : [];
         return new Response(JSON.stringify({
           ok: true,
-          d1Connected: Boolean(env.DB),
+          service: 'meehoa-order-bot-staging',
+          environment: 'staging',
+          d1Connected: d1Test,
           r2Connected: Boolean(env.MEDIA_R2),
+          opsConnected: opsHealth,
+          opsError: opsError,
           staleConfirmingDrafts: stale.length,
           timestamp: new Date().toISOString()
         }), {
@@ -479,12 +506,14 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   }
 
   // 4. Call OPS Staging API
+  const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
   const opsRes = await callCreateOrder(
     env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
     env.OPS_TOKEN || '',
     drafts[draft.id],
     sampleFiles,
-    unverifiedBillFiles
+    unverifiedBillFiles,
+    fetcher
   );
 
   if (opsRes.ok && opsRes.orderId) {
