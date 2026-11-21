@@ -62,6 +62,7 @@ create table if not exists public.orders (
   paper_text text not null default '',
   vat numeric(14,2) not null default 0,
   image_urls jsonb not null default '[]'::jsonb,
+  unverified_bill_urls jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

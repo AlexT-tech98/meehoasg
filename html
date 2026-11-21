@@ -1926,6 +1926,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
       '<div class="mee-finance-row"><span>Phí ship</span><b>' + (o.shipFeePending ? '<span class="badge red">Chưa nhập</span>' : vnd(o.shipFee)) + '</b></div>' +
       '<div class="mee-finance-row"><span>' + esc(paymentLabel(o)) + '</span><b>' + vnd(o.paid) + '</b></div>' +
       (o.fullPaid?'<div class="mee-full-paid-proof"><div><b>✓ FULL PAID · TỰ XÁC NHẬN</b><small>Không vào Payment Check · Công nợ 0đ</small></div>'+(o.fullPaidBillUrls&&o.fullPaidBillUrls.length?'<div class="mee-full-paid-proof-links">'+o.fullPaidBillUrls.map(function(u,i){return '<a href="'+attr(u)+'" target="_blank">Bill '+(i+1)+'</a>';}).join('')+'</div>':'')+'</div>':'')+
+      (o.unverifiedBillUrls&&o.unverifiedBillUrls.length?'<div class="mee-unverified-proof"><div><b>🧾 BILL CHƯA XÁC MINH ('+o.unverifiedBillUrls.length+')</b><small>Chưa tính thanh toán · Chờ kế toán/Sale đối soát</small></div><div class="mee-unverified-proof-links">'+o.unverifiedBillUrls.map(function(u,i){return '<a href="'+attr(u)+'" target="_blank">Bill '+(i+1)+' ↗</a>';}).join('')+'</div></div>':'')+
       '<div class="mee-finance-total"><span>Công nợ hiện tại</span><b style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + vnd(o.debt) + '</b></div>' +
     '</div>' +
     (allowFullCopy ? '<button type="button" class="btn secondary full" data-mee-order-action="copy" onclick="MEEOPS7.copyOrderById(\'' + o.id + '\')">⧉ Copy toàn bộ thông tin đơn</button>' : '') +

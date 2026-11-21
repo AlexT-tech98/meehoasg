@@ -78,7 +78,8 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
       const currentIds=new Map((current.image_urls||[]).map(u=>[privateImageIdentity(u),u]));
       if(retained.some(u=>!currentIds.has(privateImageIdentity(u))))return operationFailure('Ảnh không thuộc đơn này.','IMAGE_INVALID');
       const imageFiles=Array.isArray(p.order?.imageFiles)?p.order.imageFiles:[],billFiles=Array.isArray(p.order?.fullPaidBillFiles)?p.order.fullPaidBillFiles:[];
-      if(imageFiles.length>10||billFiles.length>10)return operationFailure('Tối đa 10 ảnh trong mỗi nhóm.','IMAGE_INVALID');
+      const unverifiedBillFiles=Array.isArray(p.order?.unverifiedBillFiles)?p.order.unverifiedBillFiles:[];
+      if(imageFiles.length>10||billFiles.length>10||unverifiedBillFiles.length>10)return operationFailure('Tối đa 10 ảnh trong mỗi nhóm.','IMAGE_INVALID');
       const preparedSamples=Array.isArray(p.order?.preuploadedSamples)?p.order.preuploadedSamples:[],preparedBills=Array.isArray(p.order?.preuploadedBills)?p.order.preuploadedBills:[];
       if(preparedSamples.length+imageFiles.length>10||preparedBills.length+billFiles.length>10)return operationFailure('Tối đa 10 ảnh trong mỗi nhóm.','IMAGE_INVALID');
       if(input.fullPaidRequested&&(!retained.length&&!imageFiles.length&&!preparedSamples.length))return operationFailure('Full Paid cần ảnh mẫu hoa.','FULL_PAID_EVIDENCE_REQUIRED');
@@ -94,6 +95,7 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
       }else{
         input.newImageUrls=await upload(imageFiles,'order-images');input.newBillUrls=await upload(billFiles,'settlement-bills');
       }
+      input.newUnverifiedBillUrls=unverifiedBillFiles.length?await upload(unverifiedBillFiles,'settlement-bills'):[];
       if(preparedSamples.length||preparedBills.length){
         const direct=await verifyStagedUploads({actor:user.username,requestId,samples:preparedSamples,bills:preparedBills});
         input.newImageUrls=[...input.newImageUrls,...direct.samples];input.newBillUrls=[...input.newBillUrls,...direct.bills];
@@ -116,7 +118,7 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
     const result=await rpc('mee_ops_mutate',{...args,p_input:input});
     if(result?.ok===false)await discard(staged);
     else if(result?.idempotent){
-      const used=new Set([...(result.row?.image_urls||[]),...(result.row?.full_paid_bill_urls||[])]);
+      const used=new Set([...(result.row?.image_urls||[]),...(result.row?.full_paid_bill_urls||[]),...(result.row?.unverified_bill_urls||[])]);
       for(const original of result.row?.image_urls||[]){
         if(/^(?:supabase:\/\/order-images|r2:\/\/[a-z0-9-]+\/order-images)\/[0-9a-f-]{36}\.jpg$/.test(original))used.add(original.replace(/\.jpg$/,'.preview.jpg'));
       }

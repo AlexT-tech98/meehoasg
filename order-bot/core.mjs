@@ -147,11 +147,11 @@ const FIELD_ALIASES = {
   'nội dung thiệp': 'cardText', 'noi dung thiep': 'cardText', cardtext: 'cardText',
   'sl thiệp': 'cardQty', 'sl thiep': 'cardQty', cardqty: 'cardQty',
   banner: 'banner',
-  'nội dung banner': 'bannerText', bannertext: 'bannerText',
-  'sl banner': 'bannerQty', bannerqty: 'bannerQty',
-  'phí charm': 'charmFee', charmfee: 'charmFee',
+  'nội dung banner': 'bannerText', 'noi dung banner': 'bannerText', bannertext: 'bannerText',
+  'sl banner': 'bannerQty', 'sl banner': 'bannerQty', bannerqty: 'bannerQty',
+  'phí charm': 'charmFee', 'phi charm': 'charmFee', charmfee: 'charmFee',
   'charm note': 'charmText', charmtext: 'charmText',
-  'phí giấy': 'paperFee', paperfee: 'paperFee',
+  'phí giấy': 'paperFee', 'phi giay': 'paperFee', paperfee: 'paperFee',
   'paper note': 'paperText', papertext: 'paperText',
   vat: 'vat',
 };
@@ -248,6 +248,12 @@ export function draftSummary(draft) {
     f.sale ? `Sale: ${f.sale}` : null,
   ].filter(Boolean);
 
+  if (f.cardText) lines.push(`Thiệp (${f.cardQty || 1}): ${f.cardText}`);
+  if (f.bannerText) lines.push(`Banner (${f.bannerQty || 1}): ${f.bannerText}`);
+  if (f.charmFee) lines.push(`Charm: ${Number(f.charmFee).toLocaleString('vi')} đ${f.charmText ? ' (' + f.charmText + ')' : ''}`);
+  if (f.paperFee) lines.push(`Giấy gói: ${Number(f.paperFee).toLocaleString('vi')} đ${f.paperText ? ' (' + f.paperText + ')' : ''}`);
+  if (f.vat) lines.push(`VAT: ${Number(f.vat).toLocaleString('vi')} đ`);
+
   const sampleCount = (draft.sampleRefs || []).length;
   const billCount = (draft.draftBillRefs || []).length;
   if (sampleCount) lines.push(`📷 Ảnh mẫu: ${sampleCount} ảnh đã lưu`);
@@ -255,6 +261,14 @@ export function draftSummary(draft) {
 
   const missing = requiredMissing(draft);
   if (missing.length) lines.push(`\n⚠️ Còn thiếu: ${missing.join(', ')}`);
+
+  const uncertain = Object.entries(draft.uncertainFields || {});
+  if (uncertain.length) {
+    lines.push(`\n❓ Cần làm rõ:`);
+    for (const [k, reason] of uncertain) {
+      lines.push(`  • ${k}: ${reason}`);
+    }
+  }
 
   return lines.join('\n');
 }
@@ -271,7 +285,9 @@ function requiredMissing(draft) {
 }
 
 function isConfirmable(draft) {
-  return requiredMissing(draft).length === 0;
+  if (requiredMissing(draft).length > 0) return false;
+  if (draft.uncertainFields && Object.keys(draft.uncertainFields).length > 0) return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -343,7 +359,7 @@ function cmdConfirm(drafts, _args) {
   if (draft.status === 'submitted') return { reply: '⚠️ Đơn này đã được tạo trong OPS rồi.', drafts };
   if (draft.status === 'confirming') return { reply: '⏳ Đơn đang được tạo trong OPS, vui lòng chờ.', drafts };
   if (!isConfirmable(draft)) {
-    return { reply: `❌ Chưa đủ dữ liệu để xác nhận:\n${draftSummary(draft)}`, drafts };
+    return { reply: `❌ Chưa đủ dữ liệu hoặc còn thông tin chưa rõ ràng để xác nhận:\n\n${draftSummary(draft)}`, drafts };
   }
   // requestId is set once and kept fixed across all retries — idempotency key for mee_ops_lookup.
   const reqId = draft.requestId || randomUUID();
@@ -352,8 +368,22 @@ function cmdConfirm(drafts, _args) {
 }
 
 // ---------------------------------------------------------------------------
-// Field update from text message
+// Field update from text message & Prompt injection defense
 // ---------------------------------------------------------------------------
+
+export function detectPromptInjection(text) {
+  if (!text) return null;
+  const lower = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/(ignore|bo qua).*(previous|instruction|huong dan)/i.test(lower)) return 'instruction_override';
+  if (/(system prompt|system override|ghi de he thong|quyen admin)/i.test(lower)) return 'system_override';
+  if (/(\bset\s+role\b|\badmin\s*:\s*true|\brole\s*:\s*admin)/i.test(lower)) return 'role_escalation';
+  return null;
+}
+
+const FORBIDDEN_FIELD_PATTERNS = [
+  /^(thanh\s*toan|payment|full\s*paid|da\s*thanh\s*toan)$/i,
+  /^(trang\s*thai|status|role|settled)$/i,
+];
 
 function applyFieldLine(draft, line) {
   const cleanLine = line.replace(/^[-*•]\s*/, '').trim();
@@ -361,27 +391,103 @@ function applyFieldLine(draft, line) {
   if (sep < 1) return null;
   const rawKey = cleanLine.slice(0, sep).trim();
   const rawVal = cleanLine.slice(sep + 1).trim();
+
+  // Check forbidden fields (payment, status, admin)
+  const normK = normalizeKey(rawKey);
+  for (const pat of FORBIDDEN_FIELD_PATTERNS) {
+    if (pat.test(normK) || pat.test(rawKey)) {
+      return { warning: '⚠️ Lưu ý: Không thể đặt thanh toán hoặc trạng thái qua bot. Thanh toán luôn cố định là "Chưa thanh toán".' };
+    }
+  }
+
   const field = resolveField(rawKey);
   if (!field) return null;
+
   let value = rawVal;
-  if (field === 'shipping') value = normalizeShipping(rawVal);
-  else if (field === 'flowerTotal' || field === 'charmFee' || field === 'paperFee' || field === 'vat') value = normalizeMoney(rawVal);
-  else if (field === 'date') value = normalizeDate(rawVal);
-  else if (field === 'time') value = normalizeTime(rawVal);
-  return { field, value };
+  let isUncertain = false;
+  let reason = '';
+
+  if (field === 'shipping') {
+    value = normalizeShipping(rawVal);
+    if (!SHIPPING_VALUES.includes(value)) {
+      isUncertain = true;
+      reason = `Hình thức giao "${rawVal}" chưa rõ (chọn: Shop book ship, Khách tự book, Ghé lấy)`;
+    }
+  } else if (field === 'flowerTotal' || field === 'charmFee' || field === 'paperFee' || field === 'vat') {
+    value = normalizeMoney(rawVal);
+    if (!/^\d+$/.test(value) || Number(value) < 0) {
+      isUncertain = true;
+      reason = `Số tiền "${rawVal}" không hợp lệ`;
+    }
+  } else if (field === 'date') {
+    value = normalizeDate(rawVal);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      isUncertain = true;
+      reason = `Ngày nhận "${rawVal}" chưa đúng định dạng YYYY-MM-DD hoặc DD/MM/YYYY`;
+    }
+  } else if (field === 'time') {
+    value = normalizeTime(rawVal);
+    if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(value)) {
+      isUncertain = true;
+      reason = `Giờ nhận "${rawVal}" chưa đúng định dạng HH:MM hoặc 9h, 14h30`;
+    }
+  } else if (field === 'cardQty' || field === 'bannerQty') {
+    const n = parseInt(rawVal, 10);
+    value = Number.isInteger(n) && n >= 1 && n <= 99 ? n : 1;
+  }
+
+  return { field, value, isUncertain, reason };
 }
 
 function applyFields(draft, text) {
   const lines = text.split('\n');
   const changes = [];
+  const warnings = [];
+  const uncertain = { ...(draft.uncertainFields || {}) };
+  const newFields = { ...(draft.fields || {}) };
+
   for (const line of lines) {
     const result = applyFieldLine(draft, line);
-    if (result) changes.push(result);
+    if (!result) continue;
+    if (result.warning) {
+      warnings.push(result.warning);
+      continue;
+    }
+    const { field, value, isUncertain, reason } = result;
+    if (isUncertain) {
+      uncertain[field] = reason;
+      changes.push({ field, value, uncertain: true, reason });
+    } else {
+      delete uncertain[field];
+      newFields[field] = value;
+      changes.push({ field, value });
+      if (field === 'cardText' && value) {
+        newFields.card = true;
+        if (!newFields.cardQty) newFields.cardQty = 1;
+      }
+      if (field === 'bannerText' && value) {
+        newFields.banner = true;
+        if (!newFields.bannerQty) newFields.bannerQty = 1;
+      }
+    }
   }
-  if (!changes.length) return { draft, changes: [] };
-  const newFields = { ...draft.fields };
-  for (const { field, value } of changes) newFields[field] = value;
-  return { draft: { ...draft, fields: newFields }, changes };
+
+  if (!changes.length && !warnings.length) return { draft, changes: [], warnings: [] };
+
+  const historyEntry = {
+    at: new Date().toISOString(),
+    changes: changes.map(c => ({ field: c.field, value: c.value, uncertain: !!c.uncertain })),
+    snippet: text.slice(0, 100),
+  };
+  const updatedHistory = [...(draft.history || []), historyEntry];
+
+  const updatedDraft = {
+    ...draft,
+    fields: newFields,
+    uncertainFields: uncertain,
+    history: updatedHistory,
+  };
+  return { draft: updatedDraft, changes, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -509,6 +615,16 @@ export function handleUpdate(opts) {
   const trimmed = (text || '').trim();
   if (!trimmed) return { reply: null, drafts, action: null };
 
+  // Prompt injection protection
+  const injection = detectPromptInjection(trimmed);
+  if (injection) {
+    return {
+      reply: '⚠️ Phát hiện nội dung không hợp lệ hoặc cố ý ghi đè chỉ dẫn hệ thống. Lệnh bị từ chối.',
+      drafts,
+      action: null,
+    };
+  }
+
   // Commands
   if (trimmed.startsWith('/')) {
     const space = trimmed.indexOf(' ');
@@ -521,7 +637,7 @@ export function handleUpdate(opts) {
       case '/select': result = cmdSelect(drafts, args); break;
       case '/show': result = cmdShow(drafts); break;
       case '/cancel': result = cmdCancel(drafts, args); break;
-  case '/confirm': result = cmdConfirm(drafts, args); break;
+      case '/confirm': result = cmdConfirm(drafts, args); break;
       default: return { reply: `Lệnh không nhận ra. Dùng /new /list /select /show /cancel /confirm`, drafts, action: null };
     }
     saveDrafts(userId, result.drafts);
@@ -543,19 +659,28 @@ export function handleUpdate(opts) {
     return { reply: '⏳ Đơn đang được tạo trong OPS, vui lòng chờ.', drafts, action: null };
   }
 
-  const { draft: updated, changes } = applyFields(draft, trimmed);
-  if (!changes.length) {
+  const { draft: updated, changes, warnings } = applyFields(draft, trimmed);
+  if (!changes.length && !warnings?.length) {
     return { reply: `Không nhận ra trường nào. Dùng dạng:\n  tên khách: Nguyễn A\nhoặc gõ /show để xem đơn.`, drafts, action: null };
   }
   const next = { ...drafts, [draft.id]: updated };
   saveDrafts(userId, next);
-  const changed = changes.map(c => `  ${c.field}: ${c.value}`).join('\n');
+
+  const changed = changes.map(c => c.uncertain ? `  ⚠️ ${c.field}: ${c.reason}` : `  ${c.field}: ${c.value}`).join('\n');
   const still = requiredMissing(updated);
-  const extra = still.length ? `\n⚠️ Còn thiếu: ${still.join(', ')}` : '\n✅ Đã đủ dữ liệu — dùng /confirm để tạo đơn.';
-  return { reply: `✏️ Đã cập nhật:\n${changed}${extra}`, drafts: next, action: null };
+  const uncertainCount = Object.keys(updated.uncertainFields || {}).length;
+  let extra = '';
+  if (still.length) extra += `\n⚠️ Còn thiếu: ${still.join(', ')}`;
+  if (uncertainCount) extra += `\n❓ Có ${uncertainCount} trường cần làm rõ trước khi xác nhận.`;
+  if (!still.length && !uncertainCount) extra += '\n✅ Đã đủ dữ liệu — dùng /confirm để tạo đơn.';
+  const warnMsg = warnings?.length ? `\n${warnings.join('\n')}` : '';
+
+  const prefix = changed ? `✏️ Đã cập nhật:\n${changed}` : '';
+  return { reply: `${prefix}${extra}${warnMsg}`.trim(), drafts: next, action: null };
 }
 
 export {
   loadDrafts, saveDrafts, activeDraft, requiredMissing, isConfirmable,
   normalizeShipping, normalizeMoney, normalizeDate, normalizeTime,
+  applyFields,
 };

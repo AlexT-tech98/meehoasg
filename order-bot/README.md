@@ -36,10 +36,10 @@ node order-bot/run.mjs
 ### Chạy Unit & Integration Tests
 
 ```bash
-# Chạy bộ test chuyên biệt của bot (75 bài kiểm thử)
+# Chạy bộ test chuyên biệt của bot (86 bài kiểm thử)
 node --test tests/order-bot.test.cjs
 
-# Chạy toàn bộ test suite dự án
+# Chạy toàn bộ test suite dự án (418 bài kiểm thử)
 npm test
 ```
 
@@ -58,7 +58,7 @@ npm test
 
 ---
 
-## 4. Nhập và chuẩn hóa dữ liệu
+## 4. Nhập và chuẩn hóa dữ liệu & Phòng vệ Injection
 
 Gửi tin nhắn theo dạng `trường: giá trị` (hỗ trợ tin nhắn nhiều dòng, gạch đầu dòng bullet `-`, `*`, `•`):
 
@@ -71,7 +71,8 @@ Gửi tin nhắn theo dạng `trường: giá trị` (hỗ trợ tin nhắn nhi�
 - Địa chỉ: 123 Lê Lợi, P. Bến Nghé, Q.1
 - SĐT: 0901234567
 - Giá: 850k (hoặc 850.000 đ)
-- Ghi chú: Kèm thiệp chúc mừng
+- Nội dung thiệp: Chúc mừng sinh nhật
+- Ghi chú: Kèm hoa phụ
 ```
 
 Bộ parser tự động chuẩn hóa:
@@ -79,25 +80,31 @@ Bộ parser tự động chuẩn hóa:
 - **Ngày**: `DD/MM/YYYY` hoặc `DD-MM-YYYY` → `YYYY-MM-DD`.
 - **Giờ**: `9h` → `09:00`, `9h30` → `09:30`.
 - **Hình thức ship**: Chuẩn hóa về đúng 1 trong 3 giá trị OPS: `Shop book ship`, `Khách tự book`, `Ghé lấy`.
+- **Phụ kiện**: Nhập `nội dung thiệp` tự động bật cờ thiệp và số lượng; `nội dung banner` tự động bật banner và số lượng.
+- **Phát hiện mơ hồ (Uncertainty Detection)**: Giá trị ngày/giờ/tiền/ship chưa rõ ràng (ví dụ "chiều mai", "tầm trưa") được gắn cờ trong `draft.uncertainFields` và cảnh báo; lệnh `/confirm` bị chặn đến khi thông tin được làm rõ.
+- **Lịch sử chỉnh sửa (`draft.history`)**: Lưu vết toàn bộ thay đổi qua từng lượt tin nhắn để đối chiếu khi cần.
+- **Phòng thủ Prompt Injection**: Ngăn chặn tuyệt đối các chỉ dẫn ghi đè hệ thống (`ignore instructions`, `system override`), không cho phép sửa trường thanh toán (`payment`, `full_paid`) hay quyền hạn qua tin nhắn.
 
 ---
 
-## 5. Quy tắc xử lý ảnh & Thanh toán (Bất biến)
+## 5. Quy tắc xử lý ảnh & Lưu trữ Bill chưa xác minh (Bất biến)
 
 1. **Ảnh mẫu hoa**:
    - Gửi ảnh không caption hoặc caption không chứa từ khóa bill.
    - Lưu vào `sampleRefs` trong nháp (tối đa 10 ảnh).
-   - Khi `/confirm`, ảnh được bot tải về và đính kèm vào `imageFiles` gửi lên OPS.
+   - Khi `/confirm`, bot tải toàn bộ ảnh mẫu về; nếu **bất kỳ ảnh nào tải thất bại**, bot lập tức dừng tạo đơn, rollback về `confirmed` và thông báo cho người dùng gửi lại.
+   - Khi thành công, ảnh được đính kèm vào `imageFiles` gửi lên OPS lưu tại bucket `order-images`.
 2. **Ảnh bill thanh toán**:
    - Gửi ảnh với caption chứa "bill" hoặc "hóa đơn".
-   - Lưu vào `draftBillRefs` riêng biệt trong nháp (tối đa 10 ảnh).
-   - **Tuyệt đối KHÔNG gửi ảnh bill vào createOrder**; không bao giờ tự động bật `fullPaidRequested`.
-   - `payment` khi tạo đơn luôn luôn cố định là `'Chưa thanh toán'`.
-   - Khi cần tất toán, nhân viên/operator xem ảnh bill trong nháp và thực hiện qua luồng `submitSettlement` chuẩn của OPS.
+   - Lưu vào `draftBillRefs` trong nháp (tối đa 10 ảnh).
+   - Khi `/confirm`, bot tải toàn bộ ảnh bill về; nếu lỗi tải ảnh, bot dừng tạo đơn ngay lập tức.
+   - Ảnh bill được chuyển vào `unverifiedBillFiles` lưu trữ an toàn trong bucket `settlement-bills` và liên kết với trường `unverified_bill_urls` của đơn.
+   - **Tuyệt đối KHÔNG tự động bật cờ `fullPaidRequested`**; `payment` luôn cố định là `'Chưa thanh toán'`.
+   - Ảnh bill hiển thị trong drawer chi tiết đơn tại OPS với nhãn **🧾 BILL CHƯA XÁC MINH** để kế toán/Sale đối soát và thực hiện tất toán qua luồng OPS chuẩn.
 
 ---
 
-## 6. Tính bền vững & Đồng thời (Durability & Concurrency)
+## 6. Tính bền vững, An toàn & Đồng thời (Durability & Concurrency)
 
 - **Lưu trữ nguyên tử (Atomic Write)**:
   - Dữ liệu lưu tại `order-bot/data/<userId>.json`.
@@ -110,6 +117,8 @@ Bộ parser tự động chuẩn hóa:
 - **Khôi phục sau sự cố (Crash Recovery)**:
   - Khi bot khởi động lại, `cleanupOrphanedTmpFiles()` dọn dẹp các file `.tmp` mồ côi.
   - `findStaleConfirming()` rà soát các đơn bị kẹt ở trạng thái `confirming` do process bị tắt ngang, chuyển về `confirmed` với `requestId` không đổi để operator có thể `/confirm` lại an toàn.
+- **Vệ sinh thông báo lỗi (Sanitized Errors)**:
+  - Mọi lỗi mạng kết nối tới OPS đều được chuẩn hóa thành thông báo tiếng Việt an toàn; không bao giờ để lộ `e.message` thô, mã lỗi hệ thống hay token nội bộ vào Telegram.
 - **Giới hạn kiến trúc**:
   - Kho lưu trữ file JSON hiện tại được thiết kế và bảo đảm cho **1 process staging**.
   - Nếu triển khai môi trường nhiều replica, kho lưu trữ cần được thay thế bằng hàng đợi/DB tập trung (Postgres/Redis/Supabase table) có distributed lock.
@@ -118,17 +127,22 @@ Bộ parser tự động chuẩn hóa:
 
 ## 7. Danh mục kiểm thử nghiệm thu (Checklist)
 
-- [x] Đường đi ảnh bill tách biệt, không gửi vào `createOrder`.
+- [x] Ảnh bill được lưu vào `unverified_bill_urls` trong OPS mà không kích hoạt Full Paid hay auto-settlement.
 - [x] Không bao giờ bật cờ `fullPaidRequested`, tiền thanh toán luôn `'Chưa thanh toán'`.
+- [x] Lỗi tải bất kỳ ảnh mẫu hoặc ảnh bill nào lập tức hủy tạo đơn, giữ nguyên nháp cho retry.
 - [x] Giới hạn số lượng ảnh (tối đa 10 ảnh mẫu, 10 ảnh bill).
 - [x] Giới hạn kích thước ảnh (tối đa 5MB/ảnh).
 - [x] Chặn người dùng lạ ngoài `ALLOWED_USER_IDS`.
 - [x] Chặn nhóm/kênh Telegram (chỉ xử lý tin nhắn riêng tư).
-- [x] Tự động chuẩn hóa định dạng ngày, giờ, tiền, hình thức ship.
+- [x] Tự động chuẩn hóa định dạng ngày, giờ, tiền, hình thức ship, thiệp, banner.
+- [x] Phát hiện dữ liệu mơ hồ (`uncertainFields`) và chặn `/confirm` khi chưa làm rõ.
+- [x] Theo dõi lịch sử thay đổi (`draft.history`) qua từng lượt tin nhắn.
+- [x] Phòng thủ prompt injection và chặn can thiệp quyền/thanh toán.
 - [x] Khóa đồng thời và giữ nguyên `requestId` khi retry idempotent.
 - [x] Cơ chế phục hồi đơn sau crash (`confirming` recovery).
 - [x] Xóa bỏ file tạm mồ côi khi khởi động.
+- [x] Vệ sinh thông báo lỗi mạng, không lộ token hay `e.message` trong Telegram.
 - [x] Redact token trong log.
 - [x] Thư mục dữ liệu `order-bot/data/` được thêm vào `.gitignore`.
-- [x] 75/75 unit & integration tests đạt.
-- [x] Toàn bộ test suite dự án đạt.
+- [x] 86/86 unit & integration tests chuyên biệt của bot đạt.
+- [x] 415/415 test suite toàn bộ dự án đạt (0 fail, 3 skip).
