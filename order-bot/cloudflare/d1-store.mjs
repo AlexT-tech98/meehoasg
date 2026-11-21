@@ -252,41 +252,137 @@ export async function logAudit(db, userId, action, draftId = null, requestId = n
 
 /**
  * Permanently links unverified bill images directly into the official OPS order in D1.
- * Ensures the order record in table `orders` has `unverified_bill_urls` populated and tagged,
- * without modifying any payment invariants (payment remains "Chưa thanh toán", full_paid remains false).
+ * Uses Optimistic Concurrency Control (OCC) to prevent race conditions or blind overwrites
+ * if the order is modified concurrently by another process.
+ * Verifies R2 image existence and validates post-update D1 state.
+ *
+ * Strictly preserves all financial invariants:
+ *   - payment is NEVER modified
+ *   - full_paid is NEVER modified
+ *   - sale, customer, status, shipping fees are NEVER touched
  *
  * @param {object} db - Cloudflare D1 Database binding
  * @param {string} orderId - OPS Order ID (e.g. MEE-...)
  * @param {Array<object>} billRefs - Array of draft bill references
- * @returns {Promise<{linked: number, uris?: string[], error?: string}>}
+ * @param {object} [mediaR2=null] - Optional Cloudflare R2 bucket binding for object verification
+ * @param {number} [maxRetries=3] - Maximum retry attempts on OCC conflict
+ * @returns {Promise<{ok: boolean, linked: number, verifiedCount?: number, uris?: string[], error?: string}>}
  */
-export async function linkUnverifiedBillsToD1Order(db, orderId, billRefs = []) {
-  if (!db || !orderId || !billRefs.length) return { linked: 0 };
+export async function linkUnverifiedBillsToD1Order(db, orderId, billRefs = [], mediaR2 = null, maxRetries = 3) {
+  if (!db || !orderId || !billRefs.length) {
+    return { ok: false, linked: 0, error: 'Thiếu thông tin database, mã đơn hoặc danh sách bill.' };
+  }
+
+  // 1. Cross-check against R2 if bucket binding is provided
+  if (mediaR2) {
+    for (const ref of billRefs) {
+      if (ref.r2_key) {
+        try {
+          const obj = await mediaR2.get(ref.r2_key);
+          if (!obj) {
+            return {
+              ok: false,
+              linked: 0,
+              error: `Ảnh bill với key "${ref.r2_key}" không tồn tại trong R2 bucket.`
+            };
+          }
+        } catch (r2Err) {
+          console.warn(`[d1-store] R2 get verification warning for ${ref.r2_key}:`, r2Err);
+        }
+      }
+    }
+  }
+
   const billUris = billRefs
     .map(b => b.uri || (b.r2_key ? `supabase://${b.r2_key}` : (b.url || null)))
     .filter(Boolean);
-  if (!billUris.length) return { linked: 0 };
 
-  try {
-    const row = await db.prepare('SELECT data FROM orders WHERE row_key = ?').bind(orderId).first();
-    if (!row || !row.data) return { linked: 0 };
-
-    const data = JSON.parse(row.data);
-    const existing = Array.isArray(data.unverified_bill_urls) ? data.unverified_bill_urls : [];
-    const combined = [...new Set([...existing, ...billUris])];
-    data.unverified_bill_urls = combined;
-
-    // Append indicator tag to order note if not already tagged
-    if (!String(data.note || '').includes('Bill đính kèm')) {
-      const tag = `[🧾 Bill đính kèm: ${billUris.length} bill chưa xác minh]`;
-      data.note = data.note ? `${data.note} ${tag}` : tag;
-    }
-
-    await db.prepare('UPDATE orders SET data = ? WHERE row_key = ?').bind(JSON.stringify(data), orderId).run();
-    return { linked: billUris.length, uris: combined };
-  } catch (err) {
-    console.error(`[d1-store] Failed to link unverified bills to order ${orderId}:`, err);
-    return { linked: 0, error: err.message };
+  if (!billUris.length) {
+    return { ok: false, linked: 0, error: 'Không tìm thấy URI hợp lệ của ảnh bill.' };
   }
+
+  // 2. OCC Retry Loop
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const row = await db.prepare('SELECT data FROM orders WHERE row_key = ?').bind(orderId).first();
+      if (!row || !row.data) {
+        return { ok: false, linked: 0, error: `Không tìm thấy đơn hàng "${orderId}" trong bảng orders.` };
+      }
+
+      const data = JSON.parse(row.data);
+      const existing = Array.isArray(data.unverified_bill_urls) ? data.unverified_bill_urls : [];
+      const combined = [...new Set([...existing, ...billUris])];
+      const currentUpdatedAt = data.updated_at || null;
+      const now = new Date().toISOString();
+
+      // Atomic update of unverified_bill_urls using json_set with version guard
+      // Only updates $.unverified_bill_urls and $.updated_at, preserving all other fields
+      let result;
+      if (currentUpdatedAt) {
+        result = await db.prepare(`
+          UPDATE orders
+          SET data = json_set(data, '$.unverified_bill_urls', json(?), '$.updated_at', ?)
+          WHERE row_key = ?
+            AND json_extract(data, '$.updated_at') = ?
+        `).bind(JSON.stringify(combined), now, orderId, currentUpdatedAt).run();
+      } else {
+        result = await db.prepare(`
+          UPDATE orders
+          SET data = json_set(data, '$.unverified_bill_urls', json(?), '$.updated_at', ?)
+          WHERE row_key = ?
+            AND (json_extract(data, '$.updated_at') IS NULL OR json_extract(data, '$.updated_at') = '')
+        `).bind(JSON.stringify(combined), now, orderId).run();
+      }
+
+      const changes = result?.meta?.changes ?? 0;
+      if (changes === 0) {
+        // Concurrency conflict: another process updated the order between SELECT and UPDATE.
+        if (attempt < maxRetries) {
+          console.warn(`[d1-store] OCC conflict updating order ${orderId} (attempt ${attempt}/${maxRetries}), retrying...`);
+          await new Promise(r => setTimeout(r, 100 * attempt));
+          continue;
+        }
+        return {
+          ok: false,
+          linked: 0,
+          error: `Xung đột cập nhật đồng thời trên đơn "${orderId}". Đơn vừa được cập nhật bởi tiến trình khác.`
+        };
+      }
+
+      // 3. Post-update verification: read back from D1 to guarantee integrity
+      const verifyRow = await db.prepare('SELECT data FROM orders WHERE row_key = ?').bind(orderId).first();
+      if (verifyRow && verifyRow.data) {
+        const verifyData = JSON.parse(verifyRow.data);
+        const actualBills = Array.isArray(verifyData.unverified_bill_urls) ? verifyData.unverified_bill_urls : [];
+        const hasAllUris = billUris.every(u => actualBills.includes(u));
+
+        if (!hasAllUris || actualBills.length < billUris.length) {
+          return {
+            ok: false,
+            linked: actualBills.length,
+            verifiedCount: actualBills.length,
+            error: `Số bill lưu trong đơn OPS (${actualBills.length}) không khớp với số bill dự kiến (${billUris.length}).`
+          };
+        }
+
+        return {
+          ok: true,
+          linked: billUris.length,
+          verifiedCount: actualBills.length,
+          uris: actualBills
+        };
+      }
+
+      return { ok: true, linked: billUris.length, verifiedCount: combined.length, uris: combined };
+    } catch (err) {
+      if (attempt === maxRetries) {
+        console.error(`[d1-store] linkUnverifiedBillsToD1Order failed for ${orderId}:`, err);
+        return { ok: false, linked: 0, error: err.message };
+      }
+      await new Promise(r => setTimeout(r, 100 * attempt));
+    }
+  }
+
+  return { ok: false, linked: 0, error: 'Đã thử lại nhiều lần nhưng không thể cập nhật đơn.' };
 }
 

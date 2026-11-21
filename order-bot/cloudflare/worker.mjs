@@ -290,8 +290,10 @@ export async function handleTelegramWebhook(request, env) {
         await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
       } else if (cmd === '/confirm') {
         await handleConfirmCommand(drafts, env, userId, chatId);
+      } else if (cmd === '/relink' || cmd === '/retry_bill') {
+        await handleRelinkCommand(drafts, arg, env, userId, chatId);
       } else {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '❓ Lệnh không nhận ra. Các lệnh hỗ trợ:\n/new — Tạo đơn mới\n/list — Danh sách đơn nháp\n/select <id> — Chọn đơn nháp\n/show — Xem chi tiết đơn\n/confirm — Xác nhận tạo đơn OPS\n/cancel — Xóa đơn nháp đang chọn');
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, '❓ Lệnh không nhận ra. Các lệnh hỗ trợ:\n/new — Tạo đơn mới\n/list — Danh sách đơn nháp\n/select <id> — Chọn đơn nháp\n/show — Xem chi tiết đơn\n/confirm — Xác nhận tạo đơn OPS\n/relink — Gắn lại bill vào đơn OPS đã tạo\n/cancel — Xóa đơn nháp đang chọn');
       }
       return;
     }
@@ -312,6 +314,12 @@ export async function handleTelegramWebhook(request, env) {
       return;
     }
 
+    const messageDate = Number(message.date) || Math.floor(Date.now() / 1000);
+    const lastUpdateId = Number(draft.lastUpdateId) || 0;
+    const lastMessageDate = Number(draft.lastMessageDate) || 0;
+    const isOutOfOrder = (updateId && lastUpdateId && updateId < lastUpdateId) ||
+                         (messageDate && lastMessageDate && messageDate < lastMessageDate);
+
     // Apply structured fields via core applyFields
     let { draft: updated, changes, warnings } = applyFields(draft, rawText);
 
@@ -330,7 +338,25 @@ export async function handleTelegramWebhook(request, env) {
       }
     }
 
+    if (isOutOfOrder && changes?.length) {
+      // If an older message arrives after a newer message, do NOT overwrite fields that are already set
+      changes = changes.filter(c => !draft.fields[c.field] || String(draft.fields[c.field]).trim() === '');
+      if (changes.length === 0) {
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, 'ℹ️ Đã nhận tin nhắn gửi trước đó nhưng các thông tin này đã được cập nhật bởi tin nhắn mới hơn.');
+        return;
+      }
+      // Re-apply only non-conflicting changes
+      const filteredLines = changes.map(c => `${c.field}: ${c.value}`).join('\n');
+      const filteredApplied = applyFields(draft, filteredLines);
+      updated = filteredApplied.draft;
+      changes = filteredApplied.changes;
+    }
+
     if (changes && (changes.length > 0 || warnings?.length > 0)) {
+      if (!isOutOfOrder) {
+        updated.lastUpdateId = Math.max(lastUpdateId, updateId || 0);
+        updated.lastMessageDate = Math.max(lastMessageDate, messageDate || 0);
+      }
       drafts = { ...drafts, [draft.id]: updated };
       if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
@@ -447,25 +473,48 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   );
 
   if (opsRes.ok && opsRes.orderId) {
-    // If there are unverified bills, link them directly into the official OPS order in D1
-    if (env.DB && draft.draftBillRefs?.length) {
-      const linkResult = await linkUnverifiedBillsToD1Order(env.DB, opsRes.orderId, draft.draftBillRefs);
-      if (linkResult.linked > 0) {
+    const expectedBillCount = draft.draftBillRefs?.length || 0;
+    let billLinkSuccess = true;
+    let billLinkError = null;
+    let linkedResult = null;
+
+    if (env.DB && expectedBillCount > 0) {
+      linkedResult = await linkUnverifiedBillsToD1Order(
+        env.DB,
+        opsRes.orderId,
+        draft.draftBillRefs,
+        env.MEDIA_R2
+      );
+
+      if (!linkedResult.ok || (linkedResult.verifiedCount || 0) < expectedBillCount) {
+        billLinkSuccess = false;
+        billLinkError = linkedResult.error || `Chỉ xác nhận được ${linkedResult.linked || 0}/${expectedBillCount} bill trong đơn.`;
+      } else {
         await logAudit(env.DB, userId, 'linkBills', draft.id, confirmedDraft.requestId, {
           orderId: opsRes.orderId,
-          linkedCount: linkResult.linked,
-          uris: linkResult.uris
+          linkedCount: linkedResult.linked,
+          verifiedCount: linkedResult.verifiedCount,
+          uris: linkedResult.uris
         });
       }
     }
 
+    // Always transition to submitted because order was officially created in OPS!
+    // NEVER transition back to confirmed or pending, which would risk creating a duplicate order!
     drafts = transitionDraftStatus(drafts, draft.id, 'submitted', {
       opsOrderId: opsRes.orderId,
-      submittedAt: new Date().toISOString()
+      submittedAt: new Date().toISOString(),
+      billsLinked: expectedBillCount > 0 ? billLinkSuccess : true,
+      billLinkError: billLinkError,
+      verifiedBillCount: linkedResult?.verifiedCount || 0
     });
+
     if (env.DB) {
       await saveDrafts(env.DB, userId, drafts);
-      await logAudit(env.DB, userId, 'createOrder', draft.id, confirmedDraft.requestId, { orderId: opsRes.orderId });
+      await logAudit(env.DB, userId, 'createOrder', draft.id, confirmedDraft.requestId, {
+        orderId: opsRes.orderId,
+        billsLinked: expectedBillCount > 0 ? billLinkSuccess : true
+      });
     }
 
     const customer = draft.fields.customer || '';
@@ -485,11 +534,17 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       `💳 Thanh toán: Chưa thanh toán (công nợ bảo lưu)\n` +
       `🖼️ Ảnh mẫu: ${sampleFiles.length} ảnh\n`;
 
-    if (unverifiedBillFiles.length > 0) {
-      successMsg += `🧾 <b>Bill đính kèm:</b> ${unverifiedBillFiles.length} bill (chưa xác minh — vui lòng đối soát tại OPS).\n`;
+    if (expectedBillCount > 0) {
+      if (billLinkSuccess) {
+        successMsg += `🧾 <b>Bill đính kèm:</b> ${expectedBillCount} bill đã liên kết thành công (chưa xác minh — đối soát tại OPS).\n`;
+      } else {
+        successMsg += `\n⚠️ <b>CẢNH BÁO LIÊN KẾT BILL:</b>\n` +
+          `Đã tạo đơn thành công nhưng chưa gắn được ${expectedBillCount} bill vào đơn (${billLinkError}).\n` +
+          `👉 Gõ <code>/relink</code> để thử gắn lại bill vào mã đơn <code>${opsRes.orderId}</code> mà không tạo lại đơn mới.\n`;
+      }
     }
-    successMsg += `\nGõ /new để bắt đầu đơn hàng mới.`;
 
+    successMsg += `\nGõ /new để bắt đầu đơn hàng mới.`;
     await sendTelegramMessage(env.BOT_TOKEN, chatId, successMsg, 'HTML');
   } else {
     // Failure or network issue: rollback confirming -> confirmed so user can retry safely
@@ -500,6 +555,92 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       env.BOT_TOKEN,
       chatId,
       `❌ Không thể tạo đơn trên OPS Staging:\n${opsRes.message}\n\nĐơn nháp vẫn được giữ nguyên. Bạn có thể kiểm tra lại và gõ /confirm để thử lại.`
+    );
+  }
+}
+
+/**
+ * Handle /relink command: Retry linking bill images to an already-created OPS order
+ * without calling createOrder again (100% idempotent, zero duplicate orders).
+ */
+async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
+  let targetDraft = null;
+  if (arg) {
+    const trimmed = arg.trim();
+    targetDraft = Object.values(drafts).find(d =>
+      d && (
+        String(d.id || '').endsWith(trimmed) ||
+        String(d.opsOrderId || '').toUpperCase() === trimmed.toUpperCase() ||
+        String(d.opsOrderId || '').toUpperCase().endsWith(trimmed.toUpperCase())
+      )
+    );
+  }
+
+  if (!targetDraft) {
+    const active = activeDraft(drafts);
+    if (active && active.status === 'submitted' && active.opsOrderId) {
+      targetDraft = active;
+    } else {
+      const submitted = Object.values(drafts)
+        .filter(d => d && d.status === 'submitted' && d.opsOrderId)
+        .sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
+      targetDraft = submitted[0] || null;
+    }
+  }
+
+  if (!targetDraft || !targetDraft.opsOrderId) {
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Không tìm thấy đơn đã tạo nào để liên kết bill. Dùng /relink <mã_đơn> nếu cần.');
+    return;
+  }
+
+  const billCount = targetDraft.draftBillRefs?.length || 0;
+  if (billCount === 0) {
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, `ℹ️ Đơn ${targetDraft.opsOrderId} không có ảnh bill nào được lưu trong bản nháp.`);
+    return;
+  }
+
+  if (!env.DB) {
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ D1 Database chưa được cấu hình.');
+    return;
+  }
+
+  await sendTelegramMessage(env.BOT_TOKEN, chatId, `⏳ Đang kiểm tra và liên kết lại ${billCount} bill vào đơn ${targetDraft.opsOrderId}...`);
+
+  const linkResult = await linkUnverifiedBillsToD1Order(
+    env.DB,
+    targetDraft.opsOrderId,
+    targetDraft.draftBillRefs,
+    env.MEDIA_R2
+  );
+
+  if (linkResult.ok && (linkResult.verifiedCount || 0) >= billCount) {
+    targetDraft.billsLinked = true;
+    delete targetDraft.billLinkError;
+    targetDraft.verifiedBillCount = linkResult.verifiedCount;
+    await saveDrafts(env.DB, userId, drafts);
+    await logAudit(env.DB, userId, 'relinkBills', targetDraft.id, targetDraft.requestId, {
+      orderId: targetDraft.opsOrderId,
+      linkedCount: linkResult.linked,
+      verifiedCount: linkResult.verifiedCount,
+      uris: linkResult.uris
+    });
+
+    await sendTelegramMessage(
+      env.BOT_TOKEN,
+      chatId,
+      `✅ <b>LIÊN KẾT BILL THÀNH CÔNG!</b>\n\n` +
+      `🆔 Đơn: <code>${targetDraft.opsOrderId}</code>\n` +
+      `🧾 Đã liên kết: ${billCount} bill vào đơn OPS Staging.\n` +
+      `💳 Thanh toán: Chưa thanh toán (công nợ bảo lưu — vui lòng đối soát tại OPS).`,
+      'HTML'
+    );
+  } else {
+    targetDraft.billLinkError = linkResult.error;
+    await saveDrafts(env.DB, userId, drafts);
+    await sendTelegramMessage(
+      env.BOT_TOKEN,
+      chatId,
+      `❌ Liên kết lại bill thất bại:\n${linkResult.error || 'Lỗi không xác định'}\n\nMã đơn ${targetDraft.opsOrderId} vẫn an toàn trên OPS (không bị tạo trùng).`
     );
   }
 }

@@ -861,8 +861,8 @@ test('Scenario 16: Unverified bill is permanently linked directly into D1 orders
   assert.equal(orderData.payment, 'Chưa thanh toán');
   assert.equal(orderData.full_paid, false);
 
-  // Note must be tagged
-  assert.match(orderData.note, /Bill đính kèm/);
+  // Note must remain intact without unintended mutation
+  assert.equal(orderData.note, 'Giao giờ hành chính');
 });
 
 test('Scenario 17: Forwarded rapid messages queue sequentially via withLock backoff without dropping updates', async () => {
@@ -910,6 +910,314 @@ test('Scenario 17: Forwarded rapid messages queue sequentially via withLock back
   assert.equal(active.fields.customer, 'Khách VIP');
   assert.equal(active.fields.flower, 'Lẵng hoa lan');
   assert.equal(active.fields.flowerTotal, '1800000');
+});
+
+test('Scenario 18: Bill linking failure warns user without false-positive, keeps submitted order, and /relink recovers successfully', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const createdOrderId = 'MEE-STAGING-FAIL-THEN-RELINK';
+  const sentMessages = [];
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: 'test_ops_token',
+    OPS_API_URL: 'https://ops-staging.local/api-core',
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/getFile')) {
+      return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/bill_ck.jpg', file_size: 1024 } }));
+    }
+    if (url.includes('/file/bot')) {
+      return new Response(new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0]));
+    }
+    if (url.includes('/api-core')) {
+      return new Response(JSON.stringify({ ok: true, orderId: createdOrderId }));
+    }
+    if (url.includes('/sendMessage')) {
+      const body = JSON.parse(opts.body);
+      sentMessages.push(body);
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  // 1. /new
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 19001,
+    message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/new' }
+  }), env);
+
+  // 2. Full info
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 19002,
+    message: {
+      chat: { id: 5252724920, type: 'private' },
+      from: { id: 5252724920 },
+      text: 'Tên: Chị Hạnh\nHoa: Bó sen hồng\nNgày: 2026-12-08\nGiờ: 08:30\nShip: Ghé lấy\nGiá: 750k'
+    }
+  }), env);
+
+  // 3. Bill photo
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 19003,
+    message: {
+      chat: { id: 5252724920, type: 'private' },
+      from: { id: 5252724920 },
+      photo: [{ file_id: 'bill_f1', file_unique_id: 'uniq_bill_fail' }],
+      caption: 'Bill chuyển khoản'
+    }
+  }), env);
+
+  // 4. /confirm while order is NOT yet in D1 orders table (simulates linking failure)
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 19004,
+    message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+  }), env);
+
+  const draftsAfterConfirm = await loadDrafts(db, 5252724920);
+  const activeDraft = draftsAfterConfirm[draftsAfterConfirm.__active];
+
+  // Must be submitted (order was created in OPS, so we must never recreate it)
+  assert.equal(activeDraft.status, 'submitted');
+  assert.equal(activeDraft.opsOrderId, createdOrderId);
+  assert.equal(activeDraft.billsLinked, false);
+  assert.ok(activeDraft.billLinkError);
+
+  // Success message must NOT claim bill attached successfully
+  const lastMsg = sentMessages[sentMessages.length - 1];
+  assert.ok(lastMsg.text.includes(createdOrderId));
+  assert.ok(!lastMsg.text.includes('bill đã liên kết thành công'));
+  assert.ok(lastMsg.text.includes('CẢNH BÁO LIÊN KẾT BILL'));
+  assert.ok(lastMsg.text.includes('/relink'));
+
+  // 5. Seed order in D1 (e.g. background sync or lag resolved)
+  await db.prepare('INSERT INTO orders (row_key, data) VALUES (?, ?)').bind(
+    createdOrderId,
+    JSON.stringify({
+      id: createdOrderId,
+      customer: 'Chị Hạnh',
+      flower: 'Bó sen hồng',
+      payment: 'Chưa thanh toán',
+      full_paid: false,
+      unverified_bill_urls: []
+    })
+  ).run();
+
+  // 6. User runs /relink to recover bill linking
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 19005,
+    message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/relink' }
+  }), env);
+
+  const draftsAfterRelink = await loadDrafts(db, 5252724920);
+  const relinkedDraft = draftsAfterRelink[draftsAfterRelink.__active];
+  assert.equal(relinkedDraft.billsLinked, true);
+
+  // Check D1 order now has bill
+  const updatedOrderRow = await db.prepare('SELECT data FROM orders WHERE row_key = ?').bind(createdOrderId).first();
+  const updatedOrder = JSON.parse(updatedOrderRow.data);
+  assert.equal(updatedOrder.unverified_bill_urls.length, 1);
+  assert.match(updatedOrder.unverified_bill_urls[0], /^supabase:\/\/settlement-bills\/unverified-/);
+});
+
+test('Scenario 19: Two concurrent processes update the same D1 order -> OCC prevents blind overwriting', async () => {
+  const { linkUnverifiedBillsToD1Order } = await import('../order-bot/cloudflare/d1-store.mjs');
+
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const orderId = 'MEE-STAGING-OCC-TEST';
+
+  // Seed order with initial timestamp
+  await db.prepare('INSERT INTO orders (row_key, data) VALUES (?, ?)').bind(
+    orderId,
+    JSON.stringify({
+      id: orderId,
+      customer: 'Anh Tuấn',
+      status: 'Chờ bó',
+      updated_at: '2026-11-21T10:00:00.000Z',
+      unverified_bill_urls: []
+    })
+  ).run();
+
+  // Save bill into R2
+  const r2Key = 'settlement-bills/unverified-test.jpg';
+  await r2.put(r2Key, new Uint8Array([1, 2, 3]));
+
+  // Link bill
+  const result = await linkUnverifiedBillsToD1Order(
+    db,
+    orderId,
+    [{ r2_key: r2Key, uri: `supabase://${r2Key}` }],
+    r2
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.linked, 1);
+
+  // Verify status is still 'Chờ bó' (not overwritten)
+  const row = await db.prepare('SELECT data FROM orders WHERE row_key = ?').bind(orderId).first();
+  const data = JSON.parse(row.data);
+  assert.equal(data.status, 'Chờ bó');
+  assert.equal(data.customer, 'Anh Tuấn');
+  assert.equal(data.unverified_bill_urls.length, 1);
+});
+
+test('Scenario 20: R2 photo verification rejects missing R2 objects', async () => {
+  const { linkUnverifiedBillsToD1Order } = await import('../order-bot/cloudflare/d1-store.mjs');
+
+  const db = createMockD1();
+  const r2 = createMockR2(); // empty R2 bucket
+  const orderId = 'MEE-STAGING-MISSING-R2';
+
+  await db.prepare('INSERT INTO orders (row_key, data) VALUES (?, ?)').bind(
+    orderId,
+    JSON.stringify({ id: orderId, unverified_bill_urls: [] })
+  ).run();
+
+  // Try linking non-existent R2 key
+  const result = await linkUnverifiedBillsToD1Order(
+    db,
+    orderId,
+    [{ r2_key: 'settlement-bills/non-existent-key.jpg' }],
+    r2
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /không tồn tại trong R2 bucket/);
+});
+
+test('Scenario 21: Out-of-order Telegram messages do not overwrite newer field values', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+
+  const db = createMockD1();
+  const env = {
+    DB: db,
+    BOT_TOKEN: 'fake_bot_token',
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }));
+
+  // 1. /new
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 21001,
+    message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/new' }
+  }), env);
+
+  // 2. Newer message arrives first (update 21003, date 1700000010): "Hoa: Hoa lan tím"
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 21003,
+    message: {
+      chat: { id: 5252724920, type: 'private' },
+      from: { id: 5252724920 },
+      date: 1700000010,
+      text: 'Hoa: Hoa lan tím'
+    }
+  }), env);
+
+  // 3. Older message arrives second (update 21002, date 1700000005): "Hoa: Hoa hồng đỏ\nGiá: 900k"
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 21002,
+    message: {
+      chat: { id: 5252724920, type: 'private' },
+      from: { id: 5252724920 },
+      date: 1700000005,
+      text: 'Hoa: Hoa hồng đỏ\nGiá: 900k'
+    }
+  }), env);
+
+  const drafts = await loadDrafts(db, 5252724920);
+  const active = drafts[drafts.__active];
+
+  // 'flower' must remain 'Hoa lan tím' (newer message preserved)
+  assert.equal(active.fields.flower, 'Hoa lan tím');
+  // 'flowerTotal' was not set by the newer message, so it is safely backfilled
+  assert.equal(active.fields.flowerTotal, '900000');
+});
+
+test('Scenario 22: Worker restart resets stuck confirming draft and allows idempotent confirm without duplicate order', async () => {
+  const { findStaleConfirming, resetStaleConfirming, loadDrafts, saveDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+
+  const db = createMockD1();
+  const env = {
+    DB: db,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: 'test_ops_token',
+    OPS_API_URL: 'https://ops-staging.local/api-core',
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  const opsCalls = [];
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/api-core')) {
+      const payload = JSON.parse(opts.body);
+      opsCalls.push(payload);
+      return new Response(JSON.stringify({ ok: true, orderId: 'MEE-STAGING-RECOVERED' }));
+    }
+    if (url.includes('/sendMessage')) return new Response(JSON.stringify({ ok: true }));
+    return new Response('Not found', { status: 404 });
+  };
+
+  // Seed draft stuck in confirming
+  const staleDraftId = 'draft_stale_999';
+  const stableRequestId = 'fixed_req_id_stale_999';
+  const drafts = {
+    __active: staleDraftId,
+    [staleDraftId]: {
+      id: staleDraftId,
+      status: 'confirming',
+      requestId: stableRequestId,
+      confirmingAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(), // 25 mins ago
+      fields: {
+        customer: 'Bác Bình',
+        flower: 'Giỏ hoa quả và hoa',
+        date: '2026-12-15',
+        time: '15:00',
+        shipping: 'Ghé lấy',
+        flowerTotal: '1200000'
+      }
+    }
+  };
+  await saveDrafts(db, 5252724920, drafts);
+
+  // 1. Detect stale
+  const staleList = await findStaleConfirming(db, 15);
+  assert.equal(staleList.length, 1);
+  assert.equal(staleList[0].draftId, staleDraftId);
+
+  // 2. Reset stale confirming -> confirmed
+  const resetSuccess = await resetStaleConfirming(db, 5252724920, staleDraftId);
+  assert.equal(resetSuccess, true);
+
+  const draftsAfterReset = await loadDrafts(db, 5252724920);
+  assert.equal(draftsAfterReset[staleDraftId].status, 'confirmed');
+  assert.equal(draftsAfterReset[staleDraftId].requestId, stableRequestId); // fixed requestId preserved!
+
+  // 3. User sends /confirm after restart
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 22001,
+    message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+  }), env);
+
+  // Verify only 1 OPS call with the exact fixed requestId
+  assert.equal(opsCalls.length, 1);
+  assert.equal(opsCalls[0].payload.requestId, stableRequestId);
+
+  const finalDrafts = await loadDrafts(db, 5252724920);
+  assert.equal(finalDrafts[staleDraftId].status, 'submitted');
+  assert.equal(finalDrafts[staleDraftId].opsOrderId, 'MEE-STAGING-RECOVERED');
 });
 
 test('Performance / CPU Benchmark: Worker synchronous CPU time is well under 10ms Free limit', async () => {

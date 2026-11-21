@@ -149,8 +149,8 @@ Bộ parser tự động chuẩn hóa:
 - [x] Thư mục dữ liệu `order-bot/data/` được thêm vào `.gitignore`.
 - [x] 90/90 unit & integration tests chuyên biệt của bot đạt.
 - [x] 13/13 test kịch bản thực tế đặt hoa (Phase 2) đạt.
-- [x] 18/18 test Cloudflare Workers D1/R2/Webhook, bill-linking và benchmark CPU đạt.
-- [x] Toàn bộ test suite dự án đạt (450 pass, 0 fail, 3 skip).
+- [x] 23/23 test Cloudflare Workers D1/R2/Webhook, bill-linking, OCC, relink và benchmark CPU đạt.
+- [x] Toàn bộ test suite dự án đạt (455 pass, 0 fail, 3 skip).
 
 ---
 
@@ -219,7 +219,7 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
 ### 8.6. Chạy kiểm thử tự động
 
 ```bash
-# 18 bài kiểm thử toàn diện của Cloudflare Worker (D1 mock, R2 mock, security, ops, bill linking, benchmark):
+# 23 bài kiểm thử toàn diện của Cloudflare Worker (D1 mock, R2 mock, OCC, out-of-order, relink, ops, benchmark):
 node --test tests/order-bot-cloudflare.test.cjs
 ```
 
@@ -227,9 +227,9 @@ node --test tests/order-bot-cloudflare.test.cjs
 
 > **CHÍNH SÁCH BẢO VỆ DỮ LIỆU:** Rollback vận hành chuẩn **TUYỆT ĐỐI KHÔNG DROP TABLES** trong D1. Mọi đơn nháp và vết xử lý được bảo toàn.
 
-1. **Ngừng nhận Webhook khẩn cấp:**
+1. **Ngừng nhận Webhook khẩn cấp (bảo toàn hàng đợi tin nhắn):**
    ```bash
-   curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/deleteWebhook?drop_pending_updates=true"
+   curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/deleteWebhook"
    ```
 2. **Gỡ bỏ Worker:**
    ```bash
