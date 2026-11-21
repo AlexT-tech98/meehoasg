@@ -17,7 +17,9 @@ jobs:
           node-version: '22'
       - name: Install locked test dependencies
         run: npm ci --no-audit --no-fund
-      - name: Verify Order Bot (90 tests expected)
+      - name: Verify Order Bot unit tests (90 tests expected)
         run: node --test tests/order-bot.test.cjs
+      - name: Verify Order Bot realistic scenarios (13 tests expected)
+        run: node --test tests/order-bot-realistic-scenarios.test.cjs
       - name: Verify complete repository
         run: npm test
