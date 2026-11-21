@@ -346,12 +346,24 @@ QUY TẮC BẢO MẬT:
     const photoCaption = msg.caption || '';
 
     let processedText = text;
-    if (!photoFileId && text && !text.startsWith('/') && text.length > 50 && geminiKey) {
-      const extracted = await extractFieldsWithGemini(text);
-      if (extracted && Object.keys(extracted).length > 0) {
-        const lines = Object.entries(extracted).map(([k, v]) => `${k}: ${v}`).join('\n');
-        processedText = lines;
+    // Structured fields go to the deterministic parser; conversational text
+    // requires extraction and must never be silently discarded.
+    const isStructured = text.split(/\r?\n/).some(line => /^\s*[-*•]?\s*[^:\n]{1,40}:\s*\S/.test(line));
+    if (!photoFileId && text && !text.startsWith('/') && !isStructured) {
+      if (!geminiKey) {
+        await sendMessage(chatId, '⚠️ Bot chưa được cấu hình đọc hội thoại tự nhiên. Nội dung chưa được nhập vào đơn nháp; vui lòng nhập theo mẫu "tên khách: ...", "hoa: ..." hoặc liên hệ quản trị cấu hình AI.');
+        return;
       }
+      const extracted = await extractFieldsWithGemini(text);
+      const allowed = new Set(['customer', 'flower', 'date', 'time', 'shipping', 'address', 'phone', 'note', 'flowerTotal', 'cardText', 'bannerText']);
+      const fields = extracted && typeof extracted === 'object' && !Array.isArray(extracted)
+        ? Object.entries(extracted).filter(([key, value]) => allowed.has(key) && (typeof value === 'string' || typeof value === 'number') && String(value).trim())
+        : [];
+      if (!fields.length) {
+        await sendMessage(chatId, '⚠️ Chưa đọc được thông tin chắc chắn từ tin nhắn. Bot không tự điền dữ liệu; vui lòng gửi lại hoặc nhập theo dạng "tên khách: ...".');
+        return;
+      }
+      processedText = fields.map(([key, value]) => `${key}: ${String(value).replace(/\r?\n/g, ' ')}`).join('\n');
     }
 
     const result = handleUpdate({
