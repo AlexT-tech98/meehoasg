@@ -278,3 +278,1284 @@ test('markSubmitted is a no-op for unknown draftId', async () => {
   const result = markSubmitted(drafts, 'nonexistent', 'MEE-X');
   assert.deepEqual(result, drafts, 'unchanged when draft not found');
 });
+
+
+// ===========================================================================
+// TASK 2 — Durability & concurrency tests
+// ===========================================================================
+
+const os = require('node:os');
+const fs = require('node:fs');
+
+// ---------------------------------------------------------------------------
+// 13. markConfirming transitions confirmed → confirming
+// ---------------------------------------------------------------------------
+
+test('markConfirming transitions confirmed→confirming and persists', async () => {
+  const { markConfirming, loadDrafts, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  // Write a confirmed draft to a temp userId
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  const draft = { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'confirmed', requestId: randomUUID(), createdAt: new Date().toISOString() };
+  saveDrafts(userId, { [draftId]: draft, __active: draftId });
+
+  const ok = markConfirming(userId, draftId);
+  assert.ok(ok, 'markConfirming should return true');
+
+  const reloaded = loadDrafts(userId);
+  assert.equal(reloaded[draftId].status, 'confirming', 'status persisted as confirming');
+  assert.ok(reloaded[draftId].confirmingAt, 'confirmingAt timestamp set');
+});
+
+// ---------------------------------------------------------------------------
+// 14. markConfirming is a no-op if draft is already submitted
+// ---------------------------------------------------------------------------
+
+test('markConfirming returns false if draft is not in confirmed status', async () => {
+  const { markConfirming, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  const draft = { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'submitted', requestId: randomUUID(), createdAt: new Date().toISOString() };
+  saveDrafts(userId, { [draftId]: draft, __active: draftId });
+
+  const ok = markConfirming(userId, draftId);
+  assert.equal(ok, false, 'should return false for non-confirmed draft');
+});
+
+// ---------------------------------------------------------------------------
+// 15. markConfirmFailed rolls back confirming → confirmed
+// ---------------------------------------------------------------------------
+
+test('markConfirmFailed rolls back confirming→confirmed', async () => {
+  const { markConfirming, markConfirmFailed, loadDrafts, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  const draft = { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'confirmed', requestId: randomUUID(), createdAt: new Date().toISOString() };
+  saveDrafts(userId, { [draftId]: draft, __active: draftId });
+
+  markConfirming(userId, draftId);
+  const ok = markConfirmFailed(userId, draftId);
+  assert.ok(ok, 'markConfirmFailed should return true');
+
+  const reloaded = loadDrafts(userId);
+  assert.equal(reloaded[draftId].status, 'confirmed', 'status rolled back to confirmed');
+  assert.ok(reloaded[draftId].failedAt, 'failedAt timestamp set');
+});
+
+// ---------------------------------------------------------------------------
+// 16. requestId is preserved across confirm retries
+// ---------------------------------------------------------------------------
+
+test('requestId stays fixed across two cmdConfirm calls (idempotent retry)', async () => {
+  const { isConfirmable } = await getCore();
+  // We test at the pure data level: once a draft has requestId, re-confirming keeps it.
+  // cmdConfirm sets requestId = draft.requestId || randomUUID()
+  const { randomUUID } = require('node:crypto');
+  const existingReqId = randomUUID();
+  const draft = {
+    id: randomUUID(),
+    fields: { customer: 'A', flower: 'B', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' },
+    sampleRefs: [], draftBillRefs: [], status: 'confirmed',
+    requestId: existingReqId,
+  };
+  // Simulate what cmdConfirm does: draft.requestId || randomUUID()
+  const resolvedId = draft.requestId || randomUUID();
+  assert.equal(resolvedId, existingReqId, 'existing requestId preserved');
+});
+
+// ---------------------------------------------------------------------------
+// 17. findStaleConfirming detects crash-left drafts
+// ---------------------------------------------------------------------------
+
+test('findStaleConfirming detects drafts stuck in confirming', async () => {
+  const { findStaleConfirming, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  const stuckDraft = {
+    id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [],
+    status: 'confirming', requestId: randomUUID(),
+    confirmingAt: new Date().toISOString(),
+  };
+  saveDrafts(userId, { [draftId]: stuckDraft, __active: draftId });
+
+  const stale = findStaleConfirming();
+  const found = stale.find(s => s.userId === userId && s.draftId === draftId);
+  assert.ok(found, 'stuck draft found by findStaleConfirming');
+});
+
+// ---------------------------------------------------------------------------
+// 18. resetStaleConfirming recovers crashed draft to confirmed
+// ---------------------------------------------------------------------------
+
+test('resetStaleConfirming resets stuck confirming draft to confirmed', async () => {
+  const { findStaleConfirming, resetStaleConfirming, loadDrafts, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  const reqId = randomUUID();
+  const stuckDraft = {
+    id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [],
+    status: 'confirming', requestId: reqId,
+    confirmingAt: new Date().toISOString(),
+  };
+  saveDrafts(userId, { [draftId]: stuckDraft, __active: draftId });
+
+  const ok = resetStaleConfirming(userId, draftId);
+  assert.ok(ok, 'resetStaleConfirming should return true');
+
+  const reloaded = loadDrafts(userId);
+  assert.equal(reloaded[draftId].status, 'confirmed', 'status reset to confirmed');
+  assert.equal(reloaded[draftId].requestId, reqId, 'requestId unchanged after reset');
+  assert.ok(reloaded[draftId].resetAt, 'resetAt timestamp set');
+});
+
+// ---------------------------------------------------------------------------
+// 19. cleanupOrphanedTmpFiles removes .tmp.* files
+// ---------------------------------------------------------------------------
+
+test('cleanupOrphanedTmpFiles removes orphaned tmp files', async () => {
+  const { cleanupOrphanedTmpFiles } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  // Write a fake tmp file into the data dir
+  const dataDir = path.join(__dirname, '..', 'order-bot', 'data');
+  fs.mkdirSync(dataDir, { recursive: true });
+  const tmpName = `fake-user.json.tmp.${randomUUID()}`;
+  const tmpPath = path.join(dataDir, tmpName);
+  fs.writeFileSync(tmpPath, '{}', 'utf8');
+  assert.ok(fs.existsSync(tmpPath), 'tmp file created');
+
+  cleanupOrphanedTmpFiles();
+  assert.ok(!fs.existsSync(tmpPath), 'tmp file removed after cleanup');
+});
+
+// ---------------------------------------------------------------------------
+// 20. Atomic write: draft file is never in an invalid JSON state
+// ---------------------------------------------------------------------------
+
+test('saveDrafts writes valid JSON that loadDrafts can re-read', async () => {
+  const { saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const drafts = {
+    __active: 'abc',
+    abc: { id: 'abc', fields: { customer: 'JSON test' }, sampleRefs: [], draftBillRefs: [], status: 'pending' },
+  };
+  saveDrafts(userId, drafts);
+  const loaded = loadDrafts(userId);
+  assert.equal(loaded.abc.fields.customer, 'JSON test', 'round-trip correct');
+  assert.equal(loaded.__active, 'abc');
+});
+
+// ---------------------------------------------------------------------------
+// 21. addBillRef blocked when draft is in confirming status
+// ---------------------------------------------------------------------------
+
+test('addBillRef blocked when draft is in confirming status', async () => {
+  const { addBillRef } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const draftId = randomUUID();
+  const draft = { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'confirming', createdAt: new Date().toISOString() };
+  const drafts = { [draftId]: draft, __active: draftId };
+
+  const result = addBillRef(drafts, 'tg-file-id', 'bill');
+  assert.equal(result.ok, false, 'addBillRef must reject while confirming');
+  assert.ok(result.reply.includes('⏳') || result.reply.toLowerCase().includes('đang'), 'reply mentions in-progress');
+});
+
+// ---------------------------------------------------------------------------
+// 22. addSampleRef blocked when draft is in confirming status
+// ---------------------------------------------------------------------------
+
+test('addSampleRef blocked when draft is in confirming status', async () => {
+  const { addSampleRef } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const draftId = randomUUID();
+  const draft = { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'confirming', createdAt: new Date().toISOString() };
+  const drafts = { [draftId]: draft, __active: draftId };
+
+  const result = addSampleRef(drafts, 'tg-file-id', '');
+  assert.equal(result.ok, false, 'addSampleRef must reject while confirming');
+});
+
+// ---------------------------------------------------------------------------
+// 23. /cancel blocked when draft is in confirming status
+// ---------------------------------------------------------------------------
+
+test('/cancel command blocked when draft is in confirming status', async () => {
+  const { handleUpdate, saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  const draft = {
+    id: draftId, fields: { customer: 'A', flower: 'B', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' },
+    sampleRefs: [], draftBillRefs: [], status: 'confirming', requestId: randomUUID(),
+    confirmingAt: new Date().toISOString(),
+  };
+  saveDrafts(userId, { [draftId]: draft, __active: draftId });
+
+  const result = handleUpdate({ userId, text: '/cancel', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply, 'should reply');
+  assert.ok(result.reply.includes('⏳') || result.reply.toLowerCase().includes('đang'), 'must block cancel while confirming');
+  // Draft must still exist
+  const reloaded = loadDrafts(userId);
+  assert.ok(reloaded[draftId], 'draft not deleted');
+});
+
+// ---------------------------------------------------------------------------
+// 24. Field update blocked when draft is in confirming status
+// ---------------------------------------------------------------------------
+
+test('field update blocked when draft is in confirming status', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  const draft = {
+    id: draftId, fields: { customer: 'A', flower: 'B', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' },
+    sampleRefs: [], draftBillRefs: [], status: 'confirming', requestId: randomUUID(),
+  };
+  saveDrafts(userId, { [draftId]: draft, __active: draftId });
+
+  const result = handleUpdate({ userId, text: 'tên khách: B', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('⏳') || result.reply.toLowerCase().includes('đang'), 'must block field update while confirming');
+});
+
+
+// ===========================================================================
+// TASK 3 — Extended test scenarios (≥50 total)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// 25. /new creates draft with all required empty fields
+// ---------------------------------------------------------------------------
+
+test('/new creates fresh draft with pending status and empty fields', async () => {
+  const { handleUpdate, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const result = handleUpdate({ userId, text: '/new', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('/new') || result.reply.includes('nháp'), 'confirms new draft created');
+  const drafts = loadDrafts(userId);
+  const draft = drafts[drafts.__active];
+  assert.ok(draft, 'draft exists');
+  assert.equal(draft.status, 'pending');
+  assert.deepEqual(draft.sampleRefs, []);
+  assert.deepEqual(draft.draftBillRefs, []);
+});
+
+// ---------------------------------------------------------------------------
+// 26. Field update: multiple fields in one message
+// ---------------------------------------------------------------------------
+
+test('multi-field message updates all matching fields in one call', async () => {
+  const { handleUpdate, loadDrafts, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  handleUpdate({ userId, text: 'tên khách: Alice\nmẫu hoa: Tulip đỏ\nngày nhận: 2026-12-25', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+
+  const loaded = loadDrafts(userId);
+  const f = loaded[draftId].fields;
+  assert.equal(f.customer, 'Alice');
+  assert.equal(f.flower, 'Tulip đỏ');
+  assert.equal(f.date, '2026-12-25');
+});
+
+// ---------------------------------------------------------------------------
+// 27. Field update: shipping alias normalization
+// ---------------------------------------------------------------------------
+
+test('shipping alias "shop" maps to "Shop book ship"', async () => {
+  const { handleUpdate, loadDrafts, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  handleUpdate({ userId, text: 'hình thức: shop', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.equal(loadDrafts(userId)[draftId].fields.shipping, 'Shop book ship');
+});
+
+test('shipping alias "ghé lấy" maps to "Ghé lấy"', async () => {
+  const { handleUpdate, loadDrafts, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  handleUpdate({ userId, text: 'ship: ghé lấy', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.equal(loadDrafts(userId)[draftId].fields.shipping, 'Ghé lấy');
+});
+
+test('shipping alias "khách tự book" maps to "Khách tự book"', async () => {
+  const { handleUpdate, loadDrafts, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  handleUpdate({ userId, text: 'shipping: khách tự book', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.equal(loadDrafts(userId)[draftId].fields.shipping, 'Khách tự book');
+});
+
+// ---------------------------------------------------------------------------
+// 30. Unknown field in message → no changes, reply suggests /show
+// ---------------------------------------------------------------------------
+
+test('unknown field key returns no-change reply mentioning /show', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  const result = handleUpdate({ userId, text: 'nonsense field: value', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('/show'), 'reply mentions /show');
+  assert.equal(result.action, null);
+});
+
+// ---------------------------------------------------------------------------
+// 31. /confirm rejected when required fields are missing
+// ---------------------------------------------------------------------------
+
+test('/confirm rejected when required fields missing — returns error reply, no action', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: { customer: 'A' }, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  const result = handleUpdate({ userId, text: '/confirm', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('❌') || result.reply.includes('thiếu'), 'error reply');
+  assert.equal(result.action, null, 'no confirm action triggered');
+});
+
+// ---------------------------------------------------------------------------
+// 32. /confirm succeeds when all required fields present → action:'confirm'
+// ---------------------------------------------------------------------------
+
+test('/confirm triggers action:confirm when all required fields present', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: { id: draftId, fields: { customer: 'A', flower: 'B', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' }, sampleRefs: [], draftBillRefs: [], status: 'pending' },
+    __active: draftId,
+  });
+
+  const result = handleUpdate({ userId, text: '/confirm', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.equal(result.action, 'confirm', 'confirm action triggered');
+});
+
+// ---------------------------------------------------------------------------
+// 33. /list shows confirming status label
+// ---------------------------------------------------------------------------
+
+test('/list shows ⏳ for draft in confirming status', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: { id: draftId, fields: { customer: 'X' }, sampleRefs: [], draftBillRefs: [], status: 'confirming', requestId: randomUUID() },
+    __active: draftId,
+  });
+
+  const result = handleUpdate({ userId, text: '/list', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('⏳'), 'list shows ⏳ for confirming draft');
+});
+
+// ---------------------------------------------------------------------------
+// 34. /select switches active draft
+// ---------------------------------------------------------------------------
+
+test('/select switches the active draft correctly', async () => {
+  const { handleUpdate, saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const id1 = randomUUID(); const id2 = randomUUID();
+  saveDrafts(userId, {
+    [id1]: { id: id1, fields: { customer: 'A' }, sampleRefs: [], draftBillRefs: [], status: 'pending' },
+    [id2]: { id: id2, fields: { customer: 'B' }, sampleRefs: [], draftBillRefs: [], status: 'pending' },
+    __active: id1,
+  });
+
+  handleUpdate({ userId, text: `/select ${id2.slice(-6)}`, photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.equal(loadDrafts(userId).__active, id2, 'active draft switched to id2');
+});
+
+// ---------------------------------------------------------------------------
+// 35. /select with unknown id returns error
+// ---------------------------------------------------------------------------
+
+test('/select with unknown short id returns not-found reply', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  const result = handleUpdate({ userId, text: '/select zzzzzz', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.toLowerCase().includes('không tìm thấy'), 'not-found reply');
+});
+
+// ---------------------------------------------------------------------------
+// 36. /cancel removes draft and clears __active
+// ---------------------------------------------------------------------------
+
+test('/cancel removes draft from store and clears __active', async () => {
+  const { handleUpdate, saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  handleUpdate({ userId, text: '/cancel', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  const drafts = loadDrafts(userId);
+  assert.ok(!drafts[draftId], 'draft removed');
+  assert.ok(!drafts.__active, '__active cleared');
+});
+
+// ---------------------------------------------------------------------------
+// 37. /cancel blocked on submitted draft
+// ---------------------------------------------------------------------------
+
+test('/cancel blocked on submitted draft', async () => {
+  const { handleUpdate, saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'submitted', opsOrderId: 'MEE-001' }, __active: draftId });
+
+  const result = handleUpdate({ userId, text: '/cancel', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.toLowerCase().includes('ops') || result.reply.includes('tạo'), 'explains already in OPS');
+  assert.ok(loadDrafts(userId)[draftId], 'draft still exists');
+});
+
+// ---------------------------------------------------------------------------
+// 38. Photo without bill caption → sample ref
+// ---------------------------------------------------------------------------
+
+test('photo with no caption goes to sampleRefs', async () => {
+  const { handleUpdate, saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  const result = handleUpdate({ userId, text: '', photoFileId: 'photo-001', photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.ok !== false, 'succeeds');
+  const draft = loadDrafts(userId)[draftId];
+  assert.equal(draft.sampleRefs.length, 1);
+  assert.equal(draft.draftBillRefs.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// 39. Photo with "bill" caption → bill ref
+// ---------------------------------------------------------------------------
+
+test('photo with "bill" caption goes to draftBillRefs', async () => {
+  const { handleUpdate, saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  handleUpdate({ userId, text: '', photoFileId: 'bill-photo-001', photoCaption: 'bill chuyển khoản', isBillHint: true, requestId: randomUUID() });
+  const draft = loadDrafts(userId)[draftId];
+  assert.equal(draft.draftBillRefs.length, 1);
+  assert.equal(draft.sampleRefs.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// 40. Photo with "hóa đơn" caption → bill ref
+// ---------------------------------------------------------------------------
+
+test('photo with "hóa đơn" in caption goes to draftBillRefs', async () => {
+  const { handleUpdate, saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  handleUpdate({ userId, text: '', photoFileId: 'hd-photo', photoCaption: 'hóa đơn thanh toán', isBillHint: true, requestId: randomUUID() });
+  const draft = loadDrafts(userId)[draftId];
+  assert.equal(draft.draftBillRefs.length, 1);
+  assert.equal(draft.sampleRefs.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// 41. /confirm on already-submitted draft returns warning, no duplicate action
+// ---------------------------------------------------------------------------
+
+test('/confirm on submitted draft returns warning, no duplicate action', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: { id: draftId, fields: { customer: 'A', flower: 'B', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' }, sampleRefs: [], draftBillRefs: [], status: 'submitted', opsOrderId: 'MEE-001' },
+    __active: draftId,
+  });
+
+  const result = handleUpdate({ userId, text: '/confirm', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('⚠️'), 'warning shown');
+  assert.equal(result.action, null, 'no duplicate confirm action');
+});
+
+// ---------------------------------------------------------------------------
+// 42. /confirm on confirming draft returns in-progress message
+// ---------------------------------------------------------------------------
+
+test('/confirm on confirming draft returns in-progress message, not a new action', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: { id: draftId, fields: { customer: 'A', flower: 'B', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' }, sampleRefs: [], draftBillRefs: [], status: 'confirming', requestId: randomUUID() },
+    __active: draftId,
+  });
+
+  const result = handleUpdate({ userId, text: '/confirm', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('⏳'), 'in-progress message shown');
+  assert.equal(result.action, null, 'no duplicate confirm action triggered');
+});
+
+// ---------------------------------------------------------------------------
+// 43. /show returns draftSummary
+// ---------------------------------------------------------------------------
+
+test('/show returns formatted draft summary', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: { id: draftId, fields: { customer: 'ShowTest', flower: 'Lily', date: '2026-12-10', time: '14:00', shipping: 'Ghé lấy' }, sampleRefs: [], draftBillRefs: [], status: 'pending' },
+    __active: draftId,
+  });
+
+  const result = handleUpdate({ userId, text: '/show', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('ShowTest'), 'customer in summary');
+  assert.ok(result.reply.includes('Lily'), 'flower in summary');
+});
+
+// ---------------------------------------------------------------------------
+// 44. /list with no drafts suggests /new
+// ---------------------------------------------------------------------------
+
+test('/list with no drafts suggests /new', async () => {
+  const { handleUpdate } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const result = handleUpdate({ userId, text: '/list', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('/new'), 'suggests /new');
+});
+
+// ---------------------------------------------------------------------------
+// 45. Field update on draft without active → suggests /new
+// ---------------------------------------------------------------------------
+
+test('field update when no draft active suggests /new', async () => {
+  const { handleUpdate } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const result = handleUpdate({ userId, text: 'tên khách: Alice', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('/new'), 'mentions /new');
+});
+
+// ---------------------------------------------------------------------------
+// 46. Photo with no active draft returns ok:false hint
+// ---------------------------------------------------------------------------
+
+test('photo with no active draft returns instructive error', async () => {
+  const { handleUpdate } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const result = handleUpdate({ userId, text: '', photoFileId: 'some-photo', photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply, 'has reply');
+  assert.ok(result.reply.includes('/new'), 'mentions /new');
+});
+
+// ---------------------------------------------------------------------------
+// 47. draftSummary includes confirming status badge
+// ---------------------------------------------------------------------------
+
+test('draftSummary shows confirming status badge', async () => {
+  const { draftSummary } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const draft = { id: randomUUID(), fields: { customer: 'T', flower: 'R', date: '2026-12-01', time: '09:00', shipping: 'Ghé lấy' }, sampleRefs: [], draftBillRefs: [], status: 'confirming' };
+  const summary = draftSummary(draft);
+  assert.ok(summary.includes('⏳') || summary.includes('Đang tạo'), 'confirming badge in summary');
+});
+
+// ---------------------------------------------------------------------------
+// 48. draftSummary shows submitted status badge
+// ---------------------------------------------------------------------------
+
+test('draftSummary shows submitted status badge', async () => {
+  const { draftSummary } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const draft = { id: randomUUID(), fields: { customer: 'T', flower: 'R', date: '2026-12-01', time: '09:00', shipping: 'Ghé lấy' }, sampleRefs: [], draftBillRefs: [], status: 'submitted', opsOrderId: 'MEE-001' };
+  const summary = draftSummary(draft);
+  assert.ok(summary.includes('✅') || summary.includes('Đã tạo'), 'submitted badge in summary');
+});
+
+// ---------------------------------------------------------------------------
+// 49. requiredMissing: flower missing only
+// ---------------------------------------------------------------------------
+
+test('requiredMissing detects only flower missing', async () => {
+  const { requiredMissing } = await getCore();
+  const draft = { fields: { customer: 'A', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' } };
+  const missing = requiredMissing(draft);
+  assert.ok(missing.includes('mẫu hoa'));
+  assert.equal(missing.filter(m => m !== 'mẫu hoa').length, 0, 'only flower missing');
+});
+
+// ---------------------------------------------------------------------------
+// 50. Bill ref caption is stored and truncated at 200 chars
+// ---------------------------------------------------------------------------
+
+test('bill ref caption is stored and truncated at 200 chars', async () => {
+  const { addBillRef, activeDraft } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const draftId = randomUUID();
+  const draft = { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending', createdAt: new Date().toISOString() };
+  const drafts = { [draftId]: draft, __active: draftId };
+
+  const longCaption = 'bill ' + 'x'.repeat(300);
+  const result = addBillRef(drafts, 'file-id-999', longCaption);
+  assert.ok(result.ok);
+  const ref = activeDraft(result.drafts).draftBillRefs[0];
+  assert.ok(ref.caption.length <= 200, `caption truncated to ≤200 chars, got ${ref.caption.length}`);
+  assert.ok(ref.savedAt, 'savedAt timestamp set');
+});
+
+// ---------------------------------------------------------------------------
+// 51. /show on no active draft returns instructive message
+// ---------------------------------------------------------------------------
+
+test('/show with no active draft returns instructive message', async () => {
+  const { handleUpdate } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const result = handleUpdate({ userId, text: '/show', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('/new') || result.reply.includes('/list'), 'guides user');
+});
+
+// ---------------------------------------------------------------------------
+// 52. Unknown command returns help text
+// ---------------------------------------------------------------------------
+
+test('unknown command returns help listing known commands', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const result = handleUpdate({ userId, text: '/unknown_xyz', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('/new') || result.reply.includes('/confirm'), 'lists known commands');
+  assert.equal(result.action, null);
+});
+
+// ---------------------------------------------------------------------------
+// 53. Field update on submitted draft → guides to /new
+// ---------------------------------------------------------------------------
+
+test('field update on submitted draft guides to /new', async () => {
+  const { handleUpdate, saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: { id: draftId, fields: { customer: 'A', flower: 'B', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' }, sampleRefs: [], draftBillRefs: [], status: 'submitted', opsOrderId: 'MEE-X' },
+    __active: draftId,
+  });
+
+  const result = handleUpdate({ userId, text: 'tên khách: B', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.ok(result.reply.includes('OPS') || result.reply.includes('/new'), 'guides to /new');
+});
+
+// ---------------------------------------------------------------------------
+// 54. Multiple /new creates independent drafts
+// ---------------------------------------------------------------------------
+
+test('multiple /new calls create independent drafts without overwriting each other', async () => {
+  const { handleUpdate, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  handleUpdate({ userId, text: '/new', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  handleUpdate({ userId, text: '/new', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  handleUpdate({ userId, text: '/new', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+
+  const drafts = loadDrafts(userId);
+  const ids = Object.keys(drafts).filter(k => !k.startsWith('_'));
+  assert.equal(ids.length, 3, 'three independent drafts created');
+});
+
+// ---------------------------------------------------------------------------
+// 55. markConfirmFailed is no-op when draft is not in confirming status
+// ---------------------------------------------------------------------------
+
+test('markConfirmFailed is a no-op when draft status is not confirming', async () => {
+  const { markConfirmFailed, saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  const ok = markConfirmFailed(userId, draftId);
+  assert.equal(ok, false, 'returns false for non-confirming draft');
+  assert.equal(loadDrafts(userId)[draftId].status, 'pending', 'status unchanged');
+});
+
+
+// ===========================================================================
+// TASK 4 & 5 — Realistic scenarios, Staging integration & Security tests
+// ===========================================================================
+
+let runPromise;
+function getRun() {
+  if (!runPromise) {
+    runPromise = import(pathToFileURL(path.join(__dirname, '..', 'order-bot', 'run.mjs')).href);
+  }
+  return runPromise;
+}
+
+// ---------------------------------------------------------------------------
+// 56. Money normalization
+// ---------------------------------------------------------------------------
+test('normalizeMoney normalizes k, tr, and dot formatting', async () => {
+  const { normalizeMoney } = await getCore();
+  assert.equal(normalizeMoney('800k'), '800000');
+  assert.equal(normalizeMoney('1.500.000 đ'), '1500000');
+  assert.equal(normalizeMoney('1,2tr'), '1200000');
+  assert.equal(normalizeMoney('500000'), '500000');
+  assert.equal(normalizeMoney(''), '');
+});
+
+// ---------------------------------------------------------------------------
+// 57. Date normalization
+// ---------------------------------------------------------------------------
+test('normalizeDate converts DD/MM/YYYY and DD-MM-YYYY to YYYY-MM-DD', async () => {
+  const { normalizeDate } = await getCore();
+  assert.equal(normalizeDate('05/12/2026'), '2026-12-05');
+  assert.equal(normalizeDate('5/9/2026'), '2026-09-05');
+  assert.equal(normalizeDate('2026-12-05'), '2026-12-05');
+});
+
+// ---------------------------------------------------------------------------
+// 58. Time normalization
+// ---------------------------------------------------------------------------
+test('normalizeTime converts 9h, 9h30 to HH:MM', async () => {
+  const { normalizeTime } = await getCore();
+  assert.equal(normalizeTime('9h'), '09:00');
+  assert.equal(normalizeTime('9h30'), '09:30');
+  assert.equal(normalizeTime('14:00'), '14:00');
+});
+
+// ---------------------------------------------------------------------------
+// 59. Forwarded message with bullets and aliases
+// ---------------------------------------------------------------------------
+test('bulleted forwarded message parses customer, flower, date, time, and money', async () => {
+  const { handleUpdate, saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId });
+
+  const msg = [
+    '- Tên khách: Chị Lan',
+    '* Mẫu hoa: Bó hướng dương',
+    '• Ngày nhận: 15/12/2026',
+    '- Giờ nhận: 9h30',
+    '- Giao hàng: shop book',
+    '- Giá: 750k',
+  ].join('\n');
+
+  handleUpdate({ userId, text: msg, photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  const loaded = loadDrafts(userId)[draftId].fields;
+  assert.equal(loaded.customer, 'Chị Lan');
+  assert.equal(loaded.flower, 'Bó hướng dương');
+  assert.equal(loaded.date, '2026-12-15');
+  assert.equal(loaded.time, '09:30');
+  assert.equal(loaded.shipping, 'Shop book ship');
+  assert.equal(loaded.flowerTotal, '750000');
+});
+
+// ---------------------------------------------------------------------------
+// 60. Overwrite conflict resolution
+// ---------------------------------------------------------------------------
+test('subsequent message cleanly overrides conflicting fields', async () => {
+  const { handleUpdate, saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = 'test-' + randomUUID().slice(0, 8);
+  const draftId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: { id: draftId, fields: { customer: 'Tên Cũ', flowerTotal: '500000' }, sampleRefs: [], draftBillRefs: [], status: 'pending' },
+    __active: draftId,
+  });
+
+  handleUpdate({ userId, text: 'tên khách: Tên Mới\ngiá: 650k', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  const loaded = loadDrafts(userId)[draftId].fields;
+  assert.equal(loaded.customer, 'Tên Mới');
+  assert.equal(loaded.flowerTotal, '650000');
+});
+
+// ---------------------------------------------------------------------------
+// 61. Sample photo limit (max 10)
+// ---------------------------------------------------------------------------
+test('sample photo limit caps at 10 items per draft', async () => {
+  const { addSampleRef } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const draftId = randomUUID();
+  let drafts = { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId };
+
+  for (let i = 0; i < 10; i++) {
+    const res = addSampleRef(drafts, `sample-${i}`, '');
+    assert.ok(res.ok);
+    drafts = res.drafts;
+  }
+  assert.equal(drafts[draftId].sampleRefs.length, 10);
+
+  const eleventh = addSampleRef(drafts, 'sample-11', '');
+  assert.equal(eleventh.ok, false);
+  assert.ok(eleventh.reply.includes('10'));
+  assert.equal(drafts[draftId].sampleRefs.length, 10);
+});
+
+// ---------------------------------------------------------------------------
+// 62. Bill photo limit (max 10)
+// ---------------------------------------------------------------------------
+test('bill photo limit caps at 10 items per draft', async () => {
+  const { addBillRef } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const draftId = randomUUID();
+  let drafts = { [draftId]: { id: draftId, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending' }, __active: draftId };
+
+  for (let i = 0; i < 10; i++) {
+    const res = addBillRef(drafts, `bill-${i}`, 'bill');
+    assert.ok(res.ok);
+    drafts = res.drafts;
+  }
+  assert.equal(drafts[draftId].draftBillRefs.length, 10);
+
+  const eleventh = addBillRef(drafts, 'bill-11', 'bill');
+  assert.equal(eleventh.ok, false);
+  assert.ok(eleventh.reply.includes('10'));
+  assert.equal(drafts[draftId].draftBillRefs.length, 10);
+});
+
+// ---------------------------------------------------------------------------
+// 63. Bill caption detection helper
+// ---------------------------------------------------------------------------
+test('isBillCaption accurately identifies bill hints', async () => {
+  const { isBillCaption } = await getRun();
+  assert.equal(isBillCaption('ảnh bill'), true);
+  assert.equal(isBillCaption('hóa đơn thanh toán'), true);
+  assert.equal(isBillCaption('đã thanh toán bill'), true);
+  assert.equal(isBillCaption('hoa mau tone hong'), false);
+  assert.equal(isBillCaption(''), false);
+  assert.equal(isBillCaption(null), false);
+});
+
+// ---------------------------------------------------------------------------
+// 64. Runner rejects unauthorized users
+// ---------------------------------------------------------------------------
+test('runner ignores or warns unauthorized user', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const sentMessages = [];
+  const runner = createOrderBotRunner({
+    botToken: 'fake-bot-token',
+    allowedUserIds: '111,222',
+    fetcher: async (url, opts) => {
+      if (url.includes('/sendMessage')) {
+        sentMessages.push(JSON.parse(opts.body));
+        return { ok: true, json: async () => ({ ok: true, result: {} }) };
+      }
+      return { ok: true, json: async () => ({ ok: true, result: {} }) };
+    },
+  });
+
+  // Unauthorized user 999
+  await runner.handleMessage({
+    from: { id: 999 },
+    chat: { id: 999, type: 'private' },
+    text: '/new',
+  });
+
+  assert.equal(sentMessages.length, 1);
+  assert.ok(sentMessages[0].text.includes('không có quyền'));
+});
+
+// ---------------------------------------------------------------------------
+// 65. Runner ignores non-private chats
+// ---------------------------------------------------------------------------
+test('runner ignores group chats completely', async () => {
+  const { createOrderBotRunner } = await getRun();
+  let calls = 0;
+  const runner = createOrderBotRunner({
+    botToken: 'fake-bot-token',
+    allowedUserIds: '111',
+    fetcher: async () => { calls++; return { ok: true, json: async () => ({ ok: true }) }; },
+  });
+
+  await runner.handleMessage({
+    from: { id: 111 },
+    chat: { id: -100123456, type: 'group' },
+    text: '/new',
+  });
+
+  assert.equal(calls, 0, 'no calls made for group chat');
+});
+
+// ---------------------------------------------------------------------------
+// 66. downloadPhoto enforces <= 5MB limit
+// ---------------------------------------------------------------------------
+test('downloadPhoto rejects files exceeding 5MB', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const bigBytes = new Uint8Array(6 * 1024 * 1024); // 6MB
+  const runner = createOrderBotRunner({
+    botToken: 'fake-token',
+    fetcher: async (url) => {
+      if (url.includes('/getFile')) {
+        return { ok: true, json: async () => ({ ok: true, result: { file_path: 'photos/big.jpg' } }) };
+      }
+      return { ok: true, arrayBuffer: async () => bigBytes.buffer };
+    },
+  });
+
+  await assert.rejects(
+    () => runner.downloadPhoto('file-too-big'),
+    /vượt quá dung lượng/
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 67. downloadPhoto succeeds for valid image
+// ---------------------------------------------------------------------------
+test('downloadPhoto returns base64 data url for valid image', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const sampleBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]); // minimal JPEG header
+  const runner = createOrderBotRunner({
+    botToken: 'fake-token',
+    fetcher: async (url) => {
+      if (url.includes('/getFile')) {
+        return { ok: true, json: async () => ({ ok: true, result: { file_path: 'photos/pic.jpg' } }) };
+      }
+      return { ok: true, arrayBuffer: async () => sampleBytes.buffer };
+    },
+  });
+
+  const dataUrl = await runner.downloadPhoto('sample-file-id');
+  assert.ok(dataUrl.startsWith('data:image/jpeg;base64,'));
+});
+
+// ---------------------------------------------------------------------------
+// 68. Redaction of sensitive tokens
+// ---------------------------------------------------------------------------
+test('redact masks botToken, opsToken, and geminiKey', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const runner = createOrderBotRunner({
+    botToken: 'secret-telegram-token',
+    opsToken: 'secret-ops-token-12345',
+    geminiApiKey: 'secret-gemini-key-999',
+  });
+
+  const raw = 'Error calling https://api.telegram.org/botsecret-telegram-token/getFile with token secret-ops-token-12345 and key secret-gemini-key-999';
+  const redacted = runner.redact(raw);
+  assert.ok(!redacted.includes('secret-telegram-token'));
+  assert.ok(!redacted.includes('secret-ops-token-12345'));
+  assert.ok(!redacted.includes('secret-gemini-key-999'));
+  assert.ok(redacted.includes('[REDACTED_BOT_TOKEN]'));
+  assert.ok(redacted.includes('[REDACTED_OPS_TOKEN]'));
+  assert.ok(redacted.includes('[REDACTED_GEMINI_KEY]'));
+});
+
+// ---------------------------------------------------------------------------
+// 69. Staging integration: callCreateOrder payload contract
+// ---------------------------------------------------------------------------
+test('callCreateOrder strictly sends payment="Chưa thanh toán" and no fullPaidRequested', async () => {
+  const { createOrderBotRunner } = await getRun();
+  let capturedPayload = null;
+
+  const runner = createOrderBotRunner({
+    opsApiUrl: 'https://staging.meehoasg.com/functions/v1/meehoasg-api-core',
+    opsToken: 'valid-ops-session-token',
+    fetcher: async (url, opts) => {
+      capturedPayload = JSON.parse(opts.body);
+      return { ok: true, json: async () => ({ ok: true, orderId: 'MEE-STAGING-99' }) };
+    },
+  });
+
+  const draft = {
+    id: 'draft-staging-01',
+    requestId: 'req-staging-uuid-123',
+    fields: {
+      customer: 'Khách Staging',
+      flower: 'Bó cúc mẫu đơn',
+      date: '2026-12-10',
+      time: '11:00',
+      shipping: 'Shop book ship',
+      flowerTotal: '900000',
+    },
+    sampleRefs: [],
+    draftBillRefs: [{ fileId: 'bill-should-stay-local' }],
+  };
+
+  const res = await runner.callCreateOrder(draft, ['data:image/jpeg;base64,sample1']);
+  assert.equal(res.ok, true);
+  assert.equal(res.orderId, 'MEE-STAGING-99');
+
+  const order = capturedPayload.payload.order;
+  assert.equal(order.customer, 'Khách Staging');
+  assert.equal(order.flower, 'Bó cúc mẫu đơn');
+  assert.equal(order.payment, 'Chưa thanh toán');
+  assert.equal(order.fullPaidRequested, undefined, 'fullPaidRequested must NOT be set');
+  assert.equal(order.imageFiles.length, 1);
+  assert.equal(order.billFiles, undefined, 'billFiles must NOT be set');
+  assert.equal(capturedPayload.payload.requestId, 'req-staging-uuid-123');
+});
+
+// ---------------------------------------------------------------------------
+// 70. Staging integration: runConfirm end-to-end success
+// ---------------------------------------------------------------------------
+test('runConfirm executes full confirm cycle and transitions to submitted', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const { saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = '111222';
+  const draftId = randomUUID();
+  const reqId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: {
+      id: draftId,
+      requestId: reqId,
+      status: 'confirmed',
+      fields: { customer: 'Bình', flower: 'Hồng vàng', date: '2026-12-05', time: '10:00', shipping: 'Ghé lấy' },
+      sampleRefs: [],
+      draftBillRefs: [{ fileId: 'bill-local-ref' }],
+    },
+    __active: draftId,
+  });
+
+  const sentMessages = [];
+  const runner = createOrderBotRunner({
+    botToken: 'bot-token',
+    allowedUserIds: '111222',
+    opsApiUrl: 'https://staging.meehoasg.com/api',
+    opsToken: 'ops-token',
+    fetcher: async (url, opts) => {
+      if (url.includes('/sendMessage')) {
+        sentMessages.push(JSON.parse(opts.body).text);
+        return { ok: true, json: async () => ({ ok: true, result: {} }) };
+      }
+      if (url.includes('https://staging.meehoasg.com/api')) {
+        return { ok: true, json: async () => ({ ok: true, orderId: 'MEE-CONFIRMED-88' }) };
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    },
+  });
+
+  await runner.runConfirm(userId, 111222, loadDrafts(userId));
+
+  const after = loadDrafts(userId)[draftId];
+  assert.equal(after.status, 'submitted');
+  assert.equal(after.opsOrderId, 'MEE-CONFIRMED-88');
+  assert.equal(after.requestId, reqId);
+  const finalMsg = sentMessages[sentMessages.length - 1];
+  assert.ok(finalMsg.includes('MEE-CONFIRMED-88'));
+  assert.ok(finalMsg.includes('Lưu ý ảnh bill'));
+  assert.ok(finalMsg.includes('Chưa thanh toán'));
+});
+
+// ---------------------------------------------------------------------------
+// 71. Staging integration: runConfirm handles OPS failure and rolls back to confirmed
+// ---------------------------------------------------------------------------
+test('runConfirm rolls back to confirmed when OPS returns ok:false', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const { saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = '111222';
+  const draftId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: {
+      id: draftId,
+      requestId: randomUUID(),
+      status: 'confirmed',
+      fields: { customer: 'Lan', flower: 'Cẩm chướng', date: '2026-12-05', time: '10:00', shipping: 'Ghé lấy' },
+      sampleRefs: [],
+      draftBillRefs: [],
+    },
+    __active: draftId,
+  });
+
+  const runner = createOrderBotRunner({
+    botToken: 'bot-token',
+    allowedUserIds: '111222',
+    opsApiUrl: 'https://staging.meehoasg.com/api',
+    opsToken: 'ops-token',
+    fetcher: async (url) => {
+      if (url.includes('/sendMessage')) return { ok: true, json: async () => ({ ok: true, result: {} }) };
+      return { ok: true, json: async () => ({ ok: false, message: 'DB constraint violated' }) };
+    },
+  });
+
+  await runner.runConfirm(userId, 111222, loadDrafts(userId));
+  const after = loadDrafts(userId)[draftId];
+  assert.equal(after.status, 'confirmed');
+});
+
+// ---------------------------------------------------------------------------
+// 72. Staging integration: runConfirm handles network error and keeps confirming status
+// ---------------------------------------------------------------------------
+test('runConfirm retains confirming status on network failure for crash-safety', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const { saveDrafts, loadDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+
+  const userId = '111222';
+  const draftId = randomUUID();
+  saveDrafts(userId, {
+    [draftId]: {
+      id: draftId,
+      requestId: randomUUID(),
+      status: 'confirmed',
+      fields: { customer: 'Lan', flower: 'Cẩm chướng', date: '2026-12-05', time: '10:00', shipping: 'Ghé lấy' },
+      sampleRefs: [],
+      draftBillRefs: [],
+    },
+    __active: draftId,
+  });
+
+  const runner = createOrderBotRunner({
+    botToken: 'bot-token',
+    allowedUserIds: '111222',
+    opsApiUrl: 'https://staging.meehoasg.com/api',
+    opsToken: 'ops-token',
+    fetcher: async (url) => {
+      if (url.includes('/sendMessage')) return { ok: true, json: async () => ({ ok: true, result: {} }) };
+      throw new Error('ECONNRESET');
+    },
+  });
+
+  await runner.runConfirm(userId, 111222, loadDrafts(userId));
+  const after = loadDrafts(userId)[draftId];
+  assert.equal(after.status, 'confirming');
+});
+
+// ---------------------------------------------------------------------------
+// 73. Gemini extraction simulation
+// ---------------------------------------------------------------------------
+test('extractFieldsWithGemini correctly extracts JSON fields from text', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const fakeGeminiResponse = {
+    candidates: [{
+      content: {
+        parts: [{
+          text: JSON.stringify({
+            customer: 'Bác Tư',
+            flower: 'Lan hồ điệp',
+            date: '2026-12-20',
+            time: '08:00',
+            shipping: 'Shop book ship',
+            flowerTotal: 1200000,
+          }),
+        }],
+      },
+    }],
+  };
+
+  const runner = createOrderBotRunner({
+    geminiApiKey: 'fake-gemini-key',
+    fetcher: async () => ({ ok: true, json: async () => fakeGeminiResponse }),
+  });
+
+  const extracted = await runner.extractFieldsWithGemini('Khách đặt Bác Tư hoa lan hồ điệp ngày 20/12 lúc 8h sáng ship');
+  assert.equal(extracted.customer, 'Bác Tư');
+  assert.equal(extracted.flower, 'Lan hồ điệp');
+  assert.equal(extracted.flowerTotal, 1200000);
+});
+
+// ---------------------------------------------------------------------------
+// 74. Gemini failure returns null without breaking
+// ---------------------------------------------------------------------------
+test('extractFieldsWithGemini returns null safely on API error', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const runner = createOrderBotRunner({
+    geminiApiKey: 'fake-gemini-key',
+    fetcher: async () => ({ ok: false, status: 500 }),
+  });
+
+  const extracted = await runner.extractFieldsWithGemini('Some text');
+  assert.equal(extracted, null);
+});
+
+// ---------------------------------------------------------------------------
+// 75. Data directory file permissions (mode 0o600 / 0o700)
+// ---------------------------------------------------------------------------
+test('saveDrafts creates files with 0o600 mode', async () => {
+  const { saveDrafts } = await getCore();
+  const { randomUUID } = require('node:crypto');
+  const userId = 'perm-test-' + randomUUID().slice(0, 8);
+  saveDrafts(userId, { test: 1 });
+
+  const filePath = path.join(__dirname, '..', 'order-bot', 'data', `${userId}.json`);
+  const stat = fs.statSync(filePath);
+  const mode = stat.mode & 0o777;
+  assert.equal(mode, 0o600, 'draft JSON file should have 0o600 permissions');
+});

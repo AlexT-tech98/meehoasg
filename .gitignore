@@ -4,3 +4,4 @@ node_modules/
 .env.*
 supabase/.temp/
 artifacts/
+order-bot/data/

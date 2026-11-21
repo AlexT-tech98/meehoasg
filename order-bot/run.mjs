@@ -22,302 +22,358 @@
  *   - Telegram update IDs are tracked to avoid reprocessing.
  */
 
-import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
-import { handleUpdate, addBillRef, addSampleRef, markSubmitted, draftSummary, loadDrafts, saveDrafts } from './core.mjs';
-
-const require = createRequire(import.meta.url);
-
-const BOT_TOKEN = process.env.BOT_TOKEN || '';
-const ALLOWED_IDS = new Set((process.env.ALLOWED_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean));
-const OPS_API_URL = process.env.OPS_API_URL || '';
-const OPS_TOKEN = process.env.OPS_TOKEN || '';
-const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash-latest';
-
-if (!BOT_TOKEN) { console.error('BOT_TOKEN is required'); process.exit(1); }
-if (!OPS_API_URL) { console.error('OPS_API_URL is required'); process.exit(1); }
-if (!OPS_TOKEN) { console.error('OPS_TOKEN is required'); process.exit(1); }
-if (!ALLOWED_IDS.size) { console.error('ALLOWED_USER_IDS is required'); process.exit(1); }
-
-const TG = `https://api.telegram.org/bot${BOT_TOKEN}`;
-const TG_FILE = `https://api.telegram.org/file/bot${BOT_TOKEN}`;
-const SEEN_UPDATES = new Set();
-let offset = 0;
-
-// ---------------------------------------------------------------------------
-// Telegram helpers
-// ---------------------------------------------------------------------------
-
-async function tgCall(method, body = {}) {
-  const r = await fetch(`${TG}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await r.json();
-  if (!data.ok) throw new Error(`TG ${method}: ${data.description}`);
-  return data.result;
-}
-
-async function sendMessage(chatId, text) {
-  if (!text) return;
-  try {
-    await tgCall('sendMessage', { chat_id: chatId, text, parse_mode: 'Markdown' });
-  } catch {
-    // Fallback without markdown
-    await tgCall('sendMessage', { chat_id: chatId, text });
-  }
-}
-
-async function downloadPhoto(fileId) {
-  const file = await tgCall('getFile', { file_id: fileId });
-  const path = file.file_path;
-  if (!path) throw new Error('No file_path returned from getFile');
-  const r = await fetch(`${TG_FILE}/${path}`);
-  if (!r.ok) throw new Error(`Download failed: ${r.status}`);
-  const bytes = new Uint8Array(await r.arrayBuffer());
-  // Convert to base64 data URL (jpeg assumed; Telegram sends JPEG for photos)
-  const b64 = Buffer.from(bytes).toString('base64');
-  return `data:image/jpeg;base64,${b64}`;
-}
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  handleUpdate, addBillRef, addSampleRef,
+  markConfirming, markSubmitted, markConfirmFailed,
+  draftSummary, loadDrafts, saveDrafts,
+  cleanupOrphanedTmpFiles, findStaleConfirming, resetStaleConfirming,
+} from './core.mjs';
 
 // ---------------------------------------------------------------------------
 // Bill image detection
 // ---------------------------------------------------------------------------
 
-function isBillCaption(caption) {
+export function isBillCaption(caption) {
   if (!caption) return false;
   const lower = caption.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   return /bill|hoa don|thanh toan/.test(lower);
 }
 
 // ---------------------------------------------------------------------------
-// Optional Gemini field extraction
+// Bot Runner Factory
 // ---------------------------------------------------------------------------
 
-async function extractFieldsWithGemini(text) {
-  if (!GEMINI_KEY || !text) return null;
-  try {
-    const prompt = `Bạn là trợ lý trích xuất thông tin đơn hoa từ tin nhắn Telegram của khách hàng.\n\nTin nhắn:\n"""\n${text}\n"""\n\nTrả về JSON với các trường sau (bỏ qua nếu không có):\n- customer: tên khách\n- flower: mẫu/loại hoa\n- date: ngày nhận, định dạng YYYY-MM-DD\n- time: giờ nhận, định dạng HH:MM\n- shipping: một trong ["Shop book ship", "Khách tự book", "Ghé lấy"]\n- address: địa chỉ giao\n- phone: số điện thoại\n- note: ghi chú\n- flowerTotal: tổng tiền hoa (số nguyên, không đơn vị)\n\nKhông suy đoán nếu không có thông tin rõ ràng. Chỉ trả về JSON, không giải thích.`;
+export function createOrderBotRunner(options = {}) {
+  const botToken = options.botToken ?? process.env.BOT_TOKEN ?? '';
+  const allowedIds = new Set(
+    (options.allowedUserIds ?? process.env.ALLOWED_USER_IDS ?? '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+  );
+  const opsApiUrl = options.opsApiUrl ?? process.env.OPS_API_URL ?? '';
+  const opsToken = options.opsToken ?? process.env.OPS_TOKEN ?? '';
+  const geminiKey = options.geminiApiKey ?? process.env.GEMINI_API_KEY ?? '';
+  const geminiModel = options.geminiModel ?? process.env.GEMINI_MODEL ?? 'gemini-1.5-flash-latest';
+  const fetcher = options.fetcher ?? fetch;
 
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`, {
+  const tgBase = `https://api.telegram.org/bot${botToken}`;
+  const tgFileBase = `https://api.telegram.org/file/bot${botToken}`;
+  const seenUpdates = new Set();
+  const confirmLocks = new Map(); // userId → Promise
+  let offset = 0;
+  let running = false;
+
+  function redact(str) {
+    if (!str) return '';
+    let out = String(str);
+    if (botToken) out = out.replaceAll(botToken, '[REDACTED_BOT_TOKEN]');
+    if (opsToken) out = out.replaceAll(opsToken, '[REDACTED_OPS_TOKEN]');
+    if (geminiKey) out = out.replaceAll(geminiKey, '[REDACTED_GEMINI_KEY]');
+    return out;
+  }
+
+  async function withConfirmLock(userId, fn) {
+    const prev = confirmLocks.get(userId) || Promise.resolve();
+    let resolveLock;
+    const thisLock = new Promise(r => { resolveLock = r; });
+    confirmLocks.set(userId, prev.then(() => thisLock));
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      resolveLock();
+      if (confirmLocks.get(userId) === thisLock) confirmLocks.delete(userId);
+    }
+  }
+
+  async function tgCall(method, body = {}) {
+    const r = await fetcher(`${tgBase}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      body: JSON.stringify(body),
     });
-    if (!r.ok) return null;
     const data = await r.json();
-    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    return JSON.parse(jsonMatch[0]);
-  } catch {
-    return null;
+    if (!data.ok) throw new Error(`TG ${method}: ${data.description}`);
+    return data.result;
   }
-}
 
-// ---------------------------------------------------------------------------
-// OPS createOrder call
-// ---------------------------------------------------------------------------
+  async function sendMessage(chatId, text) {
+    if (!text) return;
+    try {
+      await tgCall('sendMessage', { chat_id: chatId, text, parse_mode: 'Markdown' });
+    } catch {
+      await tgCall('sendMessage', { chat_id: chatId, text });
+    }
+  }
 
-/**
- * Call meehoasg-api-core createOrder.
- * Note: fullPaidRequested is NEVER set, payment is always 'Chưa thanh toán'.
- * Bill images from draft are NOT forwarded here.
- *
- * @param {object} draft — the confirmed draft (status === 'confirmed')
- * @param {string[]} sampleDataUrls — base64 data URLs of downloaded sample images
- * @returns {Promise<object>} OPS response
- */
-async function callCreateOrder(draft, sampleDataUrls) {
-  const f = draft.fields || {};
-  const payload = {
-    name: 'createOrder',
-    payload: {
-      token: OPS_TOKEN,
-      requestId: draft.requestId,
-      order: {
-        customer: f.customer || '',
-        flower: f.flower || '',
-        date: f.date || '',
-        time: f.time || '',
-        shipping: f.shipping || '',
-        address: f.address || '',
-        phone: f.phone || '',
-        note: f.note || '',
-        flowerTotal: f.flowerTotal || 0,
-        payment: 'Chưa thanh toán',   // ALWAYS; never auto-confirm payment
-        sale: f.sale || '',
-        card: false,
-        cardQty: 0,
-        cardText: '',
-        banner: false,
-        bannerQty: 0,
-        bannerText: '',
-        charmFee: f.charmFee || 0,
-        charmText: f.charmText || '',
-        paperFee: f.paperFee || 0,
-        paperText: f.paperText || '',
-        vat: f.vat || 0,
-        // Sample images attached as imageFiles (base64):
-        imageFiles: sampleDataUrls.map(data => ({ data })),
-        // Bill images are NOT included; fullPaidRequested intentionally absent/false.
+  async function downloadPhoto(fileId) {
+    const file = await tgCall('getFile', { file_id: fileId });
+    const path = file.file_path;
+    if (!path) throw new Error('No file_path returned from getFile');
+    const r = await fetcher(`${tgFileBase}/${path}`);
+    if (!r.ok) throw new Error(`Download failed: ${r.status}`);
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (!bytes.length || bytes.length > 5 * 1024 * 1024) {
+      throw new Error('Ảnh vượt quá dung lượng cho phép (1 byte - 5MB).');
+    }
+    const b64 = Buffer.from(bytes).toString('base64');
+    return `data:image/jpeg;base64,${b64}`;
+  }
+
+  async function extractFieldsWithGemini(text) {
+    if (!geminiKey || !text) return null;
+    try {
+      const prompt = `Bạn là trợ lý trích xuất thông tin đơn hoa từ tin nhắn Telegram của khách hàng.\n\nTin nhắn:\n"""\n${text}\n"""\n\nTrả về JSON với các trường sau (bỏ qua nếu không có):\n- customer: tên khách\n- flower: mẫu/loại hoa\n- date: ngày nhận, định dạng YYYY-MM-DD\n- time: giờ nhận, định dạng HH:MM\n- shipping: một trong ["Shop book ship", "Khách tự book", "Ghé lấy"]\n- address: địa chỉ giao\n- phone: số điện thoại\n- note: ghi chú\n- flowerTotal: tổng tiền hoa (số nguyên, không đơn vị)\n\nKhông suy đoán nếu không có thông tin rõ ràng. Chỉ trả về JSON, không giải thích.`;
+
+      const r = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      });
+      if (!r.ok) return null;
+      const data = await r.json();
+      const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return null;
+      return JSON.parse(jsonMatch[0]);
+    } catch {
+      return null;
+    }
+  }
+
+  async function callCreateOrder(draft, sampleDataUrls) {
+    const f = draft.fields || {};
+    const payload = {
+      name: 'createOrder',
+      payload: {
+        token: opsToken,
+        requestId: draft.requestId,
+        order: {
+          customer: f.customer || '',
+          flower: f.flower || '',
+          date: f.date || '',
+          time: f.time || '',
+          shipping: f.shipping || '',
+          address: f.address || '',
+          phone: f.phone || '',
+          note: f.note || '',
+          flowerTotal: f.flowerTotal || 0,
+          payment: 'Chưa thanh toán',   // ALWAYS; never auto-confirm payment
+          sale: f.sale || '',
+          card: false,
+          cardQty: 0,
+          cardText: '',
+          banner: false,
+          bannerQty: 0,
+          bannerText: '',
+          charmFee: f.charmFee || 0,
+          charmText: f.charmText || '',
+          paperFee: f.paperFee || 0,
+          paperText: f.paperText || '',
+          vat: f.vat || 0,
+          imageFiles: sampleDataUrls.map(data => ({ data })),
+        },
       },
-    },
-  };
+    };
 
-  const r = await fetch(OPS_API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!r.ok) throw new Error(`OPS HTTP ${r.status}`);
-  return r.json();
-}
-
-// ---------------------------------------------------------------------------
-// Confirm flow
-// ---------------------------------------------------------------------------
-
-async function runConfirm(userId, chatId, drafts) {
-  const draft = Object.values(drafts).find(d => d.id === drafts.__active && d.status === 'confirmed');
-  if (!draft) {
-    await sendMessage(chatId, '⚠️ Không tìm thấy đơn nháp đã xác nhận.');
-    return;
+    const r = await fetcher(opsApiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error(`OPS HTTP ${r.status}`);
+    return r.json();
   }
 
-  await sendMessage(chatId, `⏳ Đang tạo đơn trong OPS...\n\n${draftSummary(draft)}`);
-
-  // Download sample images (not bill images)
-  const sampleRefs = draft.sampleRefs || [];
-  const sampleDataUrls = [];
-  const failedSamples = [];
-  for (const ref of sampleRefs.slice(0, 10)) {
-    try {
-      const dataUrl = await downloadPhoto(ref.fileId);
-      sampleDataUrls.push(dataUrl);
-    } catch (e) {
-      failedSamples.push(ref.fileId.slice(-8));
-      console.error('Sample download failed', e.message);
-    }
-  }
-  if (failedSamples.length) {
-    await sendMessage(chatId, `⚠️ Không tải được ${failedSamples.length} ảnh mẫu — tiếp tục tạo đơn không có ảnh đó.`);
-  }
-
-  // Call OPS — bill images are intentionally excluded
-  let result;
-  try {
-    result = await callCreateOrder(draft, sampleDataUrls);
-  } catch (e) {
-    console.error('OPS createOrder failed', e);
-    await sendMessage(chatId, `❌ Lỗi khi tạo đơn trong OPS:\n${e.message}\n\nRequestId: ${draft.requestId}\nBạn có thể thử /confirm lại — requestId giữ nguyên.`);
-    return;
-  }
-
-  if (!result?.ok) {
-    await sendMessage(chatId, `❌ OPS từ chối tạo đơn:\n${result?.message || JSON.stringify(result)}`);
-    return;
-  }
-
-  // Mark submitted
-  const updated = markSubmitted(drafts, draft.id, result.orderId || result.order?.id || '');
-  saveDrafts(userId, updated);
-
-  const orderId = result.orderId || result.order?.id || '(không rõ)';
-  const billCount = (draft.draftBillRefs || []).length;
-
-  let msg = `✅ Đã tạo đơn trong OPS!\nMã đơn: *${orderId}*\n`;
-  if (sampleDataUrls.length) msg += `📷 Ảnh mẫu: ${sampleDataUrls.length} ảnh đã gắn vào đơn.\n`;
-  if (billCount) {
-    msg += `\n🧾 *Lưu ý ảnh bill:* Nháp có ${billCount} ảnh bill chưa xác minh TT.\n`;
-    msg += `Thanh toán chưa được xác nhận. Khi cần tất toán, operator tải ảnh bill lên qua luồng tất toán trong OPS.\n`;
-  }
-  msg += `\nThanh toán: Chưa thanh toán (cố định — không tự đánh dấu paid).`;
-
-  await sendMessage(chatId, msg);
-}
-
-// ---------------------------------------------------------------------------
-// Message handler
-// ---------------------------------------------------------------------------
-
-async function handleMessage(msg) {
-  const userId = msg.from?.id;
-  const chatId = msg.chat?.id;
-  if (!userId || !chatId) return;
-
-  // Private chat only
-  if (msg.chat?.type !== 'private') return;
-
-  // Access control
-  if (!ALLOWED_IDS.has(String(userId))) {
-    await sendMessage(chatId, 'Bạn không có quyền dùng bot này.');
-    return;
-  }
-
-  const text = msg.text || msg.caption || '';
-  const photos = msg.photo;
-  const photoFileId = photos?.length ? photos[photos.length - 1].file_id : null;
-  const photoCaption = msg.caption || '';
-
-  // Gemini extraction for forwarded/long messages (no photo, no command)
-  let processedText = text;
-  if (!photoFileId && text && !text.startsWith('/') && text.length > 50 && GEMINI_KEY) {
-    const extracted = await extractFieldsWithGemini(text);
-    if (extracted && Object.keys(extracted).length > 0) {
-      // Convert extracted fields to "field: value" lines for core.mjs to process
-      const lines = Object.entries(extracted).map(([k, v]) => `${k}: ${v}`).join('\n');
-      processedText = lines;
-      console.log(`Gemini extracted ${Object.keys(extracted).length} fields`);
-    }
-  }
-
-  const result = handleUpdate({
-    userId,
-    text: processedText,
-    photoFileId,
-    photoCaption,
-    isBillHint: isBillCaption(photoCaption),
-    requestId: randomUUID(), // stable per-confirm comes from draft after /confirm stores it
-  });
-
-  if (result.action === 'confirm') {
-    await runConfirm(userId, chatId, result.drafts);
-  } else if (result.reply) {
-    await sendMessage(chatId, result.reply);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Long polling loop
-// ---------------------------------------------------------------------------
-
-async function poll() {
-  while (true) {
-    try {
-      const updates = await tgCall('getUpdates', { offset, timeout: 30, allowed_updates: ['message'] });
-      for (const update of updates) {
-        offset = update.update_id + 1;
-        if (SEEN_UPDATES.has(update.update_id)) continue;
-        SEEN_UPDATES.add(update.update_id);
-        // Keep set bounded
-        if (SEEN_UPDATES.size > 10000) {
-          const oldest = [...SEEN_UPDATES].slice(0, 5000);
-          oldest.forEach(id => SEEN_UPDATES.delete(id));
+  async function runConfirm(userId, chatId, drafts) {
+    return withConfirmLock(userId, async () => {
+      const freshDrafts = loadDrafts(userId);
+      const draft = freshDrafts[freshDrafts.__active];
+      if (!draft || draft.status !== 'confirmed') {
+        if (draft?.status === 'submitted') {
+          await sendMessage(chatId, `⚠️ Đơn #${draft.id.slice(-6)} đã được tạo trong OPS rồi (OpsId: ${draft.opsOrderId || '—'}).`);
+        } else if (draft?.status === 'confirming') {
+          await sendMessage(chatId, '⏳ Đơn đang được xử lý, vui lòng chờ.');
+        } else {
+          await sendMessage(chatId, '⚠️ Không tìm thấy đơn nháp đã xác nhận.');
         }
-        if (update.message) {
-          handleMessage(update.message).catch(e => console.error('handleMessage error', e));
+        return;
+      }
+
+      markConfirming(userId, draft.id);
+      await sendMessage(chatId, `⏳ Đang tạo đơn trong OPS...\n\n${draftSummary(draft)}`);
+
+      const sampleRefs = draft.sampleRefs || [];
+      const sampleDataUrls = [];
+      const failedSamples = [];
+      for (const ref of sampleRefs.slice(0, 10)) {
+        try {
+          const dataUrl = await downloadPhoto(ref.fileId);
+          sampleDataUrls.push(dataUrl);
+        } catch (e) {
+          failedSamples.push(ref.fileId.slice(-8));
+          console.error('Sample download failed', redact(e.message));
         }
       }
-    } catch (e) {
-      console.error('Poll error', e.message);
-      await new Promise(r => setTimeout(r, 5000));
+      if (failedSamples.length) {
+        await sendMessage(chatId, `⚠️ Không tải được ${failedSamples.length} ảnh mẫu — tiếp tục tạo đơn không có ảnh đó.`);
+      }
+
+      let result;
+      try {
+        result = await callCreateOrder(draft, sampleDataUrls);
+      } catch (e) {
+        console.error('OPS createOrder network error', redact(e.message));
+        await sendMessage(chatId, [
+          `❌ Lỗi mạng khi gọi OPS: ${e.message}`,
+          `RequestId: ${draft.requestId}`,
+          `⚠️ Chưa rõ đơn có được tạo không. Vui lòng kiểm tra OPS và thử /confirm lại.`,
+          `Bot giữ trạng thái "đang tạo" để tránh tạo đơn trùng khi khởi động lại.`,
+        ].join('\n'));
+        return;
+      }
+
+      if (!result?.ok) {
+        markConfirmFailed(userId, draft.id);
+        await sendMessage(chatId, `❌ OPS từ chối tạo đơn:\n${result?.message || JSON.stringify(result)}\n\nBạn có thể sửa thông tin rồi /confirm lại.`);
+        return;
+      }
+
+      const latestDrafts = loadDrafts(userId);
+      const orderId = result.orderId || result.order?.id || '';
+      const done = markSubmitted(latestDrafts, draft.id, orderId);
+      saveDrafts(userId, done);
+
+      const billCount = (draft.draftBillRefs || []).length;
+      let msg = `✅ Đã tạo đơn trong OPS!\nMã đơn: *${orderId || '(đang xử lý)'}*\n`;
+      if (sampleDataUrls.length) msg += `📷 Ảnh mẫu: ${sampleDataUrls.length} ảnh đã gắn vào đơn.\n`;
+      if (billCount) {
+        msg += `\n🧾 *Lưu ý ảnh bill:* Nháp có ${billCount} ảnh bill chưa xác minh TT.\n`;
+        msg += `Thanh toán chưa được xác nhận. Khi cần tất toán, operator tải ảnh bill lên qua luồng tất toán trong OPS.\n`;
+      }
+      msg += `\nThanh toán: Chưa thanh toán (cố định — không tự đánh dấu paid).`;
+      await sendMessage(chatId, msg);
+    });
+  }
+
+  async function handleMessage(msg) {
+    const userId = msg.from?.id;
+    const chatId = msg.chat?.id;
+    if (!userId || !chatId) return;
+
+    if (msg.chat?.type !== 'private') return;
+
+    if (!allowedIds.has(String(userId))) {
+      await sendMessage(chatId, 'Bạn không có quyền dùng bot này.');
+      return;
+    }
+
+    const text = msg.text || msg.caption || '';
+    const photos = msg.photo;
+    const photoFileId = photos?.length ? photos[photos.length - 1].file_id : null;
+    const photoCaption = msg.caption || '';
+
+    let processedText = text;
+    if (!photoFileId && text && !text.startsWith('/') && text.length > 50 && geminiKey) {
+      const extracted = await extractFieldsWithGemini(text);
+      if (extracted && Object.keys(extracted).length > 0) {
+        const lines = Object.entries(extracted).map(([k, v]) => `${k}: ${v}`).join('\n');
+        processedText = lines;
+      }
+    }
+
+    const result = handleUpdate({
+      userId,
+      text: processedText,
+      photoFileId,
+      photoCaption,
+      isBillHint: isBillCaption(photoCaption),
+      requestId: randomUUID(),
+    });
+
+    if (result.action === 'confirm') {
+      await runConfirm(userId, chatId, result.drafts);
+    } else if (result.reply) {
+      await sendMessage(chatId, result.reply);
     }
   }
+
+  async function start() {
+    running = true;
+    cleanupOrphanedTmpFiles();
+    const stale = findStaleConfirming();
+    if (stale.length) {
+      console.warn(`[startup] Found ${stale.length} draft(s) stuck in "confirming":`);
+      for (const { userId, draftId, draft } of stale) {
+        console.warn(`  user=${userId} draft=${draftId.slice(-8)} requestId=${draft.requestId}`);
+        resetStaleConfirming(userId, draftId);
+        console.warn(`  → Reset to "confirmed". User can /confirm again.`);
+      }
+    }
+
+    while (running) {
+      try {
+        const updates = await tgCall('getUpdates', { offset, timeout: 30, allowed_updates: ['message'] });
+        for (const update of updates) {
+          offset = update.update_id + 1;
+          if (seenUpdates.has(update.update_id)) continue;
+          seenUpdates.add(update.update_id);
+          if (seenUpdates.size > 10000) {
+            const oldest = [...seenUpdates].slice(0, 5000);
+            oldest.forEach(id => seenUpdates.delete(id));
+          }
+          if (update.message) {
+            handleMessage(update.message).catch(e => console.error('handleMessage error', redact(e.message)));
+          }
+        }
+      } catch (e) {
+        console.error('Poll error', redact(e.message));
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
+  }
+
+  function stop() {
+    running = false;
+  }
+
+  return {
+    handleMessage,
+    runConfirm,
+    callCreateOrder,
+    extractFieldsWithGemini,
+    downloadPhoto,
+    sendMessage,
+    tgCall,
+    start,
+    stop,
+    redact,
+  };
 }
 
-console.log('MEEHOA Order Bot starting (staging)...');
-console.log(`Allowed users: ${[...ALLOWED_IDS].join(', ')}`);
-poll();
+// ---------------------------------------------------------------------------
+// CLI Execution
+// ---------------------------------------------------------------------------
+
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+
+if (isMain) {
+  const BOT_TOKEN = process.env.BOT_TOKEN || '';
+  const OPS_API_URL = process.env.OPS_API_URL || '';
+  const OPS_TOKEN = process.env.OPS_TOKEN || '';
+  const ALLOWED_IDS = process.env.ALLOWED_USER_IDS || '';
+
+  if (!BOT_TOKEN) { console.error('BOT_TOKEN is required'); process.exit(1); }
+  if (!OPS_API_URL) { console.error('OPS_API_URL is required'); process.exit(1); }
+  if (!OPS_TOKEN) { console.error('OPS_TOKEN is required'); process.exit(1); }
+  if (!ALLOWED_IDS) { console.error('ALLOWED_USER_IDS is required'); process.exit(1); }
+
+  console.log('MEEHOA Order Bot starting (staging)...');
+  console.log(`Allowed users: ${ALLOWED_IDS.split(',').map(s => s.trim()).join(', ')}`);
+
+  const runner = createOrderBotRunner();
+  runner.start();
+}
