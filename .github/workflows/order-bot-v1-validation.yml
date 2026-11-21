@@ -1,0 +1,21 @@
+name: Order Bot V1 validation
+on:
+  push:
+    branches:
+      - feat/meehoa-order-bot-v1
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify Order Bot (90 tests expected)
+        run: node --test tests/order-bot.test.cjs
+      - name: Verify complete repository
+        run: npm test
