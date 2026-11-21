@@ -2037,3 +2037,42 @@ test('runConfirm warns when OPS does not return sample and bill counts', async (
   assert.ok(last.includes('Chưa xác minh được số ảnh'));
   assert.ok(last.includes('Chưa xác minh được số bill'));
 });
+
+
+test('unstructured chat without AI key is explicitly rejected rather than silently lost', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const messages = [];
+  const runner = createOrderBotRunner({
+    botToken: 'fake-token', allowedUserIds: '555001',
+    fetcher: async (url, options) => {
+      if (url.includes('/sendMessage')) messages.push(JSON.parse(options.body).text);
+      return { ok: true, json: async () => ({ ok: true, result: {} }) };
+    }
+  });
+  await runner.handleMessage({
+    from: { id: 555001 }, chat: { id: 555001, type: 'private' },
+    text: 'Chị muốn một bó cẩm tú cầu xanh thật nhẹ nhàng gửi ngày mai nhé'
+  });
+  assert.ok(messages.some(s => s.includes('chưa được cấu hình đọc hội thoại')));
+});
+
+test('unstructured chat with AI extraction failure prompts correction', async () => {
+  const { createOrderBotRunner } = await getRun();
+  const messages = [];
+  const runner = createOrderBotRunner({
+    botToken: 'fake-token', allowedUserIds: '555002',
+    geminiApiKey: 'fake-gemini',
+    fetcher: async (url, options) => {
+      if (url.includes('/sendMessage')) {
+        messages.push(JSON.parse(options.body).text);
+        return { ok: true, json: async () => ({ ok: true, result: {} }) };
+      }
+      return { ok: false, status: 503 };
+    }
+  });
+  await runner.handleMessage({
+    from: { id: 555002 }, chat: { id: 555002, type: 'private' },
+    text: 'Chị cần một bó hoa hướng dương giao trưa mai nhé'
+  });
+  assert.ok(messages.some(s => s.includes('Chưa đọc được thông tin chắc chắn')));
+});
