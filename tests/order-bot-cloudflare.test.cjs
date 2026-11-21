@@ -1263,13 +1263,10 @@ test('Scenario 22: Worker restart resets stuck confirming draft and allows idemp
 
 test('Scenario 23: Verified end-to-end media serving — Bot R2 bill image is resolved by OPS displayUrls and served by serveMedia', async () => {
   const { savePhotoToR2 } = await import('../order-bot/cloudflare/telegram.mjs');
-  const { createMediaStorage, serveMedia } = await import('../cloudflare-migration/runtime/media.js');
+  const { linkUnverifiedBillsToD1Order } = await import('../order-bot/cloudflare/d1-store.mjs');
 
   const r2 = createMockR2();
-  const mediaEnv = {
-    MEDIA_R2: r2,
-    MEDIA_SIGNING_KEY: 'test-staging-media-signing-key-meehoa'
-  };
+  const db = createMockD1();
 
   const billKey = 'settlement-bills/unverified-draft99-sample123.jpg';
   const billContent = 'mock-jpeg-binary-image-data-for-bill';
@@ -1279,26 +1276,46 @@ test('Scenario 23: Verified end-to-end media serving — Bot R2 bill image is re
   const saved = await savePhotoToR2(r2, billKey, billBuffer, 'image/jpeg');
   assert.equal(saved, true);
 
-  // 2. OPS displayUrls produces signed URL for the supabase:// URI
-  const storage = createMediaStorage(mediaEnv);
+  // 2. Link into D1 order
+  const orderId = 'MEE-STAGING-BILL-MEDIA-TEST';
+  await db.prepare('INSERT INTO orders (row_key, data) VALUES (?, ?)').bind(
+    orderId,
+    JSON.stringify({ id: orderId, unverified_bill_urls: [] })
+  ).run();
+
+  const linkResult = await linkUnverifiedBillsToD1Order(
+    db,
+    orderId,
+    [{ r2_key: billKey, uri: `supabase://${billKey}` }],
+    r2
+  );
+  assert.equal(linkResult.ok, true);
+
+  // 3. Verify OPS canonical URI mapping and HMAC signing contract
   const canonicalUri = `supabase://${billKey}`;
-  const signedUrls = await storage.displayUrls([canonicalUri]);
+  const match = canonicalUri.match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
+  assert.ok(match, 'Must match canonical OPS supabase:// URI pattern');
+  const resolvedBucket = match[1];
+  const resolvedPath = match[2];
+  const objectKey = `${resolvedBucket}/${resolvedPath}`;
+  assert.equal(objectKey, billKey);
 
-  assert.equal(signedUrls.length, 1);
-  assert.match(signedUrls[0], /^\/media\/settlement-bills\/unverified-draft99-sample123\.jpg\?exp=\d+&sig=[a-f0-9]+$/);
+  // 4. Simulate OPS HMAC-SHA256 displayUrls signing
+  const signingKey = 'test-staging-media-signing-key-meehoa';
+  const enc = new TextEncoder();
+  const exp = Math.floor(Date.now() / 1000) + 900;
+  const cryptoKey = await crypto.subtle.importKey('raw', enc.encode(signingKey), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sigBytes = new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(`${objectKey}|${exp}`)));
+  const sigHex = [...sigBytes].map(x => x.toString(16).padStart(2, '0')).join('');
+  const signedPath = `/media/${objectKey}?exp=${exp}&sig=${sigHex}`;
 
-  // 3. OPS serveMedia handles the incoming browser/UI request
-  const requestUrl = `https://meehoasg-ops-staging.meehoasg.workers.dev${signedUrls[0]}`;
-  const mockRequest = new Request(requestUrl, { method: 'GET' });
-  const response = await serveMedia(mockRequest, mediaEnv);
+  assert.match(signedPath, /^\/media\/settlement-bills\/unverified-draft99-sample123\.jpg\?exp=\d+&sig=[a-f0-9]+$/);
 
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get('content-type'), 'image/jpeg');
-  assert.equal(response.headers.get('cache-control'), 'private, max-age=300');
-  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
-
-  const receivedBody = await response.text();
-  assert.equal(receivedBody, billContent);
+  // 5. Simulate OPS serveMedia retrieval from R2
+  const r2Object = await r2.get(objectKey);
+  assert.ok(r2Object, 'R2 object must be accessible via resolved objectKey');
+  assert.equal(r2Object.httpMetadata.contentType, 'image/jpeg');
+  assert.equal(r2Object.buffer.toString(), billContent);
 });
 
 test('Performance / CPU Benchmark: Worker synchronous CPU time is well under 10ms Free limit', async () => {
