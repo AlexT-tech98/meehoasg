@@ -286,8 +286,17 @@ QUY TẮC BẢO MẬT:
       // 4. Validate returned counts
       const orderId = result.orderId || result.order?.id || '';
       const createdOrder = result.order || result.row || {};
-      const savedImageCount = (createdOrder.image_urls || createdOrder.imageUrls || []).length;
-      const savedBillCount = (createdOrder.unverified_bill_urls || createdOrder.unverifiedBillUrls || []).length;
+      const savedImages = createdOrder.image_urls ?? createdOrder.imageUrls;
+      const savedBills = createdOrder.unverified_bill_urls ?? createdOrder.unverifiedBillUrls;
+      const savedImageCount = Array.isArray(savedImages) ? savedImages.length : null;
+      const savedBillCount = Array.isArray(savedBills) ? savedBills.length : null;
+
+      // Never mark an ambiguous OPS response as a successful submission.
+      // A retry reuses the same requestId and is resolved by OPS idempotency lookup.
+      if (!orderId) {
+        await sendMessage(chatId, '⚠️ OPS phản hồi thành công nhưng thiếu mã đơn. Chưa thể xác nhận đã tạo đơn; vui lòng đối chiếu OPS trước khi thử lại. Mã yêu cầu: ' + draft.requestId);
+        return;
+      }
 
       const latestDrafts = loadDrafts(userId);
       const done = markSubmitted(latestDrafts, draft.id, orderId);
@@ -296,15 +305,19 @@ QUY TẮC BẢO MẬT:
       let msg = `✅ Đã tạo đơn trong OPS!\nMã đơn: *${orderId || '(đang xử lý)'}*\n`;
       if (sampleDataUrls.length) {
         msg += `📷 Ảnh mẫu: ${sampleDataUrls.length} ảnh đã gắn vào đơn`;
-        if (savedImageCount && savedImageCount < sampleDataUrls.length) {
-          msg += ` (⚠️ OPS ghi nhận ${savedImageCount}/${sampleDataUrls.length} ảnh)`;
+        if (savedImageCount === null) {
+          msg += ' (⚠️ Chưa xác minh được số ảnh từ phản hồi OPS — cần mở đơn kiểm tra)';
+        } else if (savedImageCount !== sampleDataUrls.length) {
+          msg += ` (⚠️ OPS trả về ${savedImageCount}/${sampleDataUrls.length} ảnh — cần đối chiếu)`;
         }
         msg += `\n`;
       }
       if (billDataUrls.length) {
         msg += `🧾 Ảnh bill: ${billDataUrls.length} ảnh đã lưu vào OPS (Bill chưa xác minh)`;
-        if (savedBillCount && savedBillCount < billDataUrls.length) {
-          msg += ` (⚠️ OPS ghi nhận ${savedBillCount}/${billDataUrls.length} ảnh bill)`;
+        if (savedBillCount === null) {
+          msg += ' (⚠️ Chưa xác minh được số bill từ phản hồi OPS — cần mở đơn kiểm tra)';
+        } else if (savedBillCount !== billDataUrls.length) {
+          msg += ` (⚠️ OPS trả về ${savedBillCount}/${billDataUrls.length} bill — cần đối chiếu)`;
         }
         msg += `\n`;
         msg += `⚠️ Lưu ý ảnh bill: Đã lưu vào mục Bill chưa xác minh. Thanh toán vẫn là "Chưa thanh toán". Kế toán/Sale đối soát qua OPS.\n`;
@@ -382,7 +395,14 @@ QUY TẮC BẢO MẬT:
             oldest.forEach(id => seenUpdates.delete(id));
           }
           if (update.message) {
-            handleMessage(update.message).catch(e => console.error('handleMessage error', redact(e.message)));
+            // Process updates in Telegram order. Await AI extraction / confirmations
+            // before touching the next update so sequential forwarded messages
+            // cannot race and overwrite a newer draft.
+            try {
+              await handleMessage(update.message);
+            } catch (e) {
+              console.error('handleMessage error', redact(e.message));
+            }
           }
         }
       } catch (e) {
