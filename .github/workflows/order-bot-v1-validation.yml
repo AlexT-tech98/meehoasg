@@ -21,5 +21,7 @@ jobs:
         run: node --test tests/order-bot.test.cjs
       - name: Verify Order Bot realistic scenarios (13 tests expected)
         run: node --test tests/order-bot-realistic-scenarios.test.cjs
+      - name: Verify Order Bot Cloudflare Worker integration (16 tests expected)
+        run: node --test tests/order-bot-cloudflare.test.cjs
       - name: Verify complete repository
         run: npm test

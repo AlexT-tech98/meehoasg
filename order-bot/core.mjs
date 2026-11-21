@@ -132,6 +132,7 @@ export function resetStaleConfirming(userId, draftId) {
 
 const FIELD_ALIASES = {
   khach: 'customer', 'tên khách': 'customer', 'ten khach': 'customer', customer: 'customer',
+  ten: 'customer', 'tên': 'customer',
   'mẫu hoa': 'flower', 'mau hoa': 'flower', hoa: 'flower', flower: 'flower',
   ngay: 'date', 'ngày nhận': 'date', 'ngay nhan': 'date', date: 'date',
   gio: 'time', 'giờ nhận': 'time', 'gio nhan': 'time', time: 'time',
@@ -679,8 +680,14 @@ export function handleUpdate(opts) {
   return { reply: `${prefix}${extra}${warnMsg}`.trim(), drafts: next, action: null };
 }
 
+export function isBillCaption(caption) {
+  if (!caption) return false;
+  return /\b(bill|hoa don|hóa đơn)\b/i.test(caption);
+}
+
 export {
   loadDrafts, saveDrafts, activeDraft, requiredMissing, isConfirmable,
   normalizeShipping, normalizeMoney, normalizeDate, normalizeTime,
   applyFields,
+  cmdNew, cmdList, cmdSelect, cmdShow, cmdCancel, cmdConfirm,
 };
