@@ -74,18 +74,22 @@ if [ -z "$SECRET_TOKEN" ]; then
   echo "ℹ️ Đang tự động tạo khóa bí mật an toàn (32 ký tự hex ngẫu nhiên)..."
   if command -v openssl >/dev/null 2>&1; then
     SECRET_TOKEN=$(openssl rand -hex 16)
+  elif command -v node >/dev/null 2>&1; then
+    SECRET_TOKEN=$(node -e "console.log(require('crypto').randomBytes(16).toString('hex'))")
   else
-    SECRET_TOKEN=$(head -c 32 /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9' | head -c 32)
+    SECRET_TOKEN=$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 32)
   fi
   echo "✅ Đã tạo TELEGRAM_SECRET_TOKEN an toàn thành công."
 fi
 
-if [ ${#SECRET_TOKEN} -lt 16 ]; then
-  echo "❌ Lỗi: TELEGRAM_SECRET_TOKEN quá ngắn (yêu cầu tối thiểu 16 ký tự để đảm bảo an toàn)."
+if [ ${#SECRET_TOKEN} -lt 16 ] || [ ${#SECRET_TOKEN} -gt 256 ]; then
+  echo "❌ Lỗi: TELEGRAM_SECRET_TOKEN phải có độ dài từ 16 đến 256 ký tự (hiện tại: ${#SECRET_TOKEN} ký tự)."
   exit 1
 fi
 
-if ! [[ "$SECRET_TOKEN" =~ ^[a-zA-Z0-9_-]{16,256}$ ]]; then
+# Chú ý: macOS libc regcomp giới hạn {m,n} tối đa 255 (RE_DUP_MAX).
+# Do đó kiểm tra độ dài bằng ${#SECRET_TOKEN} và kiểm tra tập ký tự bằng ^[a-zA-Z0-9_-]+$
+if ! [[ "$SECRET_TOKEN" =~ ^[a-zA-Z0-9_-]+$ ]]; then
   echo "❌ Lỗi: TELEGRAM_SECRET_TOKEN chỉ được chứa các ký tự A-Z, a-z, 0-9, _ và - theo chuẩn Telegram."
   exit 1
 fi
