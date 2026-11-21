@@ -109,6 +109,27 @@
   }
   function copyOrder(id){var o=findOrderDeep(id);if(!o){if(window.toast)window.toast('Không tìm thấy dữ liệu đơn để sao chép.',1);return false}return copyNow(buildCopyText(o),'thông tin đơn hàng')}
   function copyField(id,field,label){var o=findOrderDeep(id);if(!o){if(window.toast)window.toast('Không tìm thấy dữ liệu đơn để sao chép.',1);return false}return copyNow(o[field]||'',label||field)}
+  var invoiceBank={bin:'970441',account:'941233979',name:'TẠ VŨ GIA KHANH',label:'VIB'};
+  function invoiceEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function invoiceLine(k,v){return '<div class="line"><span>'+invoiceEsc(k)+'</span><b>'+invoiceEsc(v)+'</b></div>'}
+  function printInvoice(id){
+    var o=findOrderDeep(id);if(!o){if(window.toast)toast('Không tìm thấy đơn hàng.',1);return}
+    var due=Math.max(0,Number(o.debt)||0),total=Number(o.totalDue)||Number(o.flowerTotal||0)+Number(o.accessoryTotal||0)+Number(o.vat||0)+(o.shipFeePending?0:Number(o.shipFee||0));
+    var lines=invoiceLine('Hoa',vnd(o.flowerTotal));
+    if(o.card)lines+=invoiceLine('Thiệp × '+Math.max(1,Number(o.cardQty||1)),vnd(o.cardFee||Math.max(1,Number(o.cardQty||1))*10000));
+    if(o.banner)lines+=invoiceLine('Banner × '+Math.max(1,Number(o.bannerQty||1)),vnd(Math.max(1,Number(o.bannerQty||1))*35000));
+    if(Number(o.charmFee))lines+=invoiceLine('Charm',vnd(o.charmFee));
+    if(Number(o.paperFee))lines+=invoiceLine('Giấy gói',vnd(o.paperFee));
+    if(Number(o.vat))lines+=invoiceLine('VAT',vnd(o.vat));
+    if(o.shipFeePending)lines+=invoiceLine('Phí giao hàng','Chưa xác nhận');else if(Number(o.shipFee))lines+=invoiceLine('Phí giao hàng',vnd(o.shipFee));
+    var transfer='MEEHOA '+String(o.id||'').replace(/[^a-zA-Z0-9]/g,'').slice(-24);
+    var qr='https://img.vietqr.io/image/'+invoiceBank.bin+'-'+invoiceBank.account+'-compact2.png?amount='+encodeURIComponent(due)+'&addInfo='+encodeURIComponent(transfer)+'&accountName='+encodeURIComponent(invoiceBank.name);
+    var w=window.open('','_blank');if(!w){if(window.toast)toast('Hãy cho phép cửa sổ bật lên để in hóa đơn.',1);return}
+    var css='@page{size:A4;margin:16mm}*{box-sizing:border-box}body{font:14px/1.5 Arial,sans-serif;color:#17324a;margin:0;background:#f3f6f8}.sheet{max-width:760px;margin:24px auto;background:#fff;padding:40px;box-shadow:0 8px 30px #17324a18}.head{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #164c72;padding-bottom:18px}.brand{font-size:25px;font-weight:800;letter-spacing:.08em;color:#164c72}.muted{color:#687b89}.title{font-size:22px;font-weight:700;margin:28px 0 4px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 28px;margin:20px 0 28px}.section{font-weight:700;color:#164c72;margin:24px 0 8px}.line{display:flex;justify-content:space-between;gap:20px;padding:9px 0;border-bottom:1px solid #e5ebef}.line b{text-align:right}.total{font-size:18px;border-top:2px solid #164c72;margin-top:8px}.pay{display:flex;gap:24px;align-items:center;margin-top:26px;padding:18px;border:1px solid #d8e4ec;border-radius:12px}.pay img{width:190px;height:190px;object-fit:contain}.foot{margin-top:30px;text-align:center;color:#687b89}.toolbar{text-align:center;margin:20px}.toolbar button{border:0;background:#164c72;color:#fff;border-radius:8px;padding:12px 24px;font-weight:bold;cursor:pointer}@media print{body{background:#fff}.sheet{margin:0;padding:0;box-shadow:none}.toolbar{display:none}}';
+    var html='<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hóa đơn '+invoiceEsc(o.id)+'</title><style>'+css+'</style></head><body><div class="toolbar"><button onclick="window.print()">In / Lưu PDF</button></div><main class="sheet"><div class="head"><div class="brand">MEEHOA</div><div class="muted">PHIẾU XÁC NHẬN ĐƠN HÀNG</div></div><div class="title">Thông tin đơn hàng</div><div class="muted">Mã đơn: '+invoiceEsc(o.id)+'</div><div class="grid"><div><b>Khách hàng</b><br>'+invoiceEsc(o.customer||'—')+'</div><div><b>Ngày nhận</b><br>'+invoiceEsc(dateVN(o.date))+' '+invoiceEsc(o.time||'')+'</div><div><b>Hình thức giao</b><br>'+invoiceEsc(o.shipping||'—')+'</div><div><b>Địa chỉ nhận</b><br>'+invoiceEsc(o.address||'Nhận tại cửa hàng')+'</div></div><div class="section">SẢN PHẨM</div><div>'+invoiceEsc(o.flower||'Hoa theo đơn').replace(/\n/g,'<br>')+'</div><div class="section">CHI TIẾT THANH TOÁN</div>'+lines+invoiceLine('Tổng đơn',vnd(total))+invoiceLine('Đã thanh toán',vnd(o.paid))+'<div class="line total"><span>Còn thanh toán</span><b>'+invoiceEsc(vnd(due))+'</b></div>'+(due?'<div class="pay"><img src="'+invoiceEsc(qr)+'" alt="Mã QR chuyển khoản"><div><b>Quét mã để chuyển khoản</b><br>'+invoiceEsc(invoiceBank.name)+'<br>'+invoiceEsc(invoiceBank.account)+' · '+invoiceBank.label+'<br><span class="muted">Số tiền: '+invoiceEsc(vnd(due))+'<br>Nội dung: '+invoiceEsc(transfer)+'</span></div></div>':'<p class="muted">Đơn hàng đã thanh toán đủ.</p>')+'<div class="foot">Cảm ơn quý khách đã chọn Meehoa.</div></main></body></html>';
+    w.document.open();w.document.write(html);w.document.close();
+  }
+  function patchInvoiceButton(){var ov=qs('#overlay'),id=drawerOrderId();if(!ov||!id||qs('[data-mee-print-invoice]',ov))return;var actions=qs('.order-actions',ov);if(!actions)return;var btn=document.createElement('button');btn.type='button';btn.className='btn secondary';btn.textContent='▣ In hóa đơn + QR';btn.dataset.meePrintInvoice=id;btn.addEventListener('click',function(){printInvoice(id)});actions.appendChild(btn)}
   function wrapCopy(){if(!window.MEEOPS7)return;MEEOPS7.copyOrderById=copyOrder;MEEOPS7.copyOrderField=copyField;MEEOPS7._meeCopy365=true}
   function patchCreatedCopy(){
     var btn=qs('#copyCreated'),ov=qs('#overlay');if(!btn||!ov)return;
@@ -132,7 +153,7 @@
       el.addEventListener('click',run);el.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' ')run(e)});
     });
   }
-  function patchCopyActions(){patchCreatedCopy();wrapCopy();bindCopyTargets()}
+  function patchCopyActions(){patchCreatedCopy();wrapCopy();bindCopyTargets();patchInvoiceButton()}
   // An edit tap has one owner. Consume it before any copy handlers can run.
   function delegatedEditTap(e){
     var edit=e.target&&e.target.closest?e.target.closest('#overlay [data-mee-order-action="edit"]'):null;
