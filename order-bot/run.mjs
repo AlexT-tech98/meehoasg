@@ -79,13 +79,14 @@ export function createOrderBotRunner(options = {}) {
     const prev = confirmLocks.get(userId) || Promise.resolve();
     let resolveLock;
     const thisLock = new Promise(r => { resolveLock = r; });
-    confirmLocks.set(userId, prev.then(() => thisLock));
+    const queuedLock = prev.then(() => thisLock);
+    confirmLocks.set(userId, queuedLock);
     await prev;
     try {
       return await fn();
     } finally {
       resolveLock();
-      if (confirmLocks.get(userId) === thisLock) confirmLocks.delete(userId);
+      if (confirmLocks.get(userId) === queuedLock) confirmLocks.delete(userId);
     }
   }
 
