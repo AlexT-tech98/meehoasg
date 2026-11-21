@@ -36,10 +36,13 @@ node order-bot/run.mjs
 ### Chạy Unit & Integration Tests
 
 ```bash
-# Chạy bộ test chuyên biệt của bot (86 bài kiểm thử)
+# Chạy bộ test chuyên biệt của bot (90 bài kiểm thử)
 node --test tests/order-bot.test.cjs
 
-# Chạy toàn bộ test suite dự án (418 bài kiểm thử)
+# Chạy bộ test 13 kịch bản thực tế đặt hoa (Phase 2)
+node --test tests/order-bot-realistic-scenarios.test.cjs
+
+# Chạy toàn bộ test suite dự án (435 bài kiểm thử)
 npm test
 ```
 
@@ -144,5 +147,6 @@ Bộ parser tự động chuẩn hóa:
 - [x] Vệ sinh thông báo lỗi mạng, không lộ token hay `e.message` trong Telegram.
 - [x] Redact token trong log.
 - [x] Thư mục dữ liệu `order-bot/data/` được thêm vào `.gitignore`.
-- [x] 86/86 unit & integration tests chuyên biệt của bot đạt.
-- [x] 415/415 test suite toàn bộ dự án đạt (0 fail, 3 skip).
+- [x] 90/90 unit & integration tests chuyên biệt của bot đạt.
+- [x] 13/13 test kịch bản thực tế đặt hoa (Phase 2) đạt.
+- [x] 435/435 test suite toàn bộ dự án đạt (432 pass, 0 fail, 3 skip).
