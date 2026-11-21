@@ -67,7 +67,15 @@ function createMockR2() {
   return {
     objects,
     async put(key, buffer, options = {}) {
-      objects.set(key, { buffer, options, putAt: new Date().toISOString() });
+      const obj = {
+        key,
+        body: buffer,
+        buffer,
+        httpMetadata: options.httpMetadata || { contentType: options.contentType || 'image/jpeg' },
+        options,
+        putAt: new Date().toISOString()
+      };
+      objects.set(key, obj);
       return { key, size: buffer.byteLength };
     },
     async get(key) {
@@ -1114,10 +1122,11 @@ test('Scenario 21: Out-of-order Telegram messages do not overwrite newer field v
     message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/new' }
   }), env);
 
-  // 2. Newer message arrives first (update 21003, date 1700000010): "Hoa: Hoa lan tím"
+  // 2. Newer message arrives first (update 21003, date 1700000010, message_id 103): "Hoa: Hoa lan tím"
   await handleTelegramWebhook(makeWebhookRequest({
     update_id: 21003,
     message: {
+      message_id: 103,
       chat: { id: 5252724920, type: 'private' },
       from: { id: 5252724920 },
       date: 1700000010,
@@ -1125,10 +1134,11 @@ test('Scenario 21: Out-of-order Telegram messages do not overwrite newer field v
     }
   }), env);
 
-  // 3. Older message arrives second (update 21002, date 1700000005): "Hoa: Hoa hồng đỏ\nGiá: 900k"
+  // 3. Older message arrives second (update 21002, date 1700000005, message_id 102): "Hoa: Hoa hồng đỏ\nGiá: 900k"
   await handleTelegramWebhook(makeWebhookRequest({
     update_id: 21002,
     message: {
+      message_id: 102,
       chat: { id: 5252724920, type: 'private' },
       from: { id: 5252724920 },
       date: 1700000005,
@@ -1136,13 +1146,44 @@ test('Scenario 21: Out-of-order Telegram messages do not overwrite newer field v
     }
   }), env);
 
-  const drafts = await loadDrafts(db, 5252724920);
-  const active = drafts[drafts.__active];
+  let drafts = await loadDrafts(db, 5252724920);
+  let active = drafts[drafts.__active];
 
   // 'flower' must remain 'Hoa lan tím' (newer message preserved)
   assert.equal(active.fields.flower, 'Hoa lan tím');
   // 'flowerTotal' was not set by the newer message, so it is safely backfilled
   assert.equal(active.fields.flowerTotal, '900000');
+
+  // 4. Same-second out-of-order check:
+  // Suppose message_id 105 was sent at 1700000020 with "Tên: Chị Mai", arrived first
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 21005,
+    message: {
+      message_id: 105,
+      chat: { id: 5252724920, type: 'private' },
+      from: { id: 5252724920 },
+      date: 1700000020,
+      text: 'Tên: Chị Mai'
+    }
+  }), env);
+
+  // Now message_id 104 was sent in the EXACT same second (date 1700000020) with "Tên: Chị Lan", but arrived second
+  await handleTelegramWebhook(makeWebhookRequest({
+    update_id: 21004,
+    message: {
+      message_id: 104,
+      chat: { id: 5252724920, type: 'private' },
+      from: { id: 5252724920 },
+      date: 1700000020,
+      text: 'Tên: Chị Lan'
+    }
+  }), env);
+
+  drafts = await loadDrafts(db, 5252724920);
+  active = drafts[drafts.__active];
+
+  // 'customer' must remain 'Chị Mai' because message_id 105 > message_id 104 even with same-second date
+  assert.equal(active.fields.customer, 'Chị Mai');
 });
 
 test('Scenario 22: Worker restart resets stuck confirming draft and allows idempotent confirm without duplicate order', async () => {
@@ -1218,6 +1259,46 @@ test('Scenario 22: Worker restart resets stuck confirming draft and allows idemp
   const finalDrafts = await loadDrafts(db, 5252724920);
   assert.equal(finalDrafts[staleDraftId].status, 'submitted');
   assert.equal(finalDrafts[staleDraftId].opsOrderId, 'MEE-STAGING-RECOVERED');
+});
+
+test('Scenario 23: Verified end-to-end media serving — Bot R2 bill image is resolved by OPS displayUrls and served by serveMedia', async () => {
+  const { savePhotoToR2 } = await import('../order-bot/cloudflare/telegram.mjs');
+  const { createMediaStorage, serveMedia } = await import('../cloudflare-migration/runtime/media.js');
+
+  const r2 = createMockR2();
+  const mediaEnv = {
+    MEDIA_R2: r2,
+    MEDIA_SIGNING_KEY: 'test-staging-media-signing-key-meehoa'
+  };
+
+  const billKey = 'settlement-bills/unverified-draft99-sample123.jpg';
+  const billContent = 'mock-jpeg-binary-image-data-for-bill';
+  const billBuffer = Buffer.from(billContent);
+
+  // 1. Bot saves photo to R2
+  const saved = await savePhotoToR2(r2, billKey, billBuffer, 'image/jpeg');
+  assert.equal(saved, true);
+
+  // 2. OPS displayUrls produces signed URL for the supabase:// URI
+  const storage = createMediaStorage(mediaEnv);
+  const canonicalUri = `supabase://${billKey}`;
+  const signedUrls = await storage.displayUrls([canonicalUri]);
+
+  assert.equal(signedUrls.length, 1);
+  assert.match(signedUrls[0], /^\/media\/settlement-bills\/unverified-draft99-sample123\.jpg\?exp=\d+&sig=[a-f0-9]+$/);
+
+  // 3. OPS serveMedia handles the incoming browser/UI request
+  const requestUrl = `https://meehoasg-ops-staging.meehoasg.workers.dev${signedUrls[0]}`;
+  const mockRequest = new Request(requestUrl, { method: 'GET' });
+  const response = await serveMedia(mockRequest, mediaEnv);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'image/jpeg');
+  assert.equal(response.headers.get('cache-control'), 'private, max-age=300');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+
+  const receivedBody = await response.text();
+  assert.equal(receivedBody, billContent);
 });
 
 test('Performance / CPU Benchmark: Worker synchronous CPU time is well under 10ms Free limit', async () => {

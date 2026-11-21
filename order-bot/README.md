@@ -149,8 +149,8 @@ Bộ parser tự động chuẩn hóa:
 - [x] Thư mục dữ liệu `order-bot/data/` được thêm vào `.gitignore`.
 - [x] 90/90 unit & integration tests chuyên biệt của bot đạt.
 - [x] 13/13 test kịch bản thực tế đặt hoa (Phase 2) đạt.
-- [x] 23/23 test Cloudflare Workers D1/R2/Webhook, bill-linking, OCC, relink và benchmark CPU đạt.
-- [x] Toàn bộ test suite dự án đạt (455 pass, 0 fail, 3 skip).
+- [x] 24/24 test Cloudflare Workers D1/R2/Webhook, bill-linking, OCC, out-of-order (same second), end-to-end media serving, relink và benchmark CPU đạt.
+- [x] Toàn bộ test suite dự án đạt (456 pass, 0 fail, 3 skip).
 
 ---
 
@@ -219,7 +219,7 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
 ### 8.6. Chạy kiểm thử tự động
 
 ```bash
-# 23 bài kiểm thử toàn diện của Cloudflare Worker (D1 mock, R2 mock, OCC, out-of-order, relink, ops, benchmark):
+# 24 bài kiểm thử toàn diện của Cloudflare Worker (D1 mock, R2 mock, OCC, out-of-order, end-to-end media serving, relink, ops, benchmark):
 node --test tests/order-bot-cloudflare.test.cjs
 ```
 

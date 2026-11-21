@@ -129,7 +129,12 @@ export default {
  * @param {object} env - Cloudflare Worker environment bindings
  * @returns {Promise<Response>}
  */
-export async function handleTelegramWebhook(request, env) {
+export async function handleTelegramWebhook(request, rawEnv) {
+  const env = {
+    ...rawEnv,
+    BOT_TOKEN: rawEnv?.BOT_TOKEN || rawEnv?.TELEGRAM_BOT_TOKEN,
+    OPS_TOKEN: rawEnv?.OPS_TOKEN || rawEnv?.OPS_SERVICE_ROLE_TOKEN
+  };
   // A. Security Check 1: Webhook Secret Token
   const expectedSecret = env.TELEGRAM_SECRET_TOKEN;
   if (!verifyWebhookSecret(request, expectedSecret)) {
@@ -242,6 +247,12 @@ export async function handleTelegramWebhook(request, env) {
           list[list.length - 1].r2_key = r2Key;
           list[list.length - 1].uri = r2Key ? `supabase://${r2Key}` : null;
         }
+        const activeItem = drafts[drafts.__active];
+        if (activeItem) {
+          activeItem.lastUpdateId = Math.max(Number(activeItem.lastUpdateId) || 0, updateId || 0);
+          activeItem.lastMessageDate = Math.max(Number(activeItem.lastMessageDate) || 0, Number(message.date) || 0);
+          activeItem.lastMessageId = Math.max(Number(activeItem.lastMessageId) || 0, Number(message.message_id) || 0);
+        }
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
         await sendTelegramMessage(env.BOT_TOKEN, chatId, result.reply, 'HTML');
       } else {
@@ -314,11 +325,14 @@ export async function handleTelegramWebhook(request, env) {
       return;
     }
 
+    const messageId = Number(message.message_id) || 0;
     const messageDate = Number(message.date) || Math.floor(Date.now() / 1000);
     const lastUpdateId = Number(draft.lastUpdateId) || 0;
     const lastMessageDate = Number(draft.lastMessageDate) || 0;
+    const lastMessageId = Number(draft.lastMessageId) || 0;
     const isOutOfOrder = (updateId && lastUpdateId && updateId < lastUpdateId) ||
-                         (messageDate && lastMessageDate && messageDate < lastMessageDate);
+                         (messageDate && lastMessageDate && messageDate < lastMessageDate) ||
+                         (messageDate && lastMessageDate && messageDate === lastMessageDate && messageId && lastMessageId && messageId < lastMessageId);
 
     // Apply structured fields via core applyFields
     let { draft: updated, changes, warnings } = applyFields(draft, rawText);
@@ -356,6 +370,7 @@ export async function handleTelegramWebhook(request, env) {
       if (!isOutOfOrder) {
         updated.lastUpdateId = Math.max(lastUpdateId, updateId || 0);
         updated.lastMessageDate = Math.max(lastMessageDate, messageDate || 0);
+        updated.lastMessageId = Math.max(lastMessageId, messageId || 0);
       }
       drafts = { ...drafts, [draft.id]: updated };
       if (env.DB) await saveDrafts(env.DB, userId, drafts);
