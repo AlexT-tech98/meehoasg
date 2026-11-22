@@ -152,7 +152,7 @@ const FIELD_ALIASES = {
   'sl thiệp': 'cardQty', 'sl thiep': 'cardQty', cardqty: 'cardQty',
   banner: 'banner',
   'nội dung banner': 'bannerText', 'noi dung banner': 'bannerText', bannertext: 'bannerText',
-  'sl banner': 'bannerQty', 'sl banner': 'bannerQty', bannerqty: 'bannerQty',
+  'sl banner': 'bannerQty', bannerqty: 'bannerQty',
   'phí charm': 'charmFee', 'phi charm': 'charmFee', charmfee: 'charmFee',
   'charm note': 'charmText', charmtext: 'charmText',
   'phí giấy': 'paperFee', 'phi giay': 'paperFee', paperfee: 'paperFee',

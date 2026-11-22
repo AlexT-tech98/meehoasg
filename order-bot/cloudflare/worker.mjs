@@ -120,6 +120,30 @@ export default {
         }
 
         const stale = env.DB ? await findStaleConfirming(env.DB) : [];
+        let webhookInfo = null;
+        const botToken = env.BOT_TOKEN || env.TELEGRAM_BOT_TOKEN;
+        if (botToken) {
+          try {
+            const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
+            if (tgRes.ok) {
+              const tgData = await tgRes.json();
+              if (tgData.ok) {
+                webhookInfo = {
+                  url: tgData.result?.url || '',
+                  has_custom_certificate: tgData.result?.has_custom_certificate || false,
+                  pending_update_count: tgData.result?.pending_update_count || 0,
+                  last_error_date: tgData.result?.last_error_date || null,
+                  last_error_message: tgData.result?.last_error_message || null,
+                  max_connections: tgData.result?.max_connections || 40,
+                  ip_address: tgData.result?.ip_address || null
+                };
+              }
+            }
+          } catch (e) {
+            webhookInfo = { error: e.message };
+          }
+        }
+
         return new Response(JSON.stringify({
           ok: true,
           service: 'meehoa-order-bot-staging',
@@ -129,6 +153,9 @@ export default {
           opsConnected: opsHealth,
           opsError: opsError,
           staleConfirmingDrafts: stale.length,
+          telegramConfigured: Boolean(botToken),
+          webhookSecretConfigured: Boolean(env.TELEGRAM_SECRET_TOKEN),
+          webhookInfo: webhookInfo,
           timestamp: new Date().toISOString()
         }), {
           headers: { 'Content-Type': 'application/json' }
