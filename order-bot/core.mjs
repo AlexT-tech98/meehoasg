@@ -143,6 +143,9 @@ const FIELD_ALIASES = {
   'ghi chú': 'note', 'ghi chu': 'note', note: 'note',
   'tổng hoa': 'flowerTotal', 'tong hoa': 'flowerTotal', 'flower total': 'flowerTotal', flowertotal: 'flowerTotal',
   gia: 'flowerTotal', 'giá': 'flowerTotal', 'tiền': 'flowerTotal', 'tien': 'flowerTotal', 'tiền hoa': 'flowerTotal', 'tien hoa': 'flowerTotal', 'tổng tiền': 'flowerTotal', 'tong tien': 'flowerTotal',
+  'phí ship': 'shipFee', 'phi ship': 'shipFee', shipfee: 'shipFee', 'tiền ship': 'shipFee', 'tien ship': 'shipFee',
+  'thanh toán khách báo': 'paymentInfo', 'thanh toan khach bao': 'paymentInfo',
+  'tiền cọc': 'depositAmount', 'tien coc': 'depositAmount', cọc: 'depositAmount', coc: 'depositAmount',
   sale: 'sale',
   thiep: 'card', card: 'card',
   'nội dung thiệp': 'cardText', 'noi dung thiep': 'cardText', cardtext: 'cardText',
@@ -176,9 +179,9 @@ const SHIPPING_VALUES = ['Shop book ship', 'Khách tự book', 'Ghé lấy'];
 
 function normalizeShipping(raw) {
   const r = raw.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
-  if (/shop|book ship/.test(r)) return 'Shop book ship';
-  if (/khach.*book|tu.*book/.test(r)) return 'Khách tự book';
-  if (/ghe.*lay|lay/.test(r)) return 'Ghé lấy';
+  if (/shop|book ship|giao tan noi|ship tan nha|cho nguoi giao/.test(r)) return 'Shop book ship';
+  if (/khach.*book|tu.*book|aha|grab/.test(r)) return 'Khách tự book';
+  if (/ghe.*lay|lay|tai tiem|tu lay/.test(r)) return 'Ghé lấy';
   return raw.trim();
 }
 
@@ -186,13 +189,34 @@ function normalizeMoney(raw) {
   let s = String(raw ?? '').trim().toLowerCase();
   if (!s) return '';
   s = s.replace(/[\sđdvn]/gi, '');
-  const m = s.match(/^(\d+(?:[.,]\d+)?)(k|tr|trieu)?$/);
-  if (m) {
-    let num = Number(m[1].replace(',', '.'));
-    if (m[2] === 'k') num *= 1000;
-    else if (m[2] === 'tr' || m[2] === 'trieu') num *= 1000000;
+
+  // 1tr2, 1tr5, 2tr
+  const mTr = s.match(/^(\d+)(?:tr|trieu)(\d+)?$/);
+  if (mTr) {
+    let intPart = Number(mTr[1]) * 1000000;
+    if (mTr[2]) {
+      let decStr = mTr[2];
+      if (decStr.length === 1) intPart += Number(decStr) * 100000;
+      else if (decStr.length === 2) intPart += Number(decStr) * 10000;
+      else intPart += Number(decStr);
+    }
+    return String(intPart);
+  }
+
+  // Decimal with k/tr: e.g. 1.2tr, 1,5tr, 1.5k, 850k
+  const mUnit = s.match(/^(\d+(?:[.,]\d+)?)(k|tr|trieu)$/);
+  if (mUnit) {
+    let num = Number(mUnit[1].replace(',', '.'));
+    if (mUnit[2] === 'k') num *= 1000;
+    else if (mUnit[2] === 'tr' || mUnit[2] === 'trieu') num *= 1000000;
     if (Number.isFinite(num)) return String(Math.round(num));
   }
+
+  // Thousands separators: 850.000 or 850,000 or 1.200.000
+  if (/^\d{1,3}(?:[.,]\d{3})+$/.test(s)) {
+    return s.replace(/[.,]/g, '');
+  }
+
   const digitsOnly = s.replace(/[.,]/g, '');
   if (/^\d+$/.test(digitsOnly)) {
     return digitsOnly;
@@ -200,31 +224,191 @@ function normalizeMoney(raw) {
   return String(raw).trim();
 }
 
-function normalizeDate(raw) {
-  const s = String(raw ?? '').trim();
-  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  if (m) {
-    const d = m[1].padStart(2, '0');
-    const mon = m[2].padStart(2, '0');
-    const y = m[3];
-    return `${y}-${mon}-${d}`;
+export function parseSmartTime(raw) {
+  if (!raw) return { value: '', isUncertain: false };
+  const s = String(raw).trim().toLowerCase();
+  const n = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+
+  const isChieu = /chieu|toi/.test(n);
+
+  const mColon = s.match(/(?:tam|khoang|luc|tam\s*khoang)?\s*(\d{1,2}):(\d{2})/i);
+  if (mColon) {
+    let h = parseInt(mColon[1], 10);
+    const m = mColon[2];
+    if (isChieu && h < 12) h += 12;
+    if (h >= 0 && h <= 23 && parseInt(m, 10) >= 0 && parseInt(m, 10) <= 59) {
+      return { value: `${String(h).padStart(2, '0')}:${m}`, isUncertain: false };
+    }
   }
-  return s;
+
+  const mH = s.match(/(?:tam|khoang|luc)?\s*(\d{1,2})h(\d{2})?/i);
+  if (mH) {
+    let h = parseInt(mH[1], 10);
+    const m = (mH[2] || '00').padStart(2, '0');
+    if (isChieu && h < 12) h += 12;
+    if (h >= 0 && h <= 23 && parseInt(m, 10) >= 0 && parseInt(m, 10) <= 59) {
+      return { value: `${String(h).padStart(2, '0')}:${m}`, isUncertain: false };
+    }
+  }
+
+  return { value: raw.trim(), isUncertain: true, reason: `Giờ nhận "${raw}" chưa đúng định dạng (ví dụ: 15:00, 21h, 9h30, 3h chiều)` };
+}
+
+export function parseSmartDate(raw, referenceDate = new Date()) {
+  if (!raw) return { value: '', isUncertain: false };
+  const s = String(raw).trim();
+  const n = s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+
+  const ref = new Date(referenceDate);
+  const refYear = ref.getFullYear() || 2026;
+
+  const mIso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (mIso) {
+    const y = mIso[1];
+    const m = mIso[2];
+    const d = mIso[3];
+    const cand = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+    const diffDays = (cand.getTime() - ref.getTime()) / (24 * 60 * 60 * 1000);
+    if (diffDays < -1) {
+      return {
+        value: s,
+        isUncertain: true,
+        reason: `Ngày ${d}/${m}/${y} đã qua so với ngày hiện tại (${ref.getDate()}/${ref.getMonth() + 1}/${refYear}). Vui lòng xác nhận lại.`
+      };
+    }
+    return { value: s, isUncertain: false };
+  }
+
+  const mFull = s.match(/(?:ngay\s*)?(\d{1,2})[/-](\d{1,2})[/-](\d{4})/i);
+  if (mFull) {
+    const d = mFull[1].padStart(2, '0');
+    const m = mFull[2].padStart(2, '0');
+    const y = mFull[3];
+    const cand = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+    const diffDays = (cand.getTime() - ref.getTime()) / (24 * 60 * 60 * 1000);
+    if (diffDays < -1) {
+      return {
+        value: `${y}-${m}-${d}`,
+        isUncertain: true,
+        reason: `Ngày ${d}/${m}/${y} đã qua so với ngày hiện tại (${ref.getDate()}/${ref.getMonth() + 1}/${refYear}). Vui lòng xác nhận lại.`
+      };
+    }
+    return { value: `${y}-${m}-${d}`, isUncertain: false };
+  }
+
+  const mShort = s.match(/(?:ngay\s*)?(\d{1,2})(?:[/-]|\s*thang\s*)(\d{1,2})/i);
+  if (mShort) {
+    const dStr = mShort[1].padStart(2, '0');
+    const mStr = mShort[2].padStart(2, '0');
+    let targetYear = refYear;
+    const cand = new Date(Date.UTC(targetYear, Number(mStr) - 1, Number(dStr)));
+    const diffDays = (cand.getTime() - ref.getTime()) / (24 * 60 * 60 * 1000);
+
+    if (diffDays < -30) {
+      targetYear += 1;
+    } else if (diffDays < -1) {
+      return {
+        value: `${targetYear}-${mStr}-${dStr}`,
+        isUncertain: true,
+        reason: `Ngày ${dStr}/${mStr}/${targetYear} đã qua so với ngày hiện tại (${ref.getDate()}/${ref.getMonth() + 1}/${refYear}). Vui lòng xác nhận lại.`
+      };
+    }
+    return { value: `${targetYear}-${mStr}-${dStr}`, isUncertain: false };
+  }
+
+  if (/\b(hom nay|nay)\b/.test(n)) {
+    const y = ref.getFullYear();
+    const m = String(ref.getMonth() + 1).padStart(2, '0');
+    const d = String(ref.getDate()).padStart(2, '0');
+    return { value: `${y}-${m}-${d}`, isUncertain: false };
+  }
+  if (/\b(ngay mai|mai|chieu mai|sang mai)\b/.test(n)) {
+    const tomorrow = new Date(ref.getTime() + 24 * 60 * 60 * 1000);
+    const y = tomorrow.getFullYear();
+    const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const d = String(tomorrow.getDate()).padStart(2, '0');
+    return { value: `${y}-${m}-${d}`, isUncertain: false };
+  }
+
+  return { value: s, isUncertain: true, reason: `Ngày nhận "${raw}" không rõ định dạng (ví dụ: 25/11/2026, 22/11, ngày mai)` };
+}
+
+function normalizeDate(raw) {
+  const parsed = parseSmartDate(raw);
+  return parsed.value || raw;
 }
 
 function normalizeTime(raw) {
-  const s = String(raw ?? '').trim().toLowerCase();
-  const mH = s.match(/^(\d{1,2})h(\d{2})?$/);
-  if (mH) {
-    const h = mH[1].padStart(2, '0');
-    const min = (mH[2] || '00').padStart(2, '0');
-    return `${h}:${min}`;
+  const parsed = parseSmartTime(raw);
+  return parsed.value || raw;
+}
+
+export function parsePaymentInfo(text, existingFlowerTotal = 0) {
+  const normText = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+
+  // 1. Fullpaid
+  if (/\b(fullpaid|full\s*paid|thanh\s*toan\s*(?:het|du|toan\s*bo)|tt\s*het|ck\s*het)\b/.test(normText)) {
+    const mAmount = normText.match(/(?:fullpaid|full\s*paid|thanh\s*toan\s*(?:het|du|toan\s*bo)|tt\s*het|ck\s*het)\s*[:=-]?\s*(\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)?|\d{5,9})/);
+    const amount = mAmount ? normalizeMoney(mAmount[1]) : (existingFlowerTotal ? String(existingFlowerTotal) : null);
+    return {
+      paymentState: 'fullpaid',
+      flowerTotal: amount ? Number(amount) : null,
+      reportedPaidAmount: amount ? Number(amount) : null,
+      billRequired: true,
+      text: 'Fullpaid (khách báo đã thanh toán toàn bộ đơn)'
+    };
   }
-  const mColon = s.match(/^(\d{1,2}):(\d{2})$/);
-  if (mColon) {
-    return `${mColon[1].padStart(2, '0')}:${mColon[2]}`;
+
+  // 2. Bankfull
+  if (/\b(bankfull|bank\s*full|bank\s*(?:du|full)\s*tien\s*hoa)\b/.test(normText)) {
+    const mAmount = normText.match(/(?:bankfull|bank\s*full|bank\s*(?:du|full)\s*tien\s*hoa)\s*[:=-]?\s*(\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)?|\d{5,9})/);
+    const amount = mAmount ? normalizeMoney(mAmount[1]) : (existingFlowerTotal ? String(existingFlowerTotal) : null);
+    return {
+      paymentState: 'bankfull',
+      flowerTotal: amount ? Number(amount) : null,
+      reportedPaidAmount: amount ? Number(amount) : null,
+      billRequired: false,
+      text: 'Bankfull (khách báo đã thanh toán đủ tiền hoa)'
+    };
   }
-  return s;
+
+  // 3. Deposit
+  if (/\b(coc|cọc|chuyen\s*truoc|ck\s*truoc|thanh\s*toan\s*1\s*phan|thanh\s*toan\s*mot\s*phan|da\s*chuyen\s*mot\s*phan)\b/.test(normText)) {
+    const mAmount = normText.match(/(?:coc|cọc|chuyen\s*truoc|ck\s*truoc|thanh\s*toan\s*1\s*phan|thanh\s*toan\s*mot\s*phan|da\s*chuyen\s*mot\s*phan)\s*[:=-]?\s*(\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)?|\d{5,9})/);
+    if (mAmount) {
+      const depositAmount = Number(normalizeMoney(mAmount[1]));
+      return {
+        paymentState: 'deposit',
+        depositAmount: depositAmount,
+        reportedPaidAmount: depositAmount,
+        billRequired: false,
+        text: `Đã cọc ${depositAmount.toLocaleString('vi')} đ`
+      };
+    } else {
+      return {
+        paymentState: 'deposit',
+        depositAmount: null,
+        reportedPaidAmount: null,
+        isUncertain: true,
+        reason: 'Khách báo đã cọc nhưng chưa rõ số tiền cọc. Vui lòng bổ sung số tiền cọc.',
+        billRequired: false,
+        text: 'Đã cọc (chưa có số tiền)'
+      };
+    }
+  }
+
+  // 4. Unpaid
+  if (/\b(chua\s*thanh\s*toan|chua\s*tt|chua\s*ck|thu\s*cod|cod)\b/.test(normText)) {
+    return {
+      paymentState: 'unpaid',
+      reportedPaidAmount: 0,
+      depositAmount: 0,
+      billRequired: false,
+      text: 'Chưa thanh toán'
+    };
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,34 +418,65 @@ function normalizeTime(raw) {
 export function draftSummary(draft) {
   const f = draft.fields || {};
   const statusBadge = {
-    pending: '', confirmed: '✔ Sẵn sàng xác nhận', confirming: '⏳ Đang tạo...', submitted: '✅ Đã tạo OPS',
+    pending: '',
+    confirmed: '✔ Sẵn sàng tạo đơn',
+    confirming: '⏳ Đang tạo đơn...',
+    submitted: '✅ Đã tạo OPS',
   }[draft.status] || '';
-  const lines = [
-    `📋 *Đơn nháp #${draft.id.slice(-6)}*${statusBadge ? '  ' + statusBadge : ''}`,
-    `Khách: ${f.customer || '—'}`,
-    `Mẫu hoa: ${f.flower || '—'}`,
-    `Ngày: ${f.date || '—'}  Giờ: ${f.time || '—'}`,
-    `Ship: ${f.shipping || '—'}`,
-    f.address ? `Địa chỉ: ${f.address}` : null,
-    f.phone ? `SĐT: ${f.phone}` : null,
-    f.flowerTotal ? `Tổng hoa: ${Number(f.flowerTotal).toLocaleString('vi')} đ` : null,
-    f.note ? `Ghi chú: ${f.note}` : null,
-    f.sale ? `Sale: ${f.sale}` : null,
-  ].filter(Boolean);
 
-  if (f.cardText) lines.push(`Thiệp (${f.cardQty || 1}): ${f.cardText}`);
-  if (f.bannerText) lines.push(`Banner (${f.bannerQty || 1}): ${f.bannerText}`);
-  if (f.charmFee) lines.push(`Charm: ${Number(f.charmFee).toLocaleString('vi')} đ${f.charmText ? ' (' + f.charmText + ')' : ''}`);
-  if (f.paperFee) lines.push(`Giấy gói: ${Number(f.paperFee).toLocaleString('vi')} đ${f.paperText ? ' (' + f.paperText + ')' : ''}`);
-  if (f.vat) lines.push(`VAT: ${Number(f.vat).toLocaleString('vi')} đ`);
+  const shortId = (draft.id || '').slice(-6);
+  const lines = [
+    `📋 *ĐƠN NHÁP #${shortId}*${statusBadge ? '  ' + statusBadge : ''}`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `👤 Khách hàng: ${f.customer || '—'}`,
+    f.phone ? `📞 Số điện thoại: ${f.phone}` : null,
+    `🌸 Mẫu hoa: ${f.flower || '—'}`,
+    f.flowerTotal ? `💰 Tiền hoa: ${Number(f.flowerTotal).toLocaleString('vi')} đ` : null,
+  ];
+
+  const pState = f.paymentState || 'unpaid';
+  if (pState === 'deposit') {
+    const depStr = f.depositAmount ? `${Number(f.depositAmount).toLocaleString('vi')} đ` : '(chưa có số tiền)';
+    const remStr = (f.flowerTotal && f.depositAmount) ? ` — còn lại: ${(Math.max(0, Number(f.flowerTotal) - Number(f.depositAmount))).toLocaleString('vi')} đ` : '';
+    lines.push(`💳 Thanh toán: Đã cọc ${depStr}${remStr}`);
+  } else if (pState === 'bankfull') {
+    const bfAmount = f.reportedPaidAmount || f.flowerTotal;
+    const bfStr = bfAmount ? ` (đã chuyển ${Number(bfAmount).toLocaleString('vi')} đ tiền hoa)` : '';
+    lines.push(`💳 Thanh toán: Bankfull${bfStr}`);
+  } else if (pState === 'fullpaid') {
+    lines.push(`💳 Thanh toán: Fullpaid (khách báo đã thanh toán toàn bộ đơn)`);
+  } else {
+    lines.push(`💳 Thanh toán: Chưa thanh toán`);
+  }
+
+  lines.push(`📅 Ngày nhận: ${f.date || '—'}`);
+  lines.push(`⏰ Giờ nhận: ${f.time || '—'}`);
+  lines.push(`🚚 Hình thức nhận: ${f.shipping || '—'}`);
+  if (f.address) lines.push(`📍 Địa chỉ: ${f.address}`);
+  if (f.note) lines.push(`📝 Ghi chú: ${f.note}`);
+
+  if (f.cardText) lines.push(`💌 Thiệp (${f.cardQty || 1}): ${f.cardText}`);
+  if (f.bannerText) lines.push(`🎀 Banner (${f.bannerQty || 1}): ${f.bannerText}`);
+  if (f.charmFee) lines.push(`✨ Phí charm: ${Number(f.charmFee).toLocaleString('vi')} đ${f.charmText ? ' (' + f.charmText + ')' : ''}`);
+  if (f.paperFee) lines.push(`📜 Phí giấy: ${Number(f.paperFee).toLocaleString('vi')} đ${f.paperText ? ' (' + f.paperText + ')' : ''}`);
+  if (f.vat) lines.push(`🧾 VAT: ${Number(f.vat).toLocaleString('vi')} đ`);
+  if (f.shipFee) lines.push(`🛵 Phí ship: ${Number(f.shipFee).toLocaleString('vi')} đ`);
 
   const sampleCount = (draft.sampleRefs || []).length;
   const billCount = (draft.draftBillRefs || []).length;
-  if (sampleCount) lines.push(`📷 Ảnh mẫu: ${sampleCount} ảnh đã lưu`);
-  if (billCount) lines.push(`🧾 Ảnh bill (nháp, chưa xác nhận TT): ${billCount} ảnh — sẽ KHÔNG tự động tạo đơn thanh toán`);
+  if (sampleCount) lines.push(`📷 Ảnh mẫu hoa: ${sampleCount} ảnh đã lưu trên R2`);
+  if (billCount) {
+    lines.push(`🧾 Ảnh bill (nháp, chưa xác nhận TT): ${billCount} ảnh — sẽ KHÔNG tự động tạo đơn thanh toán`);
+  } else if (pState === 'fullpaid') {
+    lines.push(`🧾 Chứng từ bill: ⚠️ CHƯA CÓ (Bắt buộc với đơn Fullpaid)`);
+  }
+
+  lines.push(`━━━━━━━━━━━━━━━━━━━━`);
 
   const missing = requiredMissing(draft);
-  if (missing.length) lines.push(`\n⚠️ Còn thiếu: ${missing.join(', ')}`);
+  if (missing.length) {
+    lines.push(`\n⚠️ Còn thiếu: ${missing.join(', ')}`);
+  }
 
   const uncertain = Object.entries(draft.uncertainFields || {});
   if (uncertain.length) {
@@ -271,7 +486,11 @@ export function draftSummary(draft) {
     }
   }
 
-  return lines.join('\n');
+  if (draft.status === 'submitted' && draft.opsOrderId) {
+    lines.push(`\n🎉 Đơn đã tạo thành công trên OPS: Mã đơn *${draft.opsOrderId}*`);
+  }
+
+  return lines.filter(Boolean).join('\n');
 }
 
 function requiredMissing(draft) {
@@ -282,6 +501,12 @@ function requiredMissing(draft) {
   if (!f.date) need.push('ngày nhận');
   if (!f.time) need.push('giờ nhận');
   if (!f.shipping) need.push('hình thức ship');
+  if (f.paymentState === 'deposit' && (!f.depositAmount || Number(f.depositAmount) <= 0)) {
+    need.push('số tiền cọc');
+  }
+  if (f.paymentState === 'fullpaid' && (!draft.draftBillRefs || draft.draftBillRefs.length === 0)) {
+    need.push('ảnh bill chuyển khoản (bắt buộc với đơn Fullpaid)');
+  }
   return need;
 }
 
@@ -359,6 +584,13 @@ function cmdConfirm(drafts, _args) {
   if (!draft) return { reply: 'Chưa có đơn nháp đang chọn. Dùng /new.', drafts };
   if (draft.status === 'submitted') return { reply: '⚠️ Đơn này đã được tạo trong OPS rồi.', drafts };
   if (draft.status === 'confirming') return { reply: '⏳ Đơn đang được tạo trong OPS, vui lòng chờ.', drafts };
+  const f = draft.fields || {};
+  if (f.paymentState === 'fullpaid' && (!draft.draftBillRefs || draft.draftBillRefs.length === 0)) {
+    return {
+      reply: '⚠️ Đơn ở trạng thái Đã thanh toán toàn bộ (Fullpaid) nhưng chưa có ảnh bill. Vui lòng gửi ảnh bill trước khi xác nhận tạo đơn.\n\n' + draftSummary(draft),
+      drafts
+    };
+  }
   if (!isConfirmable(draft)) {
     return { reply: `❌ Chưa đủ dữ liệu hoặc còn thông tin chưa rõ ràng để xác nhận:\n\n${draftSummary(draft)}`, drafts };
   }
@@ -383,8 +615,128 @@ export function detectPromptInjection(text) {
 
 const FORBIDDEN_FIELD_PATTERNS = [
   /^(thanh\s*toan|payment|full\s*paid|da\s*thanh\s*toan)$/i,
-  /^(trang\s*thai|status|role|settled)$/i,
+  /^(trang\s*thai|status|role|settled|approved)$/i,
 ];
+
+export function extractNaturalMessage(text, currentDraft = {}, referenceDate = new Date()) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const fields = {};
+  const uncertainFields = {};
+  const existingFields = currentDraft.fields || {};
+
+  const FLOWER_PATTERN = /\b(ly|li|lily|hong|cuc|tulip|hoa\s*lan|lan\s*ho\s*diep|huong\s*duong|baby|cam\s*tu\s*cau|mau\s*don|hoa|bo\s*hoa|gio\s*hoa|ke\s*hoa|lang\s*hoa|nhuom\s*vien|tone)\b/i;
+
+  for (const line of lines) {
+    const raw = line;
+    const cleanLine = raw.replace(/^[-*•—_]+\s*/, '').replace(/\s*[-*•—_]+$/, '').trim();
+    if (!cleanLine) continue;
+    const normLine = cleanLine.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+
+    // 1. Payment detection
+    const payment = parsePaymentInfo(cleanLine, Number(existingFields.flowerTotal || fields.flowerTotal || 0));
+    if (payment) {
+      fields.paymentState = payment.paymentState;
+      if (payment.flowerTotal) fields.flowerTotal = String(payment.flowerTotal);
+      if (payment.depositAmount !== undefined) fields.depositAmount = payment.depositAmount;
+      if (payment.reportedPaidAmount !== undefined) fields.reportedPaidAmount = payment.reportedPaidAmount;
+      if (payment.isUncertain) uncertainFields.depositAmount = payment.reason;
+      continue;
+    }
+
+    // 2. Date and Time detection
+    const hasDate = /\b(ngay|\d{1,2}[/-]\d{1,2}|hom\s*nay|mai|mot)\b/.test(normLine);
+    const hasTime = /\b(?:\d{1,2}h(?:\d{2})?|\d{1,2}:\d{2}|buoi\s*sang|sang\s*mai|sang\s*nay|sang\s*som|\d{1,2}h\s*sang|buoi\s*chieu|chieu\s*mai|chieu\s*nay|\d{1,2}h\s*chieu|buoi\s*toi|toi\s*nay|toi\s*mai|\d{1,2}h\s*toi)\b/i.test(normLine);
+    if (hasDate || hasTime) {
+      if (hasDate) {
+        const smartDate = parseSmartDate(cleanLine, referenceDate);
+        if (smartDate.value) {
+          fields.date = smartDate.value;
+          if (smartDate.isUncertain) uncertainFields.date = smartDate.reason;
+        }
+      }
+      if (hasTime) {
+        const smartTime = parseSmartTime(cleanLine);
+        if (smartTime.value) {
+          fields.time = smartTime.value;
+          if (smartTime.isUncertain) uncertainFields.time = smartTime.reason;
+        }
+      }
+      if (!FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|ship|book|lay|ghe|tan\s*noi)\b/.test(normLine)) {
+        continue;
+      }
+    }
+
+    // 3. Phone detection
+    const mPhone = cleanLine.match(/(?:sdt|phone|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*(0\d{9,10})\b/i);
+    if (mPhone) {
+      fields.phone = mPhone[1];
+    }
+
+    // 4. Explicit shipping detection
+    if (/\b(shop\s*book|shop\s*ship|shop\s*giao|giao\s*tan\s*noi|khach\s*tu\s*book|tu\s*book|aha|grab|ghe\s*lay|tai\s*tiem|tu\s*qua\s*lay|tu\s*lay)\b/i.test(normLine)) {
+      if (/shop\s*book|shop\s*ship|shop\s*giao|giao\s*tan\s*noi/.test(normLine)) fields.shipping = 'Shop book ship';
+      else if (/khach\s*tu\s*book|tu\s*book|aha|grab/.test(normLine)) fields.shipping = 'Khách tự book';
+      else if (/ghe\s*lay|tai\s*tiem|tu\s*qua\s*lay|tu\s*lay/.test(normLine)) fields.shipping = 'Ghé lấy';
+    }
+
+    // 5. Address detection
+    if (/dia\s*chi\s*bsung|bsung\s*sau|gui\s*sau|chua\s*co\s*dia\s*chi/.test(normLine)) {
+      fields.address = 'Địa chỉ báo sau';
+      if (!FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|ship|book|lay|ghe|tan\s*noi)\b/.test(normLine)) {
+        continue;
+      }
+    }
+    const mAddr = cleanLine.match(/(?:(?:^|[\s,;])(?:[dđ][iị]a\s*ch[iỉ]|[dđ]c|giao\s*[dđ][eêế]n|giao\s*t[aạ]i|giao\s*qua))\s*[:=-]?\s*([^,\n]+(?:,\s*[^,\n]+)*)/i);
+    if (mAddr) {
+      let addr = mAddr[1].replace(/,\s*(?:sdt|phone|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*0\d{9,10}.*$/i, '').trim();
+      addr = addr.replace(/\b(?:sdt|phone|so\s*dien\s*thoai|sđt)\s*[:=-]?\s*0\d{9,10}.*$/i, '').trim();
+      if (addr) {
+        fields.address = addr;
+        if (!fields.shipping) fields.shipping = 'Shop book ship';
+        continue;
+      }
+    }
+    if (/\b(duong|phuong|quan|p\.|q\.|tp\.|hcm|quan\s*\d+|phuong\s*\d+|ap|xa|huyen|tinh)\b/i.test(normLine) || /^\d+[\w/]*\s+[A-ZÀ-Ỹa-zà-ỹ]/.test(cleanLine)) {
+      if (!FLOWER_PATTERN.test(normLine) && !/\b(bank|ck|fullpaid|coc)\b/.test(normLine)) {
+        fields.address = cleanLine.replace(/,\s*(?:sdt|phone|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*0\d{9,10}.*$/i, '').trim();
+        if (!fields.shipping) fields.shipping = 'Shop book ship';
+        continue;
+      }
+    }
+
+    if (fields.phone && (fields.address || fields.shipping)) {
+      if (!FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|ship|book|lay|ghe|tan\s*noi)\b/.test(normLine)) {
+        continue;
+      }
+    }
+
+    // 6. Flower description detection
+    if (FLOWER_PATTERN.test(normLine)) {
+      fields.flower = cleanLine;
+      const mPrice = cleanLine.match(/(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)?|\d{5,9})/i);
+      if (mPrice) {
+        const norm = normalizeMoney(mPrice[1]);
+        if (/^\d+$/.test(norm) && Number(norm) >= 50000) {
+          fields.flowerTotal = norm;
+        }
+      }
+      if (!FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|ship|book|lay|ghe|tan\s*noi)\b/.test(normLine)) {
+        continue;
+      }
+    }
+
+    // 7. Name detection
+    if (/^[A-ZÀ-Ỹa-zà-ỹ\s]+$/.test(cleanLine) && cleanLine.split(/\s+/).length <= 4) {
+      const stripped = cleanLine.replace(/^(?:chị|anh|em|cô|bác|khách|bạn)\s+/i, '').trim();
+      fields.customer = stripped;
+      if (!FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|ship|book|lay|ghe|tan\s*noi)\b/.test(normLine)) {
+        continue;
+      }
+    }
+  }
+
+  return { fields, uncertainFields };
+}
 
 function applyFieldLine(draft, line) {
   const cleanLine = line.replace(/^[-*•]\s*/, '').trim();
@@ -407,54 +759,84 @@ function applyFieldLine(draft, line) {
   let value = rawVal;
   let isUncertain = false;
   let reason = '';
+  let extra = null;
 
-  if (field === 'shipping') {
+  if (field === 'flower') {
+    const mPrice = rawVal.match(/(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)?|\d{5,9})/i);
+    if (mPrice) {
+      const norm = normalizeMoney(mPrice[1]);
+      if (/^\d+$/.test(norm) && Number(norm) >= 50000) {
+        extra = { flowerTotal: norm };
+      }
+    }
+  } else if (field === 'shipping') {
     value = normalizeShipping(rawVal);
     if (!SHIPPING_VALUES.includes(value)) {
       isUncertain = true;
       reason = `Hình thức giao "${rawVal}" chưa rõ (chọn: Shop book ship, Khách tự book, Ghé lấy)`;
     }
-  } else if (field === 'flowerTotal' || field === 'charmFee' || field === 'paperFee' || field === 'vat') {
+  } else if (field === 'paymentInfo') {
+    const currentTotal = Number(draft.fields?.flowerTotal || 0);
+    const info = parsePaymentInfo(rawVal, currentTotal);
+    if (info) {
+      return { field: 'paymentState', value: info.paymentState, isUncertain: info.isUncertain || false, reason: info.reason || '', extra: info };
+    }
+  } else if (field === 'depositAmount') {
+    const val = normalizeMoney(rawVal);
+    if (!/^\d+$/.test(val) || Number(val) <= 0) {
+      isUncertain = true;
+      reason = `Số tiền cọc "${rawVal}" không hợp lệ`;
+    } else {
+      value = Number(val);
+    }
+  } else if (field === 'flowerTotal' || field === 'charmFee' || field === 'paperFee' || field === 'vat' || field === 'shipFee') {
     value = normalizeMoney(rawVal);
     if (!/^\d+$/.test(value) || Number(value) < 0) {
       isUncertain = true;
       reason = `Số tiền "${rawVal}" không hợp lệ`;
     }
   } else if (field === 'date') {
-    value = normalizeDate(rawVal);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const smartDate = parseSmartDate(rawVal);
+    value = smartDate.value;
+    if (smartDate.isUncertain) {
       isUncertain = true;
-      reason = `Ngày nhận "${rawVal}" chưa đúng định dạng YYYY-MM-DD hoặc DD/MM/YYYY`;
+      reason = smartDate.reason;
     }
   } else if (field === 'time') {
-    value = normalizeTime(rawVal);
-    if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(value)) {
+    const smartTime = parseSmartTime(rawVal);
+    value = smartTime.value;
+    if (smartTime.isUncertain) {
       isUncertain = true;
-      reason = `Giờ nhận "${rawVal}" chưa đúng định dạng HH:MM hoặc 9h, 14h30`;
+      reason = smartTime.reason;
     }
   } else if (field === 'cardQty' || field === 'bannerQty') {
     const n = parseInt(rawVal, 10);
     value = Number.isInteger(n) && n >= 1 && n <= 99 ? n : 1;
   }
 
-  return { field, value, isUncertain, reason };
+  return { field, value, isUncertain, reason, extra };
 }
 
-function applyFields(draft, text) {
+function applyFields(draft, text, options = {}) {
   const lines = text.split('\n');
   const changes = [];
   const warnings = [];
   const uncertain = { ...(draft.uncertainFields || {}) };
   const newFields = { ...(draft.fields || {}) };
+  const unparsedLines = [];
 
+  // 1. First pass: Structured key: value lines
   for (const line of lines) {
     const result = applyFieldLine(draft, line);
-    if (!result) continue;
+    if (!result) {
+      unparsedLines.push(line);
+      continue;
+    }
     if (result.warning) {
       warnings.push(result.warning);
       continue;
     }
-    const { field, value, isUncertain, reason } = result;
+    const { field, value, isUncertain, reason, extra } = result;
     if (isUncertain) {
       uncertain[field] = reason;
       changes.push({ field, value, uncertain: true, reason });
@@ -462,6 +844,13 @@ function applyFields(draft, text) {
       delete uncertain[field];
       newFields[field] = value;
       changes.push({ field, value });
+
+      if (extra) {
+        if (extra.depositAmount !== undefined) newFields.depositAmount = extra.depositAmount;
+        if (extra.flowerTotal) newFields.flowerTotal = String(extra.flowerTotal);
+        if (extra.reportedPaidAmount !== undefined) newFields.reportedPaidAmount = extra.reportedPaidAmount;
+      }
+
       if (field === 'cardText' && value) {
         newFields.card = true;
         if (!newFields.cardQty) newFields.cardQty = 1;
@@ -469,6 +858,25 @@ function applyFields(draft, text) {
       if (field === 'bannerText' && value) {
         newFields.banner = true;
         if (!newFields.bannerQty) newFields.bannerQty = 1;
+      }
+    }
+  }
+
+  // 2. Second pass: Natural conversational parsing for unparsed or free-form text
+  if (unparsedLines.length) {
+    const natural = extractNaturalMessage(unparsedLines.join('\n'), { ...draft, fields: newFields }, options.referenceDate);
+    for (const [k, v] of Object.entries(natural.fields || {})) {
+      // Only apply if not already set by an explicit line in this pass
+      if (!changes.some(c => c.field === k)) {
+        newFields[k] = v;
+        changes.push({ field: k, value: v });
+        delete uncertain[k];
+      }
+    }
+    for (const [k, reason] of Object.entries(natural.uncertainFields || {})) {
+      if (!newFields[k]) {
+        uncertain[k] = reason;
+        changes.push({ field: k, value: null, uncertain: true, reason });
       }
     }
   }
@@ -689,5 +1097,5 @@ export {
   loadDrafts, saveDrafts, activeDraft, requiredMissing, isConfirmable,
   normalizeShipping, normalizeMoney, normalizeDate, normalizeTime,
   applyFields,
-  cmdNew, cmdList, cmdSelect, cmdShow, cmdCancel, cmdConfirm,
+  cmdNew, cmdList, cmdSelect, cmdShow, cmdCancel, cmdConfirm
 };

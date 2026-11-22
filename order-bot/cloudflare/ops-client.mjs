@@ -21,13 +21,27 @@
  */
 export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [], unverifiedBillFiles = [], fetcher = fetch) {
   const f = draft.fields || {};
-  let note = String(f.note || '').trim();
-  if (unverifiedBillFiles.length > 0 && !note.includes('Bill đính kèm')) {
-    const billTag = `[🧾 Đính kèm ${unverifiedBillFiles.length} bill chưa xác minh]`;
-    note = note ? `${note} ${billTag}` : billTag;
+  const noteParts = [];
+  if (f.note) noteParts.push(String(f.note).trim());
+
+  if (f.paymentState === 'deposit' && f.depositAmount) {
+    const depStr = Number(f.depositAmount).toLocaleString('vi');
+    noteParts.push(`[Khách báo: Đã cọc ${depStr} đ]`);
+  } else if (f.paymentState === 'bankfull') {
+    const bfAmount = f.reportedPaidAmount || f.flowerTotal;
+    const bfStr = bfAmount ? ` ${Number(bfAmount).toLocaleString('vi')} đ` : '';
+    noteParts.push(`[Khách báo: Bankfull tiền hoa${bfStr}]`);
+  } else if (f.paymentState === 'fullpaid') {
+    noteParts.push(`[Khách báo: Fullpaid toàn bộ đơn]`);
   }
 
-  // Construct payload adhering strictly to OPS createOrder schema
+  if (unverifiedBillFiles.length > 0 && !noteParts.some(p => p.includes('bill chưa xác minh'))) {
+    noteParts.push(`[🧾 Đính kèm ${unverifiedBillFiles.length} bill chưa xác minh]`);
+  }
+
+  const note = noteParts.join(' ');
+
+  // Construct payload adhering strictly to OPS createOrder schema (providing both camelCase & snake_case)
   const payload = {
     name: 'createOrder',
     payload: {
@@ -36,28 +50,41 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
       order: {
         customer: String(f.customer || '').trim(),
         phone: String(f.phone || '').trim(),
+        date: String(f.date || '').trim(),
         order_date: String(f.date || '').trim(),
+        time: String(f.time || '').trim(),
         order_time: String(f.time || '').trim(),
         flower: String(f.flower || '').trim(),
         note: note,
         shipping: String(f.shipping || '').trim(),
         address: String(f.address || '').trim(),
+        flowerTotal: Number(f.flowerTotal) || 0,
         flower_total: Number(f.flowerTotal) || 0,
         // STRICT INVARIANT: Always unpaid on creation
         payment: 'Chưa thanh toán',
         sale: String(f.sale || '').trim(),
         card: Boolean(f.card),
+        cardQty: f.card ? Math.max(1, Number(f.cardQty) || 1) : 0,
         card_qty: f.card ? Math.max(1, Number(f.cardQty) || 1) : 0,
+        cardText: String(f.cardText || '').trim(),
         card_text: String(f.cardText || '').trim(),
         banner: Boolean(f.banner),
+        bannerQty: f.banner ? Math.max(1, Number(f.bannerQty) || 1) : 0,
         banner_qty: f.banner ? Math.max(1, Number(f.bannerQty) || 1) : 0,
+        bannerText: String(f.bannerText || '').trim(),
         banner_text: String(f.bannerText || '').trim(),
+        charmFee: Number(f.charmFee) || 0,
         charm_fee: Number(f.charmFee) || 0,
+        charmText: String(f.charmText || '').trim(),
         charm_text: String(f.charmText || '').trim(),
+        paperFee: Number(f.paperFee) || 0,
         paper_fee: Number(f.paperFee) || 0,
+        paperText: String(f.paperText || '').trim(),
         paper_text: String(f.paperText || '').trim(),
         vat: Number(f.vat) || 0,
+        shipFee: Number(f.shipFee) || 0,
         ship_fee: Number(f.shipFee) || 0,
+        shipFeeActive: (f.shipping === 'Shop book ship' && Number(f.shipFee) > 0) ? '1' : '0',
         ship_confirmed: false,
         // STRICT INVARIANT: No auto-full-paid
         fullPaidRequested: false,

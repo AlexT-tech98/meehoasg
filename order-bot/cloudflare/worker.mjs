@@ -280,8 +280,19 @@ export async function handleTelegramWebhook(request, rawEnv) {
           activeItem.lastMessageDate = Math.max(Number(activeItem.lastMessageDate) || 0, Number(message.date) || 0);
           activeItem.lastMessageId = Math.max(Number(activeItem.lastMessageId) || 0, Number(message.message_id) || 0);
         }
+
+        let extraReply = '';
+        if (caption && caption.trim() && !isBill) {
+          const { draft: updatedDraft, changes } = applyFields(drafts[drafts.__active], caption.trim());
+          if (changes && changes.length > 0) {
+            drafts[drafts.__active] = updatedDraft;
+            const changedText = changes.map(c => c.uncertain ? `  ⚠️ ${c.field}: ${c.reason}` : `  ${c.field}: ${c.value}`).join('\n');
+            extraReply = `\n\n✏️ Đã nhận thông tin từ chú thích:\n${changedText}`;
+          }
+        }
+
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, result.reply, 'HTML');
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, `${result.reply}${extraReply}`, 'HTML');
       } else {
         await sendTelegramMessage(env.BOT_TOKEN, chatId, `⚠️ ${result.reply}`);
       }
