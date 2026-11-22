@@ -193,3 +193,64 @@ test('without R2 write flag, unchanged Supabase-only signed upload path is used'
  const h=make({uploads:false});const out=await tickets(h);
  assert.equal(out.tickets[0].storage,'supabase');assert.equal(out.tickets[0].backup,undefined);
 });
+
+
+test('synthetic unauthenticated operator receives no signed R2 or Supabase upload tickets',async()=>{
+ const h=make();
+ vm.runInContext("requireUser=async()=>{throw Error('AUTH_REQUIRED')}",h.context);
+ await assert.rejects(tickets(h,{samples:1,bills:1}),/AUTH_REQUIRED/);
+ assert.equal(h.events.length,0);
+ assert.match(coreSource,/async function prepareOrderUploads\(payload\)\{\s*const user=await requireUser\(payload,\['ADMIN','SALE','THO_OPS'\]\)/);
+});
+
+test('synthetic unauthorized role cannot obtain signed upload tickets',async()=>{
+ const h=make();
+ vm.runInContext("requireUser=async(_payload,roles)=>{if(!roles.includes('GUEST'))throw Error('ACCESS_DENIED');return {username:'guest',role:'GUEST'};}",h.context);
+ await assert.rejects(tickets(h,{samples:1,bills:1}),/ACCESS_DENIED/);
+ assert.equal(h.events.length,0);
+});
+
+test('actual local R2 signer creates time-limited private GET, PUT, HEAD links with synthetic keys',async()=>{
+ const {createR2Media}=await import('../supabase/functions/_shared/r2-media.js');
+ const accountId='a'.repeat(32);
+ const media=createR2Media({accountId,accessKeyId:'FAKE_QA_ID',secretAccessKey:'FAKE_QA_SECRET',bucket:'meehoa-qa-private'});
+ const name='order-images/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg';
+ const put=new URL(await media.signedUrl('PUT',name,{expiresSeconds:60,contentType:'image/jpeg'}));
+ assert.equal(put.protocol,'https:');
+ assert.equal(put.hostname,accountId+'.r2.cloudflarestorage.com');
+ assert.equal(put.pathname,'/meehoa-qa-private/'+name);
+ assert.equal(put.searchParams.get('X-Amz-Expires'),'60');
+ assert.ok(put.searchParams.get('X-Amz-Signature'));
+ assert.match(put.searchParams.get('X-Amz-SignedHeaders')||'',/content-type/);
+ const get=new URL(await media.signedUrl('GET',name,{expiresSeconds:120}));
+ assert.equal(get.searchParams.get('X-Amz-Expires'),'120');
+ assert.ok(get.searchParams.get('X-Amz-Signature'));
+ const head=new URL(await media.signedUrl('HEAD',name,{expiresSeconds:30}));
+ assert.equal(head.searchParams.get('X-Amz-Expires'),'30');
+ assert.ok(head.searchParams.get('X-Amz-Signature'));
+});
+
+test('actual R2 signer denies malformed paths, invalid expiry, unsupported method and MIME mismatch',async()=>{
+ const {createR2Media}=await import('../supabase/functions/_shared/r2-media.js');
+ const media=createR2Media({accountId:'a'.repeat(32),accessKeyId:'QA',secretAccessKey:'QA',bucket:'meehoa-qa-private'});
+ const name='order-images/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg';
+ await assert.rejects(media.signedUrl('POST',name,{expiresSeconds:60}),/R2_IMAGE_METHOD_INVALID/);
+ await assert.rejects(media.signedUrl('PUT',name,{expiresSeconds:60,contentType:'image/png'}),/R2_IMAGE_TYPE_INVALID/);
+ await assert.rejects(media.signedUrl('PUT','../'+name,{expiresSeconds:60,contentType:'image/jpeg'}),/R2_IMAGE_REQUEST_INVALID/);
+ await assert.rejects(media.signedUrl('PUT','other-images/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg',{expiresSeconds:60,contentType:'image/jpeg'}),/R2_IMAGE_REQUEST_INVALID/);
+ await assert.rejects(media.signedUrl('PUT',name,{expiresSeconds:0,contentType:'image/jpeg'}),/R2_IMAGE_REQUEST_INVALID/);
+ await assert.rejects(media.signedUrl('PUT',name,{expiresSeconds:3601,contentType:'image/jpeg'}),/R2_IMAGE_REQUEST_INVALID/);
+});
+
+test('rollback rehearsal leaves R2 write flag isolated and Supabase read path usable',async()=>{
+ const h=make({reads:false,uploads:false});
+ const value='r2://meehoa-test/order-images/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg';
+ const original=await h.evaluate('signedImageUrl('+JSON.stringify(value)+')');
+ assert.match(original,/supabase\.local\/storage\/v1\/object\/sign\/order-images\//);
+ assert.equal(h.events.some(v=>v.url.includes('r2.local')),false);
+ const bill='r2://meehoa-test/settlement-bills/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jpg';
+ const backup=await h.evaluate('signedImageUrl('+JSON.stringify(bill)+')');
+ assert.match(backup,/object\/sign\/settlement-bills\//);
+ const issued=await tickets(h,{samples:1,bills:1});
+ assert.equal(issued.tickets.every(x=>x.storage==='supabase'),true);
+});
