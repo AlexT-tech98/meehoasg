@@ -92,7 +92,8 @@ async function main(){
    await page.locator('[data-mee-print-invoice]').click();
    await page.locator('#meeInvoicePreview .mee-invoice-card').waitFor();
    assert.equal(popups,0,'mobile invoice stays in the same tab');
-   assert.match(await page.locator('#meeInvoicePreview').innerText(),/Nội dung chuyển khoản: MEEHOA/);
+   assert.doesNotMatch(await page.locator('#meeInvoicePreview').innerText(),/Nội dung chuyển khoản/);
+   assert.doesNotMatch(await page.locator('#meeInvoicePreview img').getAttribute('src'),/addInfo=/);
    assert.match(await page.locator('#meeInvoicePreview').innerText(),/vui lòng gửi ảnh bill/);
    const size=await page.locator('#meeInvoicePreview .mee-invoice-card').boundingBox();assert.ok(Math.abs(size.width/size.height-.75)<.03,'invoice preview uses 3:4 aspect ratio');
    await page.screenshot({path:path.join(out,'invoice-mobile-preview.png')});
