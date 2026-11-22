@@ -479,7 +479,10 @@ export function draftSummary(draft) {
   lines.push(`📅 Ngày nhận: ${f.date || '—'}`);
   lines.push(`⏰ Giờ nhận: ${f.time || '—'}`);
   lines.push(`🚚 Hình thức nhận: ${f.shipping || '—'}`);
-  if (f.address) lines.push(`📍 Địa chỉ: ${f.address}`);
+  if (f.address) {
+    const pendingTag = isPendingAddress(f.address) ? ' (chờ bổ sung)' : '';
+    lines.push(`📍 Địa chỉ: ${f.address}${pendingTag}`);
+  }
   if (f.note) lines.push(`📝 Ghi chú: ${f.note}`);
 
   if (f.cardText) lines.push(`💌 Thiệp (${f.cardQty || 1}): ${f.cardText}`);
@@ -520,6 +523,12 @@ export function draftSummary(draft) {
   return lines.filter(Boolean).join('\n');
 }
 
+function isPendingAddress(addr) {
+  if (!addr) return true;
+  const norm = String(addr).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').trim();
+  return /^(?:dia\s*chi\s*)?(?:bsung|bo\s*sung|bao|gui)\s*sau$|^chua\s*co(?:\s*dia\s*chi)?$|^(?:bao|gui)\s*dia\s*chi\s*sau$/i.test(norm);
+}
+
 function requiredMissing(draft) {
   const f = draft.fields || {};
   const need = [];
@@ -528,6 +537,9 @@ function requiredMissing(draft) {
   if (!f.date) need.push('ngày nhận');
   if (!f.time) need.push('giờ nhận');
   if (!f.shipping) need.push('hình thức ship');
+  if (f.shipping === 'Shop book ship' && (!f.address || isPendingAddress(f.address))) {
+    need.push('địa chỉ giao hàng');
+  }
   if (f.paymentState === 'deposit' && (!f.depositAmount || Number(f.depositAmount) <= 0)) {
     need.push('số tiền cọc');
   }
@@ -1123,6 +1135,6 @@ export function isBillCaption(caption) {
 export {
   loadDrafts, saveDrafts, activeDraft, requiredMissing, isConfirmable,
   normalizeShipping, normalizeMoney, normalizeDate, normalizeTime,
-  applyFields,
+  applyFields, isPendingAddress,
   cmdNew, cmdList, cmdSelect, cmdShow, cmdCancel, cmdConfirm
 };
