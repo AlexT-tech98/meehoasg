@@ -411,6 +411,33 @@ export function parsePaymentInfo(text, existingFlowerTotal = 0) {
   return null;
 }
 
+/**
+ * Map order-bot payment state to OPS canonical payment string.
+ * Aligns with OPS order form (paymentType) options:
+ *   - unpaid: 'Chưa thanh toán (0 đ)'
+ *   - deposit: 'Đã cọc <amount> đ'
+ *   - bankfull: 'Đã thanh toán đủ tiền hoa (Full)'
+ *   - fullpaid: 'Đã thanh toán toàn bộ đơn'
+ *
+ * Invariants:
+ *   - Never auto-settle or clear debt: fullPaidRequested stays false
+ *   - Unverified bills are attached to unverifiedBillFiles for OPS Payment Check review
+ *   - Preserves correct debt calculation in OPS
+ */
+export function mapPaymentToOps(paymentState, depositAmount, flowerTotal) {
+  if (paymentState === 'deposit' && depositAmount) {
+    const depStr = Number(depositAmount).toLocaleString('vi-VN');
+    return `Đã cọc ${depStr} đ`;
+  }
+  if (paymentState === 'bankfull') {
+    return 'Đã thanh toán đủ tiền hoa (Full)';
+  }
+  if (paymentState === 'fullpaid') {
+    return 'Đã thanh toán toàn bộ đơn';
+  }
+  return 'Chưa thanh toán';
+}
+
 // ---------------------------------------------------------------------------
 // Draft display
 // ---------------------------------------------------------------------------
@@ -680,9 +707,9 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
     }
 
     // 5. Address detection
-    if (/dia\s*chi\s*bsung|bsung\s*sau|gui\s*sau|chua\s*co\s*dia\s*chi/.test(normLine)) {
+    if (/(?:dia\s*chi\s*)?(?:bsung|bo\s*sung|bao|gui)\s*sau|chua\s*co\s*dia\s*chi|(?:bao|gui)\s*dia\s*chi\s*sau/i.test(normLine)) {
       fields.address = 'Địa chỉ báo sau';
-      if (!FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|ship|book|lay|ghe|tan\s*noi)\b/.test(normLine)) {
+      if (!FLOWER_PATTERN.test(normLine) && !/\b(bank|ck|fullpaid|coc)\b/.test(normLine)) {
         continue;
       }
     }

@@ -29,6 +29,7 @@ import {
   markConfirming, markSubmitted, markConfirmFailed,
   draftSummary, loadDrafts, saveDrafts,
   cleanupOrphanedTmpFiles, findStaleConfirming, resetStaleConfirming,
+  mapPaymentToOps,
 } from './core.mjs';
 
 // ---------------------------------------------------------------------------
@@ -184,7 +185,7 @@ QUY TẮC BẢO MẬT:
           phone: f.phone || '',
           note: f.note || '',
           flowerTotal: f.flowerTotal ? Number(f.flowerTotal) : 0,
-          payment: 'Chưa thanh toán',   // ALWAYS; never auto-confirm payment
+          payment: mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal),
           sale: f.sale || '',
           card: Boolean(f.card || f.cardText),
           cardQty: f.cardQty ? Number(f.cardQty) : (f.cardText ? 1 : 0),

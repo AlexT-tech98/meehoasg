@@ -9,6 +9,10 @@
  *   - All secrets and technical error messages are sanitized
  */
 
+import { mapPaymentToOps } from '../core.mjs';
+
+export { mapPaymentToOps };
+
 /**
  * Call OPS createOrder endpoint.
  * @param {string} opsUrl - Base URL of OPS Staging (e.g. https://meehoasg-ops-staging.meehoasg.workers.dev/api-core)
@@ -60,8 +64,9 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
         address: String(f.address || '').trim(),
         flowerTotal: Number(f.flowerTotal) || 0,
         flower_total: Number(f.flowerTotal) || 0,
-        // STRICT INVARIANT: Always unpaid on creation
-        payment: 'Chưa thanh toán',
+        // Canonical payment mapping to OPS (unpaid, deposit, bankfull, fullpaid)
+        // Strict invariant: fullPaidRequested remains false (no auto-settlement before money review)
+        payment: mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal),
         sale: String(f.sale || '').trim(),
         card: Boolean(f.card),
         cardQty: f.card ? Math.max(1, Number(f.cardQty) || 1) : 0,

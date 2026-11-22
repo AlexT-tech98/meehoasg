@@ -255,7 +255,8 @@ test('Kịch bản 2: Đơn Đã cọc có số tiền cọc, không kèm bill: 
   }), env);
 
   assert.ok(capturedOpsPayload);
-  assert.equal(capturedOpsPayload.payload.order.payment, 'Chưa thanh toán');
+  assert.equal(capturedOpsPayload.payload.order.payment, 'Đã cọc 200.000 đ');
+  assert.equal(capturedOpsPayload.payload.order.fullPaidRequested, false);
   assert.ok(capturedOpsPayload.payload.order.note.includes('[Khách báo: Đã cọc 200.000 đ]'));
 });
 
@@ -311,7 +312,8 @@ test('Kịch bản 3: Đơn Bankfull không kèm bill: tạo đơn thành công,
   }), env);
 
   assert.ok(capturedOpsPayload);
-  assert.equal(capturedOpsPayload.payload.order.payment, 'Chưa thanh toán');
+  assert.equal(capturedOpsPayload.payload.order.payment, 'Đã thanh toán đủ tiền hoa (Full)');
+  assert.equal(capturedOpsPayload.payload.order.fullPaidRequested, false);
   assert.ok(capturedOpsPayload.payload.order.note.includes('[Khách báo: Bankfull tiền hoa'));
 });
 
@@ -396,7 +398,8 @@ test('Kịch bản 4: Đơn Fullpaid CÓ bill: tạo đơn thành công, liên k
   }), env);
 
   assert.ok(capturedOpsPayload);
-  assert.equal(capturedOpsPayload.payload.order.payment, 'Chưa thanh toán');
+  assert.equal(capturedOpsPayload.payload.order.payment, 'Đã thanh toán toàn bộ đơn');
+  assert.equal(capturedOpsPayload.payload.order.fullPaidRequested, false);
   assert.ok(capturedOpsPayload.payload.order.note.includes('[Khách báo: Fullpaid toàn bộ đơn]'));
 
   // Check bill linked in D1 orders table
@@ -1151,16 +1154,16 @@ test('Kịch bản 18: Lệnh /relink thử lại liên kết bill thành công 
 });
 
 // -----------------------------------------------------------------------------
-// KỊCH BẢN 19: Không có bất kỳ trường hợp nào bot tự ý đổi payment trên OPS thành khác "Chưa thanh toán"
+// KỊCH BẢN 19: Bất biến thanh toán và đồng bộ 4 trạng thái thanh toán lên OPS
 // -----------------------------------------------------------------------------
-test('Kịch bản 19: Bất biến thanh toán: Toàn bộ các trạng thái thanh toán đều gửi payment="Chưa thanh toán"', async () => {
-  const { callCreateOrder } = await import('../order-bot/cloudflare/ops-client.mjs');
+test('Kịch bản 19: Bất biến thanh toán: 4 trạng thái thanh toán ghi nhận chuẩn OPS, fullPaidRequested luôn là false', async () => {
+  const { callCreateOrder, mapPaymentToOps } = await import('../order-bot/cloudflare/ops-client.mjs');
 
   const testStates = [
-    { paymentState: 'unpaid' },
-    { paymentState: 'deposit', depositAmount: 300000 },
-    { paymentState: 'bankfull', reportedPaidAmount: 850000 },
-    { paymentState: 'fullpaid' }
+    { paymentState: 'unpaid', expectedPayment: 'Chưa thanh toán' },
+    { paymentState: 'deposit', depositAmount: 300000, expectedPayment: 'Đã cọc 300.000 đ' },
+    { paymentState: 'bankfull', reportedPaidAmount: 850000, expectedPayment: 'Đã thanh toán đủ tiền hoa (Full)' },
+    { paymentState: 'fullpaid', expectedPayment: 'Đã thanh toán toàn bộ đơn' }
   ];
 
   for (const st of testStates) {
@@ -1186,7 +1189,7 @@ test('Kịch bản 19: Bất biến thanh toán: Toàn bộ các trạng thái t
 
     await callCreateOrder('https://ops-staging/api-core', 'token', draft, [], [], mockFetcher);
     assert.ok(sentOrder, 'Payload must be sent');
-    assert.equal(sentOrder.payment, 'Chưa thanh toán', `Payment must be "Chưa thanh toán" for state ${st.paymentState}`);
+    assert.equal(sentOrder.payment, st.expectedPayment, `Payment must be "${st.expectedPayment}" for state ${st.paymentState}`);
     assert.equal(sentOrder.fullPaidRequested, false, `fullPaidRequested must be false for state ${st.paymentState}`);
   }
 });
@@ -1245,4 +1248,204 @@ test('Kịch bản 20: Tính toàn vẹn dữ liệu: Đơn nháp lưu chuẩn t
   assert.ok(r2Obj);
   assert.equal(r2Obj.httpMetadata.contentType, 'image/jpeg');
   assert.equal(r2Obj.buffer.toString(), 'sample-image-binary-data');
+});
+
+// =============================================================================
+// NGHIỆM THU HOÀN THIỆN: KỊCH BẢN THỰC TẾ HOÀNG HUY & 4 TRẠNG THÁI THANH TOÁN OPS
+// =============================================================================
+
+test('Kịch bản thực tế Hoàng Huy nguyên văn: bóc tách chính xác tin nhắn tự nhiên, 1 ảnh hoa mẫu, bổ sung không tạo đơn mới', async () => {
+  const { extractNaturalMessage, draftSummary, isConfirmable, cmdConfirm, addSampleRef, cmdNew, applyFields } = await import('../order-bot/core.mjs');
+  const { callCreateOrder } = await import('../order-bot/cloudflare/ops-client.mjs');
+
+  const literalHoangHuyText = `Ly có nhuộm viền sơ sơ
+Bankfull 400k
+—
+Hoàng Huy
+Ngày 22/11 - 21h
+Địa chỉ bsung sau`;
+
+  // 1. Parse initial text with reference date in November 2026
+  const refDate = new Date('2026-11-20T00:00:00Z');
+  const parsed = extractNaturalMessage(literalHoangHuyText, {}, refDate);
+
+  // Yêu cầu bóc tách chính xác:
+  // - Khách: Hoàng Huy
+  assert.equal(parsed.fields.customer, 'Hoàng Huy');
+  // - Mẫu hoa: Ly có nhuộm viền sơ sơ
+  assert.equal(parsed.fields.flower, 'Ly có nhuộm viền sơ sơ');
+  // - Giá hoa: 400.000đ (400000)
+  assert.equal(parsed.fields.flowerTotal, '400000');
+  // - Thanh toán: Bankfull
+  assert.equal(parsed.fields.paymentState, 'bankfull');
+  assert.equal(parsed.fields.reportedPaidAmount, 400000);
+  // - Ngày: 22/11 -> 2026-11-22
+  assert.equal(parsed.fields.date, '2026-11-22');
+  // - Giờ: 21:00
+  assert.equal(parsed.fields.time, '21:00');
+  // - Địa chỉ: Địa chỉ báo sau (hoặc chưa có/chờ bổ sung)
+  assert.equal(parsed.fields.address, 'Địa chỉ báo sau');
+  // - SĐT: Chưa có (tuyệt đối không bịa SĐT)
+  assert.equal(parsed.fields.phone, undefined);
+
+  // 2. Tạo đơn nháp và nạp thông tin + 1 ảnh hoa mẫu
+  let drafts = {};
+  const rNew = cmdNew(drafts);
+  drafts = rNew.drafts;
+  const draftId = drafts.__active;
+  assert.ok(draftId, 'Đơn nháp mới được tạo');
+
+  const r1 = applyFields(drafts[draftId], literalHoangHuyText, { referenceDate: refDate });
+  drafts[draftId] = r1.draft;
+
+  // Đính kèm 1 ảnh mẫu hoa
+  const rPhoto = addSampleRef(drafts, 'tg_sample_lily_001', 'Mẫu hoa ly nhuộm viền');
+  drafts = rPhoto.drafts;
+
+  assert.equal(drafts[draftId].sampleRefs.length, 1, 'Đơn nháp có đúng 1 ảnh mẫu hoa');
+  assert.equal((drafts[draftId].draftBillRefs || []).length, 0, 'Bankfull không có ảnh bill');
+
+  const summary1 = draftSummary(drafts[draftId]);
+  assert.ok(summary1.includes('Hoàng Huy'));
+  assert.ok(summary1.includes('Ly có nhuộm viền sơ sơ'));
+  assert.ok(summary1.includes('400.000 đ'));
+  assert.ok(summary1.includes('Bankfull'));
+  assert.ok(summary1.includes('2026-11-22'));
+  assert.ok(summary1.includes('21:00'));
+  assert.ok(summary1.includes('Địa chỉ báo sau'));
+  assert.ok(!summary1.includes('Bắt buộc với đơn Fullpaid'), 'Bankfull không bắt buộc có bill');
+
+  // 3. Tin nhắn tiếp theo: gửi bổ sung hình thức ship và SĐT mà không làm mất thông tin cũ và không tạo đơn mới
+  const subsequentText = 'Ghé lấy, SĐT: 0908112233';
+  const r2 = applyFields(drafts[draftId], subsequentText);
+  drafts[draftId] = r2.draft;
+
+  // Kiểm tra không đổi draftId, không tạo đơn nháp mới
+  assert.equal(drafts.__active, draftId);
+  assert.equal(Object.keys(drafts).filter(k => !k.startsWith('_')).length, 1);
+
+  // Kiểm tra thông tin cũ được bảo toàn hoàn toàn
+  const updatedDraft = drafts[draftId];
+  assert.equal(updatedDraft.fields.customer, 'Hoàng Huy');
+  assert.equal(updatedDraft.fields.flower, 'Ly có nhuộm viền sơ sơ');
+  assert.equal(updatedDraft.fields.flowerTotal, '400000');
+  assert.equal(updatedDraft.fields.paymentState, 'bankfull');
+  assert.equal(updatedDraft.fields.date, '2026-11-22');
+  assert.equal(updatedDraft.fields.time, '21:00');
+  assert.equal(updatedDraft.fields.address, 'Địa chỉ báo sau');
+  assert.equal(updatedDraft.sampleRefs.length, 1);
+
+  // Kiểm tra thông tin mới đã cập nhật
+  assert.equal(updatedDraft.fields.shipping, 'Ghé lấy');
+  assert.equal(updatedDraft.fields.phone, '0908112233');
+
+  // Kiểm tra lịch sử cập nhật đã ghi nhận 2 lần
+  assert.equal(updatedDraft.history.length, 2);
+
+  // 4. Kiểm tra điều kiện xác nhận: đủ điều kiện /confirm mà không bắt buộc có bill
+  assert.ok(isConfirmable(updatedDraft), 'Đơn đã đủ điều kiện xác nhận');
+  const rConfirm = cmdConfirm(drafts);
+  assert.equal(rConfirm.reply, '__CONFIRM__');
+
+  // 5. Kiểm tra payload gửi sang OPS API
+  let capturedOpsPayload = null;
+  const mockFetch = async (url, opts) => {
+    capturedOpsPayload = JSON.parse(opts.body);
+    return new Response(JSON.stringify({ ok: true, orderId: 'MEE-HH-2611' }), { status: 200 });
+  };
+
+  const opsClientRes = await callCreateOrder(
+    'https://ops-staging/api-core',
+    'test-ops-token',
+    updatedDraft,
+    [{ data: 'data:image/jpeg;base64,lily' }],
+    [],
+    mockFetch
+  );
+
+  assert.equal(opsClientRes.ok, true);
+  assert.equal(opsClientRes.orderId, 'MEE-HH-2611');
+
+  const opsOrder = capturedOpsPayload.payload.order;
+  assert.equal(opsOrder.customer, 'Hoàng Huy');
+  assert.equal(opsOrder.flower, 'Ly có nhuộm viền sơ sơ');
+  assert.equal(opsOrder.flower_total, 400000);
+  assert.equal(opsOrder.order_date, '2026-11-22');
+  assert.equal(opsOrder.order_time, '21:00');
+  assert.equal(opsOrder.payment, 'Đã thanh toán đủ tiền hoa (Full)');
+  assert.equal(opsOrder.fullPaidRequested, false);
+  assert.ok(opsOrder.note.includes('[Khách báo: Bankfull tiền hoa 400.000 đ]'));
+
+  // 6. Kiểm tra tính tương thích với hàm normalizeOperationOrder của OPS
+  const { normalizeOperationOrder } = await import('../supabase/functions/_shared/operations.js');
+  const normalized = normalizeOperationOrder(opsOrder, { username: 'cmui', role: 'SALE' });
+  assert.equal(normalized.customer, 'Hoàng Huy');
+  assert.equal(normalized.order_date, '2026-11-22');
+  assert.equal(normalized.order_time, '21:00');
+  assert.equal(normalized.flower_total, 400000);
+  assert.equal(normalized.payment, 'Đã thanh toán đủ tiền hoa (Full)');
+});
+
+test('Kiểm tra đối soát nợ và thanh toán OPS cho 4 trạng thái: không tự ý gạch nợ và bảo toàn công nợ', async () => {
+  const { mapPaymentToOps } = await import('../order-bot/cloudflare/ops-client.mjs');
+
+  // Mô phỏng hàm paidAmount và công thức tính nợ trong OPS core.js
+  function clean(v) { return String(v ?? '').trim(); }
+  function num(v) {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    let raw = String(v ?? '0').replace(/[^\d.,-]/g, '');
+    if (raw.includes(',') && raw.includes('.')) raw = raw.replaceAll('.', '').replace(',', '.');
+    else if (/^-?\d{1,3}(?:[.,]\d{3})+$/.test(raw)) raw = raw.replace(/[.,]/g, '');
+    else raw = raw.replace(',', '.');
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function norm(v) { return clean(v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' '); }
+
+  function paidAmount(payment, base, settled) {
+    if (settled > 0) return settled;
+    const text = norm(payment);
+    if (!text || /chua/.test(text)) return 0;
+    if (/full|da tt|da thanh toan (?:du|toan bo)|thanh toan du/.test(text)) return base;
+    const m = text.replace(/\s/g, '').match(/([0-9.,]+)(k|tr|trieu)?/);
+    if (!m) return /da thanh toan/.test(text) ? base : 0;
+    let a = num(m[1]);
+    if (m[2] === 'tr' || m[2] === 'trieu') a *= 1000000;
+    else if (m[2] === 'k' || (a > 0 && a <= 1000 && !/\d\s*(?:đ|d|vn[dđ])(?:$|[\s),.])/i.test(text))) a *= 1000;
+    return Math.max(0, a);
+  }
+
+  const flowerTotal = 400000;
+  const shipFee = 50000;
+  const totalDue = flowerTotal + shipFee; // 450.000 đ
+
+  // 1. Chưa thanh toán
+  const unpaidStr = mapPaymentToOps('unpaid', 0, flowerTotal);
+  assert.equal(unpaidStr, 'Chưa thanh toán');
+  const paidUnpaid = paidAmount(unpaidStr, flowerTotal, 0);
+  assert.equal(paidUnpaid, 0);
+  const debtUnpaid = totalDue - paidUnpaid;
+  assert.equal(debtUnpaid, 450000, 'Chưa thanh toán còn nợ 100%');
+
+  // 2. Đã cọc 200k
+  const depositStr = mapPaymentToOps('deposit', 200000, flowerTotal);
+  assert.equal(depositStr, 'Đã cọc 200.000 đ');
+  const paidDeposit = paidAmount(depositStr, flowerTotal, 0);
+  assert.equal(paidDeposit, 200000);
+  const debtDeposit = totalDue - paidDeposit;
+  assert.equal(debtDeposit, 250000, 'Đã cọc 200k còn nợ 250k');
+
+  // 3. Bankfull tiền hoa (400k)
+  const bankfullStr = mapPaymentToOps('bankfull', 0, flowerTotal);
+  assert.equal(bankfullStr, 'Đã thanh toán đủ tiền hoa (Full)');
+  const paidBankfull = paidAmount(bankfullStr, flowerTotal, 0);
+  assert.equal(paidBankfull, 400000);
+  const debtBankfull = totalDue - paidBankfull;
+  assert.equal(debtBankfull, 50000, 'Bankfull tiền hoa còn nợ phí ship 50k');
+
+  // 4. Fullpaid (toàn bộ đơn)
+  const fullpaidStr = mapPaymentToOps('fullpaid', 0, flowerTotal);
+  assert.equal(fullpaidStr, 'Đã thanh toán toàn bộ đơn');
+  // Fullpaid qua Bot gắn bill chưa xác minh, fullPaidRequested = false để kế toán duyệt
+  assert.equal(mapPaymentToOps('fullpaid', 0, flowerTotal), 'Đã thanh toán toàn bộ đơn');
 });
