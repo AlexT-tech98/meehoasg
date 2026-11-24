@@ -1,25 +1,20 @@
 /* MEEHOA v3.6.5 — canonical shell, order runtime and global layout contracts. */
 
-/* ===== Desktop: compact permanent left rail ===== */
+/* ===== Desktop: permanent left rail (normalized 232px) ===== */
 @media (min-width: 901px){
   .sidebar{
-    transform:none!important;visibility:visible!important;pointer-events:auto!important;
-    left:0!important;top:0!important;bottom:0!important;width:164px!important;height:100dvh!important;
-    padding:14px 10px!important;border-right:1px solid rgba(72,92,82,.08)!important;
-    background:linear-gradient(180deg,#fffdf9 0%,#fff7f2 46%,#eff9f4 100%)!important;
-    box-shadow:10px 0 30px rgba(45,68,57,.045)!important;overflow:hidden!important
+    transform:none;visibility:visible;pointer-events:auto;
+    left:0;top:0;bottom:0;width:232px;height:100dvh;
+    padding:24px 16px;overflow:hidden
   }
-  .main{margin-left:164px!important;width:calc(100% - 164px)!important;max-width:calc(100% - 164px)!important}
+  .main{margin-left:232px;width:calc(100% - 232px);max-width:calc(100% - 232px)}
   .mee-menu-btn,.mee-menu-backdrop{display:none!important}
-  .sidebar .brand{padding:4px 6px 14px!important;gap:8px!important}
-  .sidebar .mee-brand-wordmark{width:104px!important}
-  .sidebar .nav{gap:5px!important;padding-right:1px!important}
-  .sidebar .nav button{min-height:43px!important;padding:9px 10px!important;border-radius:13px!important;font-size:12px!important;line-height:1.2!important;white-space:normal!important}
-  .sidebar .nav button.active{border-left:0!important;box-shadow:inset 0 0 0 1px rgba(42,111,88,.07)!important}
-  .sidebar .side-user{padding-top:10px!important}.sidebar .side-user-card{gap:7px!important}
-  .sidebar .user-info b{font-size:11.5px!important}.sidebar .user-info span,.sidebar .user-info .sub{font-size:9.5px!important}
-  .topbar{padding-left:20px!important;padding-right:20px!important}
-  .content{max-width:1680px!important;padding-left:22px!important;padding-right:22px!important}
+  .sidebar .nav{gap:5px;padding-right:1px}
+  .sidebar .nav button{min-height:44px;padding:10px 12px;border-radius:9px;font-size:12.5px;line-height:1.2;white-space:normal}
+  .sidebar .side-user{padding-top:10px}.sidebar .side-user-card{gap:8px}
+  .sidebar .user-info b{font-size:12px}.sidebar .user-info span,.sidebar .user-info .sub{font-size:10px}
+  .topbar{padding-left:20px;padding-right:20px}
+  .content{max-width:1660px;padding-left:22px;padding-right:22px}
 }
 
 /* ===== Session boot splash ===== */
@@ -42,13 +37,8 @@
 @keyframes meeSplashPulse{0%,100%{background:#cbd5e1;transform:scale(.85)}50%{background:#103f82;transform:scale(1.15)}}
 
 /* ===== Order form ===== */
-#orderForm.mee-order-form textarea,#orderForm textarea[data-mee-multiline="1"]{width:100%!important;min-height:74px!important;height:auto!important;resize:vertical!important;overflow-wrap:anywhere!important;white-space:pre-wrap!important}
-#orderForm textarea[name="flower"],#orderForm textarea[name="note"],#orderForm textarea[name="address"]{min-height:92px!important}
-#orderForm textarea[name="cardText"],#orderForm textarea[name="bannerText"],#orderForm textarea[name="charmText"],#orderForm textarea[name="paperText"]{min-height:68px!important}
-
-#orderForm .mee-card-qty-v365 label{margin:0!important;font-size:10px!important}#orderForm .mee-card-qty-v365 .mee-card-price{font-size:11px;color:#8e7658;margin-top:3px}#orderForm .mee-card-qty-v365 input{height:42px!important;text-align:center!important;font-weight:800!important}
-#orderForm .mee-money-v365{font-variant-numeric:tabular-nums!important}
-.mee-delete-order{margin-top:8px!important}.copyable[data-mee-copy-bound365="1"]{cursor:pointer!important;border-radius:8px;padding:4px 6px;margin-left:-6px}.copyable[data-mee-copy-bound365="1"]:hover{background:rgba(21,94,71,.06)}
+#orderForm .mee-money-v365{font-variant-numeric:tabular-nums}
+.copyable[data-mee-copy-bound365="1"]{cursor:pointer;border-radius:8px;padding:4px 6px;margin-left:-6px}.copyable[data-mee-copy-bound365="1"]:hover{background:rgba(16,63,130,.06)}
 
 /* ===== Auth visibility + login ===== */
 .login.hidden{display:none!important}.app.hidden{display:none!important}
@@ -102,56 +92,15 @@ body:has(.login:not(.hidden)){overflow:hidden!important;height:100dvh!important}
  .sales-kpi-grid{grid-template-columns:minmax(0,1fr)}
 }
 
-/* ===== Orders: explicit grid/table presentation, shared order data ===== */
-.mee-orders-v2{display:grid;gap:14px;min-width:0;width:100%}
-.mee-orders-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;min-width:0}
-.mee-orders-heading{min-width:0}
-.mee-orders-heading h2{margin:0 0 3px;font-size:22px;font-weight:740;color:var(--text-primary)}
-.mee-orders-heading .sub{font-size:12px;line-height:1.5}
-.mee-orders-toolbar-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;min-width:0}
-.mee-orders-toolbar-actions>.btn,.mee-orders-pagination>.btn{min-height:44px}
-.mee-orders-view-toggle{display:inline-flex;align-items:stretch;gap:3px;padding:3px;border:1px solid var(--border);border-radius:9px;background:var(--bg-surface)}
-.mee-orders-view-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:78px;min-height:44px;padding:8px 12px;border:0;border-radius:6px;background:transparent;color:var(--text-secondary);font:inherit;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation}
-.mee-orders-view-button[aria-pressed="true"]{background:var(--brand-green);color:#fff}
-.mee-orders-view-button:focus-visible,.mee-orders-card:focus-visible,.mee-orders-table:focus-visible{outline:2px solid #3b82c4;outline-offset:3px}
-.mee-orders-v2 .status-filter-tabs{margin:0;gap:7px}
-.mee-orders-v2 .status-pill{min-height:44px;flex:none}
-/* The old shared stylesheet forces cards visible and tables hidden. Keep this
-   choice scoped to Orders, including narrow screens with a scrollable table. */
-.mee-orders-v2.mee-orders-view-grid .mee-orders-table{display:none!important}
-.mee-orders-v2.mee-orders-view-table .mee-orders-table{display:block!important}
-.mee-orders-v2.mee-orders-view-table .mee-orders-grid{display:none!important}
-.mee-orders-v2.mee-orders-view-grid .mee-orders-grid{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))!important;gap:12px!important;align-items:stretch;min-width:0}
-.mee-orders-v2 .mee-orders-table{width:100%;max-width:100%;min-width:0;overflow-x:auto!important;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
-.mee-orders-table>.sheet-table{width:100%;min-width:1120px}
-.mee-orders-grid .mee-orders-card{display:flex!important;flex-direction:column;box-sizing:border-box;min-width:0;min-height:0!important;height:100%;margin:0!important;padding:14px!important;border-radius:9px!important;background:var(--bg-surface)!important;box-shadow:none!important;overflow-wrap:anywhere}
-.mee-orders-grid .mee-orders-card.row-alert{border-color:#dfbd6d!important}
-.mee-orders-grid .mee-orders-card::before{display:none!important;content:none!important}
-.mee-orders-card .order-card-mobile-top{align-items:flex-start;flex-wrap:wrap;gap:7px}
-.mee-orders-card .order-card-mobile-top>.badge{max-width:100%;white-space:normal;text-align:right}
-.mee-orders-card .order-card-mobile-time{max-width:100%;white-space:normal}
-.mee-orders-card .order-card-mobile-contact{overflow-wrap:anywhere}
-.mee-orders-card .mee-orders-card-footer{display:grid!important;grid-template-columns:minmax(0,1fr);align-items:start!important;gap:6px;margin-top:auto!important}
-.mee-orders-card-footer>div{min-width:0;white-space:normal;overflow-wrap:anywhere}
-.mee-orders-card-footer .debt-breakdown{margin:0;font-size:11px;line-height:1.5;color:var(--text-secondary)}
-.mee-orders-card-footer .orders-ship-note{font-size:11px;color:var(--text-secondary)}
+/* ===== Orders: presentation owned by meehoa-ui-v3.css ===== */
 .mee-orders-empty{grid-column:1/-1;padding:32px 16px;text-align:center;background:var(--bg-surface);border:1px solid var(--border);border-radius:9px}
-.mee-orders-pagination{text-align:center;padding:4px 0}
-@media(max-width:760px){
- .mee-orders-toolbar{align-items:flex-start}
- .mee-orders-toolbar-actions{width:100%;justify-content:flex-start}
- .mee-orders-v2.mee-orders-view-grid .mee-orders-grid{grid-template-columns:minmax(0,1fr)!important}
- .mee-orders-view-button{min-width:84px}
-}
 
 /* ===== Interaction stability + bounded thumbnails ===== */
-#content>*{animation:none!important}.drawer-bg,.modal-bg,.drawer,.modal,.calendar-modal,.calendar-modal *{animation:none!important}.drawer-bg,.modal-bg{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}.drawer,.modal,.calendar-modal{will-change:auto!important}.btn,.status-pill,.date-filter-btn,.calendar-day,.order-card-mobile{transition:background-color .12s ease,border-color .12s ease,box-shadow .12s ease,color .12s ease!important}.order-card-mobile:hover{transform:none!important}.calendar-day{transform:none!important;box-shadow:none!important}
-.order-card-mobile-body{display:grid!important;grid-template-columns:56px minmax(0,1fr)!important;gap:12px!important;align-items:start!important;min-width:0!important}
-.order-card-mobile-thumb,.order-card-mobile-thumb-empty,.order-card-mobile-body>img,.order-card-mobile-body>a>img{display:block!important;box-sizing:border-box!important;width:56px!important;height:56px!important;min-width:56px!important;min-height:56px!important;max-width:56px!important;max-height:56px!important;object-fit:cover!important;object-position:center!important;border-radius:12px!important;overflow:hidden!important;flex:none!important}
-.order-card-mobile-details{min-width:0!important;width:auto!important;overflow:hidden!important}
-.sample-with-thumb{display:grid!important;grid-template-columns:48px minmax(0,1fr)!important;gap:10px!important;align-items:start!important}.sample-with-thumb>img,.table-thumb,.search-item-thumb{display:block!important;width:48px!important;height:48px!important;min-width:48px!important;min-height:48px!important;max-width:48px!important;max-height:48px!important;object-fit:cover!important;border-radius:10px!important}
-.order-preview{display:block!important;width:100%!important;height:112px!important;min-height:112px!important;max-height:112px!important;object-fit:cover!important;object-position:center!important;border-radius:12px!important;overflow:hidden!important}
-.loading,.boot-splash{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}.loading-pill:before,.boot-splash-card .brand-mark{animation:none!important}.skeleton{animation:none!important;background:linear-gradient(110deg,#fff2ee,#f7fbf9)!important}
+#content>*{animation:none}.drawer-bg,.modal-bg,.drawer,.modal,.calendar-modal,.calendar-modal *{animation:none}
+.sample-with-thumb{display:grid;grid-template-columns:48px minmax(0,1fr);gap:10px;align-items:start}
+.sample-with-thumb>img,.table-thumb,.search-item-thumb{display:block;width:48px;height:48px;min-width:48px;min-height:48px;max-width:48px;max-height:48px;object-fit:cover;border-radius:8px}
+.order-preview{display:block;width:100%;height:112px;min-height:112px;max-height:112px;object-fit:cover;object-position:center;border-radius:10px;overflow:hidden}
+.loading,.boot-splash{backdrop-filter:none;-webkit-backdrop-filter:none}
 
 /* ===== One mobile navigation system ===== */
 @media(max-width:900px){
@@ -162,9 +111,7 @@ body:has(.login:not(.hidden)){overflow:hidden!important;height:100dvh!important}
   .main{margin-left:0!important;width:100%!important;max-width:100%!important}.topbar{width:100%!important;max-width:100vw!important;min-width:0!important;min-height:64px!important;height:auto!important;padding-top:8px!important;padding-bottom:8px!important;padding-left:max(10px,env(safe-area-inset-left))!important;padding-right:max(10px,env(safe-area-inset-right))!important;gap:8px!important}.topbar-left{min-width:0!important;flex:1 1 auto!important;max-width:none!important}.topbar-search{min-width:0!important;max-width:100%!important}.topbar-search input{min-width:0!important}.topbar .btn{flex:none!important}
   .content{padding-left:max(12px,env(safe-area-inset-left))!important;padding-right:max(12px,env(safe-area-inset-right))!important}.stat-grid-5{grid-template-columns:repeat(2,minmax(0,1fr))!important}.sales-kpi-grid{grid-template-columns:minmax(0,1fr)}.sales-kpi-card{padding:15px}
   .order-card-mobile-body{grid-template-columns:52px minmax(0,1fr)!important}.order-card-mobile-thumb,.order-card-mobile-thumb-empty,.order-card-mobile-body>img,.order-card-mobile-body>a>img{width:52px!important;height:52px!important;min-width:52px!important;min-height:52px!important;max-width:52px!important;max-height:52px!important}
-  .kanban .order .order-preview,.production-grid .order-preview,.order .order-preview{width:88px!important;height:88px!important;min-width:88px!important;min-height:88px!important;max-width:88px!important;max-height:88px!important;margin:8px 0!important;padding:0!important}
-  .fab{right:max(16px,env(safe-area-inset-right))!important;bottom:max(18px,env(safe-area-inset-bottom))!important;z-index:34!important}
-  
+  .kanban .order .order-preview,.production-grid .order-preview,.order .order-preview{width:88px;height:88px;min-width:88px;min-height:88px;max-width:88px;max-height:88px;margin:8px 0;padding:0}
 }
 
 /* ===== Single vertical scroll owner ===== */
@@ -181,7 +128,7 @@ body.mee-overlay-open-v364,body.mee-menu-open{overflow:hidden!important;overscro
 /* ===== General responsive pass ===== */
 html,body,.app,.main,#content{max-width:100%!important}#content>*{min-width:0!important}img,video,canvas{max-width:100%}.form-grid,.dashboard-grid,.stats,.stat-grid-5,.order-grid,.production-grid,.sales-kpi-grid{min-width:0!important}
 @media(max-width:1200px){.stat-grid-5{grid-template-columns:repeat(3,minmax(0,1fr))!important}.dashboard-grid{grid-template-columns:1fr!important}}
-@media(max-width:620px){.stat-grid-5,.stats{grid-template-columns:1fr!important}.section-head{align-items:flex-start!important;gap:10px!important}.section-head>div{min-width:0!important}.section-head .btn,.section-head .date-filter-btn{max-width:100%!important}#orderForm.mee-order-form{border-radius:20px 20px 0 0!important}#orderForm .mee-form-section{padding:12px!important}#orderForm .mee-card-qty-v365 input{text-align:left!important}#bootSplash .mee-splash-card{width:min(350px,calc(100vw - 32px))!important;padding:27px 22px 25px!important;border-radius:27px!important}#bootSplash .mee-splash-pet{width:96px!important;height:96px!important}#bootSplash .mee-splash-flower{display:none!important}}
+@media(max-width:620px){.stat-grid-5,.stats{grid-template-columns:1fr}.section-head{align-items:flex-start;gap:10px}.section-head>div{min-width:0}.section-head .btn,.section-head .date-filter-btn{max-width:100%}#bootSplash .mee-splash-card{width:min(350px,calc(100vw - 32px));padding:27px 22px 25px;border-radius:16px}}
 @media(max-width:480px){#content>.stats{grid-template-columns:minmax(0,1fr)!important}.kpi-meta{align-items:flex-start;flex-wrap:wrap}.kpi-meta b{width:100%;text-align:left}.topbar{gap:6px!important}.topbar-search input{font-size:13px!important;padding-right:62px!important}}
 @media(max-width:900px){html{scroll-behavior:auto}body:not(.mee-overlay-open-v364):not(.mee-menu-open){touch-action:pan-y pinch-zoom}}
 @media(prefers-reduced-motion:reduce){#bootSplash .mee-splash-progress i{animation:none!important}}
@@ -215,27 +162,17 @@ body .badge.info,body .badge.blue,body .mee-summary-chip{background:#e3f1ff!impo
 
 @media(max-width:620px){body .stat-grid-5{grid-template-columns:repeat(2,minmax(0,1fr))!important}body .stat-grid-5>.stat:first-child{grid-column:span 2}body .content{padding-inline:12px!important}body .sidebar{background:#050b17!important}body .mobile-nav,body .mobile-bottom-nav{background:#050b17!important}}
 
-/* UX corrections: keep refresh accessible, prevent thumbnail overflow and iOS focus zoom */
-#globalSearchInput,.topbar-search input,#orderForm input,#orderForm select,#orderForm textarea,.modal input,.modal select,.modal textarea,.drawer input,.drawer select,select,input[type="text"],input[type="search"],input[type="tel"],input[type="number"],input[type="date"],input[type="time"],textarea{font-size:16px!important}
-.order-card-mobile,.order-card-mobile-body,.order-card-mobile-details,.table-wrap,.sample-with-thumb,.flower-cell{min-width:0!important;max-width:100%!important}
-.order-card-mobile-thumb,.order-card-mobile-thumb-empty,.order-card-mobile-body img,.table-thumb,.sample-with-thumb img,.search-item-thumb{width:56px!important;max-width:56px!important;height:56px!important;max-height:56px!important;min-width:0!important;min-height:0!important;object-fit:cover!important;display:block!important;flex:none!important}
-.sample-with-thumb img,.table-thumb,.search-item-thumb{width:48px!important;max-width:48px!important;height:48px!important;max-height:48px!important}
-.order-card-mobile-body{display:grid!important;grid-template-columns:56px minmax(0,1fr)!important}
-.order-card-mobile-body a{display:block!important;max-width:56px!important;overflow:hidden!important}
-.order-card-mobile-body a img{width:100%!important}
-#meeReloadApp{display:none!important}
+/* UX corrections: keep refresh accessible and prevent iOS focus zoom */
+#globalSearchInput,.topbar-search input,#orderForm input,#orderForm select,#orderForm textarea,.modal input,.modal select,.modal textarea,.drawer input,.drawer select,select,input[type="text"],input[type="search"],input[type="tel"],input[type="number"],input[type="date"],input[type="time"],textarea{font-size:16px}
+.table-wrap,.sample-with-thumb,.flower-cell{min-width:0;max-width:100%}
+#meeReloadApp{display:none}
 
 
-@media(max-width:900px){body .topbar .mee-refresh-action{display:inline-flex!important;align-items:center!important;visibility:visible!important;font-size:12px!important;padding:8px!important;min-width:0!important;white-space:nowrap!important}body .topbar .actions{display:flex!important;gap:5px!important}body .topbar .topbar-user{display:none!important}}
-
-/* Stable dashboard presentation and bounded order image grid */
-body .order-card-mobile .order-card-mobile-thumb,body .order-card-mobile .order-card-mobile-thumb-empty{width:56px!important;height:56px!important;max-width:56px!important;max-height:56px!important;aspect-ratio:1!important}
-body .order-card-mobile .order-card-mobile-body{grid-template-columns:56px minmax(0,1fr)!important;overflow:hidden!important}
-@media(max-width:900px){body #globalSearchInput{font-size:16px!important}body .topbar .mee-refresh-action{display:inline-flex!important}}
+@media(max-width:900px){body .topbar .mee-refresh-action{display:inline-flex;align-items:center;visibility:visible;font-size:12px;padding:8px;min-width:0;white-space:nowrap}body .topbar .actions{display:flex;gap:5px}body .topbar .topbar-user{display:none}}
 
 /* Prevent iOS double-tap zoom on controls while retaining intentional pinch-to-zoom accessibility. */
 @media (hover:none) and (pointer:coarse){button,a,[role="button"],.nav button,.mobile-nav button,.order-card-mobile{touch-action:manipulation}}
-@media(max-width:900px){.topbar .actions .btn.secondary.mee-refresh-action{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-height:36px!important;touch-action:manipulation!important}}
+@media(max-width:900px){.topbar .actions .btn.secondary.mee-refresh-action{display:inline-flex;align-items:center;justify-content:center;min-height:36px;touch-action:manipulation}}
 
 /* Concept 02 brand identity — restore the wordmark and tagline removed by legacy shell. */
 body .sidebar .brand.mee-atelier-brand{display:flex!important;flex-direction:column!important;align-items:flex-start!important;gap:4px!important;padding:5px 10px 30px!important}

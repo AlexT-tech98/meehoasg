@@ -43,7 +43,7 @@ test('a late drawer fetch may refresh its drawer but cannot replace the edit for
   await pending;
   await Promise.resolve();
   assert.equal(calls.length, 1, 'the async response did not redraw over the editor');
-  assert.match(html, /function openOrderForm\(id\)\{if\(id===void 0\)id='';S\.currentDrawer='';/,
+  assert.match(html, /function openOrderForm\(id\)\{\s*if\(id===void 0\)id='';\s*S\.currentDrawer='';/,
     'opening editor cancels any pending drawer ownership');
 });
 

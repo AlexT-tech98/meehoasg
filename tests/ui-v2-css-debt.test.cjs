@@ -4,24 +4,25 @@ const fs=require('node:fs');
 const path=require('node:path');
 
 const root=path.resolve(__dirname,'..');
-const sources=['meehoa-v3.css','meehoa-v34.css','meehoa-v35.css','meehoa-v361.css','meehoa-v362.css','meehoa-v364.css','meehoa-v365.css'];
+const sources=['meehoa-v3.css','meehoa-v34.css','meehoa-v35.css','meehoa-v361.css','meehoa-v362.css','meehoa-v364.css','meehoa-v365.css','meehoa-ui-v3.css'];
 const read=file=>fs.readFileSync(path.join(root,'assets',file),'utf8');
-// Match measured current main baseline: v35=35 and v365=526 (total 1157). This PR adds zero !important declarations.
+// UI V3 lowered total !important from 1,104 down to 504 (target <= 854, >= 250 reduction) with 0 in meehoa-ui-v3.css.
 const limits={
-  'meehoa-v3.css':285,'meehoa-v34.css':169,'meehoa-v35.css':35,
-  'meehoa-v361.css':0,'meehoa-v362.css':3,'meehoa-v364.css':139,'meehoa-v365.css':526
+  'meehoa-v3.css':160,'meehoa-v34.css':10,'meehoa-v35.css':35,
+  'meehoa-v361.css':0,'meehoa-v362.css':3,'meehoa-v364.css':55,'meehoa-v365.css':280,'meehoa-ui-v3.css':0
 };
 
-test('UI V2 override debt must only decrease, never grow',()=>{
+test('UI V3 override debt must stay strictly below lowered ceilings and zero in new CSS',()=>{
   const actual={};
   for(const file of sources){
     const contents=read(file);
     const count=(contents.match(/!important\b/g)||[]).length;
     actual[file]=count;
-    assert.ok(count<=limits[file],file+': '+count+' overrides; previous ceiling '+limits[file]);
+    assert.ok(count<=limits[file],file+': '+count+' overrides; ceiling '+limits[file]);
   }
-  assert.ok(Object.values(actual).reduce((sum,count)=>sum+count,0)<=1157,'total override debt must not grow during owner migration');
-  assert.equal(actual['meehoa-v361.css'],0,'new Dashboard V2 stylesheet must be free of !important');
+  assert.ok(Object.values(actual).reduce((sum,count)=>sum+count,0)<=600,'total override debt must stay <= 600 (down from 1,104 baseline)');
+  assert.equal(actual['meehoa-v361.css'],0,'Dashboard V2 stylesheet must be free of !important');
+  assert.equal(actual['meehoa-ui-v3.css'],0,'UI V3 stylesheet must be free of !important');
 });
 test('production CSS bundle is deterministic and does not load retired Dashboard components',()=>{
  const compiled=read('meehoa-core.css');

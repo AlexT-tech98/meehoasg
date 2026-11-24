@@ -65,7 +65,7 @@
       </div>
       <div class="actions">
         <button class="btn secondary mee-refresh-action" onclick="MEEOPS7.refreshPage()" title="Làm mới dữ liệu">↻ Làm mới</button>
-        <button class="btn primary" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button>
+        <button class="btn primary mee3-topbar-create" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button>
         <div class="topbar-user" id="topbarUser" style="display:flex;align-items:center;gap:8px;padding-left:8px;border-left:1px solid var(--border)">
           <div class="user-avatar" id="topbarUserAvatar" style="width:28px;height:28px;font-size:12px">M</div>
           <span id="topbarUserName" style="font-weight:700;font-size:13px;color:var(--text-primary)"></span>
@@ -75,7 +75,6 @@
     <div id="content" class="content"></div>
   </main>
   <nav id="mobileNav" class="mobile-nav"></nav>
-  <button class="fab" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button>
 </div>
 <div id="overlay"></div>
 <script>window.__MEE_BOOT_STAGE__='before-main';</script>
@@ -328,7 +327,18 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function orderMutationDirty() { markDirty(['getDashboardSummary','getProductionOrders','getOrders','getDebtReview','getSettlementQueue','getKpi','getFlowerInventory']); }
     function hasRequestData(name) { if (name === 'getDashboardSummary') return !!S.data.dashboard; if (name === 'getProductionOrders') return !!S.data.production; if (name === 'getOrders') return !!S.data.orders; if (name === 'getDebtReview') return !!S.data.debt; if (name === 'getSettlementQueue') return !!S.data.payment; return false; }
     function rememberOrders(items) { (items || []).forEach(function (o) { if (o && o.id) { var prev = S.orders.get(o.id) || {}; S.orders.set(o.id, Object.assign({}, prev, normalizeOrderStatus(o))); } }); }
-    function orderById(id) { return S.orders.get(id) || null; }
+    function orderById(id) {
+        if (!id) return null;
+        var hit = S.orders.get(id);
+        if (hit) return hit;
+        if (window.MEE_UI_V3 && window.MEE_UI_V3.trashState && window.MEE_UI_V3.trashState.data) {
+            var trashItems = window.MEE_UI_V3.trashState.data.items || [];
+            for (var i = 0; i < trashItems.length; i++) {
+                if (trashItems[i] && trashItems[i].id === id) return trashItems[i];
+            }
+        }
+        return (window.MEE_FIND_ORDER && window.MEE_FIND_ORDER(id)) || null;
+    }
     function isoInRange(v, start, end) { var x = String(v || ''); return !!x && (!start || x >= start) && (!end || x <= end); }
     function clientOrderSort(a,b) { var ak = String(a.date || '') + ' ' + String(a.time || ''), bk = String(b.date || '') + ' ' + String(b.time || ''); return ak < bk ? -1 : ak > bk ? 1 : 0; }
     function matchesSearch(o,q) { q = norm(q || ''); if (!q) return true; return norm([o.customer,o.phone,o.id,o.flower,o.sale].join(' ')).indexOf(q) >= 0; }
@@ -475,7 +485,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     }
         function loadOrdersPage() {
         return __awaiter(this, arguments, void 0, function (force, append) {
-            var f, args, r, e_3;
+            var f, tab, apiStatus, debtOnly, args, r, e_3;
             if (force === void 0) { force = false; }
             if (append === void 0) { append = false; }
             return __generator(this, function (_a) {
@@ -484,7 +494,10 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                         f = S.filters.orders;
                         if (!append)
                             f.page = 1;
-                        args = { start: f.start, end: f.end, q: f.q, globalSearch: Boolean(String(f.q||'').trim()) && !f.searchWithinRange, page: f.page, pageSize: f.pageSize };
+                        tab = f.statusTab || 'Tất cả';
+                        apiStatus = tab === 'Tất cả' ? 'ALL' : (tab === 'Còn nợ' ? 'DEBT' : tab);
+                        debtOnly = tab === 'Còn nợ';
+                        args = { start: f.start, end: f.end, q: f.q, globalSearch: Boolean(String(f.q||'').trim()) && !f.searchWithinRange, statusTab: apiStatus, debtOnly: debtOnly, page: f.page, pageSize: f.pageSize };
                         _a.label = 1;
                     case 1:
                         _a.trys.push([1, 3, , 4]);
@@ -498,6 +511,8 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                             S.data.orders.page = r.page;
                             S.data.orders.hasMore = r.hasMore;
                             S.data.orders.total = r.total;
+                            if (r.counts) S.data.orders.counts = r.counts;
+                            if (r.scopeTotal !== undefined) S.data.orders.scopeTotal = r.scopeTotal;
                         }
                         else
                             S.data.orders = r;
@@ -917,22 +932,137 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         if(shipping&&!shipping.dataset.meeAccessoryShip){shipping.dataset.meeAccessoryShip='1';shipping.addEventListener('change',syncShipAccessory);}
         syncAccessorySummary();
     }
-    function renderOrderForm(o, id, detailReady) { window._editingOrderId=id||''; var sales = S.options.sales || [], ov = document.getElementById('overlay'); if (!ov)
-        return; var currentSale = o.sale || ((!id && S.user.role === 'THO_OPS') ? S.user.name : ''), saleOptions = currentSale && !sales.some(function (x) { return norm(x) === norm(currentSale); }) ? __spreadArray([currentSale], __read(sales), false) : sales; var saleField = S.user.role !== 'SALE' ? "<div><label>SALE PH\u1ee4 TR\u00c1CH</label><select name=\"sale\" id=\"orderSale\" ".concat((sales.length || (S.user.role === 'THO_OPS' && currentSale)) ? '' : 'disabled', " required>").concat(saleOptions.length ? saleOptions.map(function (x) { return "<option value=\"".concat(attr(x), "\" ").concat(norm(x) === norm(currentSale) ? 'selected' : '', ">").concat(esc(x), "</option>"); }).join('') : '<option value="">Đang tải danh sách Sale…</option>', "</select></div>") : '';
-        ov.innerHTML = "<div class=\"modal-bg\"><form action=\"javascript:void(0)\" class=\"modal\" id=\"orderForm\" novalidate data-detail-ready=\"".concat(detailReady ? '1' : '0', "\" onsubmit=\"MEEOPS7.saveOrder(event,'").concat(id, "')\"><div class=\"modal-head\"><div><h3 style=\"margin:0\">").concat(id ? 'Sửa đơn' : 'Tạo đơn hàng mới', "</h3>").concat(id && !detailReady ? '<div class="page-status"><span class="mini-spinner"></span>Đang đồng bộ ảnh hiện có…</div>' : '', "</div><button type=\"button\" class=\"close\" onclick=\"MEEOPS7.closeOverlay()\">\u00D7</button></div><div class=\"form-grid\">").concat(field('TÊN KHÁCH HÀNG', 'customer', o.customer, true)).concat(field('SỐ ĐIỆN THOẠI', 'phone', o.phone)).concat(field('NGÀY NHẬN', 'date', o.date || '', true, 'date')).concat(field('GIỜ NHẬN', 'time', o.time, true, 'time')).concat('<div class="span2"><label>MẪU HOA ĐẶT</label><textarea name="flower" required>'+esc(o.flower||'')+'</textarea></div>').concat(area('NOTE', 'note', o.note)).concat(selectField('VẬN CHUYỂN', 'shipping', S.options.shipping || SHIPPING_DEFAULT, o.shipping)).concat(field('ĐỊA CHỈ GIAO HÀNG', 'address', o.address), "<div class=\"span2\"><label>TI\u1ec0N HOA (VN\u0110)</label><input name=\"flowerTotal\" inputmode=\"numeric\" value=\"").concat(attr(o.flowerTotal ? new Intl.NumberFormat('vi-VN').format(o.flowerTotal) : ''), "\" oninput=\"MEEOPS7.formatMoneyInput(this)\" required></div>").concat(paymentFields(o.payment,o.fullPaid,o.fullPaidBillUrls)).concat(saleField, "<div class=\"span2\"><label>\u1ea2NH M\u1eaaU HOA</label><input id=\"imageFiles\" type=\"file\" accept=\"image/*\" multiple><div class=\"sub\">Ch\u1ecdn file/camera ho\u1eb7c paste Ctrl/Cmd + V.</div></div></div>").concat(accessoryEditor(o),"<button type=\"submit\" form=\"orderForm\" id=\"orderSubmit\" class=\"btn primary full\" style=\"margin-top:18px\" ").concat((S.user.role === 'ADMIN' && !sales.length) ? 'disabled' : '', ">").concat(id ? 'Lưu thay đổi' : '＋ Tạo đơn ngay', "</button></form></div>");if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
-        var versionForm=document.getElementById('orderForm');if(versionForm){watchOrderSubmit(versionForm,id);versionForm.dataset.orderVersion=o.updatedAt||'';if(id&&!detailReady)Array.from(versionForm.querySelectorAll('input,select,textarea')).forEach(function(el){el.disabled=true;});}
+    function syncEditImageMaps(o){
+        var existing = (Array.isArray(o && o.driveUrls) && o.driveUrls.length ? o.driveUrls : (o && o.imageUrls) || []).slice();
+        var previews = (Array.isArray(o && o.previewUrls) && o.previewUrls.length ? o.previewUrls : (o && o.imageUrls) || []).slice();
+        var fulls = (Array.isArray(o && o.imageUrls) && o.imageUrls.length ? o.imageUrls : previews).slice();
+        var previewMap = {}, fullMap = {};
+        existing.forEach(function(ref, idx){
+            if(previews[idx]) previewMap[ref] = previews[idx];
+            if(fulls[idx]) fullMap[ref] = fulls[idx];
+        });
+        window._editExistingUrls = existing;
+        window._editPreviewUrls = previews;
+        window._editFullUrls = fulls;
+        window._editPreviewMap = previewMap;
+        window._editFullMap = fullMap;
+    }
+    function renderOrderForm(o, id, detailReady) {
+        window._editingOrderId = id || '';
+        var sales = S.options.sales || [], ov = document.getElementById('overlay');
+        if (!ov) return;
+        var currentSale = o.sale || ((!id && S.user.role === 'THO_OPS') ? S.user.name : '');
+        var saleOptions = currentSale && !sales.some(function (x) { return norm(x) === norm(currentSale); }) ? __spreadArray([currentSale], __read(sales), false) : sales;
+        var saleField = S.user.role !== 'SALE' ? "<div class=\"span2\"><label>SALE PHỤ TRÁCH</label><select name=\"sale\" id=\"orderSale\" ".concat((sales.length || (S.user.role === 'THO_OPS' && currentSale)) ? '' : 'disabled', " required>").concat(saleOptions.length ? saleOptions.map(function (x) { return "<option value=\"".concat(attr(x), "\" ").concat(norm(x) === norm(currentSale) ? 'selected' : '', ">").concat(esc(x), "</option>"); }).join('') : '<option value="">Đang tải danh sách Sale…</option>', "</select></div>") : '';
+
+        ov.innerHTML =
+          '<div class="drawer-bg mee3-drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()">' +
+            '<form action="javascript:void(0)" class="mee3-order-drawer-form" id="orderForm" novalidate data-mee-v3-layout="1" data-detail-ready="' + (detailReady ? '1' : '0') + '" onsubmit="MEEOPS7.saveOrder(event,\'' + id + '\')">' +
+              '<header class="mee3-drawer-head">' +
+                '<div>' +
+                  '<h3 class="mee3-drawer-title">' + (id ? 'Chỉnh sửa đơn hàng' : 'Tạo đơn hàng mới') + '</h3>' +
+                  '<div class="mee3-drawer-sub">' + (id ? esc(id) + (o.customer ? ' · ' + esc(o.customer) : '') : 'Nhập đầy đủ thông tin đơn hoa và thanh toán') + '</div>' +
+                  (id && !detailReady ? '<div class="page-status" style="margin-top:4px"><span class="mini-spinner"></span>Đang đồng bộ ảnh hiện có…</div>' : '') +
+                '</div>' +
+                '<button type="button" class="close" aria-label="Đóng" onclick="MEEOPS7.closeOverlay()">×</button>' +
+              '</header>' +
+              '<div class="mee3-drawer-body">' +
+                '<section class="mee3-form-section" data-section="01">' +
+                  '<div class="mee3-form-section-title"><span class="mee3-form-section-num">01</span><span>Khách hàng</span></div>' +
+                  '<div class="mee3-form-grid">' +
+                    field('TÊN KHÁCH HÀNG', 'customer', o.customer, true) +
+                    field('SỐ ĐIỆN THOẠI', 'phone', o.phone) +
+                  '</div>' +
+                '</section>' +
+                '<section class="mee3-form-section" data-section="02">' +
+                  '<div class="mee3-form-section-title"><span class="mee3-form-section-num">02</span><span>Đơn hoa & Ảnh mẫu</span></div>' +
+                  '<div class="mee3-form-grid">' +
+                    '<div class="span2"><label>MẪU HOA ĐẶT</label><textarea name="flower" rows="1" required placeholder="Mô tả chi tiết mẫu hoa, tone màu, kích thước…">' + esc(o.flower || '') + '</textarea></div>' +
+                    '<div class="span2"><label>NOTE</label><textarea name="note" rows="1" placeholder="Ghi chú từ khách hàng hoặc lưu ý bó hoa…">' + esc(o.note || '') + '</textarea></div>' +
+                    '<div class="span2"><label>Tag note free</label><textarea name="tagNoteFree" rows="1" placeholder="Nội dung ghi tag miễn phí (không tính phụ kiện)…">' + esc(o.tagNoteFree || '') + '</textarea><div class="mee3-field-hint">Tùy chọn, miễn phí — hiển thị trong chi tiết đơn, sản xuất và nội dung copy.</div></div>' +
+                    '<div class="span2"><label>ẢNH MẪU HOA</label><input id="imageFiles" type="file" accept="image/*" multiple><div class="sub">Chọn file/camera hoặc paste Ctrl/Cmd + V.</div></div>' +
+                  '</div>' +
+                '</section>' +
+                '<section class="mee3-form-section" data-section="03">' +
+                  '<div class="mee3-form-section-title"><span class="mee3-form-section-num">03</span><span>Giao nhận</span></div>' +
+                  '<div class="mee3-form-grid">' +
+                    field('NGÀY NHẬN', 'date', o.date || '', true, 'date') +
+                    field('GIỜ NHẬN', 'time', o.time, true, 'time') +
+                    selectField('VẬN CHUYỂN', 'shipping', S.options.shipping || SHIPPING_DEFAULT, o.shipping) +
+                    '<div class="span2"><label>ĐỊA CHỈ GIAO HÀNG</label><textarea name="address" rows="1" placeholder="Số nhà, đường, quận/huyện…">' + esc(o.address || '') + '</textarea></div>' +
+                  '</div>' +
+                '</section>' +
+                '<section class="mee3-form-section" data-section="04">' +
+                  '<div class="mee3-form-section-title"><span class="mee3-form-section-num">04</span><span>Thanh toán & phụ trách</span></div>' +
+                  '<div class="mee3-form-grid">' +
+                    '<div class="span2"><label>TIỀN HOA (VNĐ)</label><input name="flowerTotal" inputmode="numeric" value="' + attr(o.flowerTotal ? new Intl.NumberFormat('vi-VN').format(o.flowerTotal) : '') + '" oninput="MEEOPS7.formatMoneyInput(this)" required></div>' +
+                    paymentFields(o.payment, o.fullPaid, o.fullPaidBillUrls) +
+                    saleField +
+                  '</div>' +
+                '</section>' +
+                '<section class="mee3-form-section" data-section="05">' +
+                  '<div class="mee3-form-section-title"><span class="mee3-form-section-num">05</span><span>Phụ kiện</span></div>' +
+                  accessoryEditor(o) +
+                '</section>' +
+              '</div>' +
+              '<footer class="mee3-form-footer">' +
+                '<div class="mee3-form-footer-actions">' +
+                  '<button type="button" class="btn secondary" onclick="MEEOPS7.closeOverlay()">Hủy</button>' +
+                  '<button type="submit" form="orderForm" id="orderSubmit" class="btn primary" ' + ((S.user.role === 'ADMIN' && !sales.length) ? 'disabled' : '') + '>' + (id ? 'Lưu thay đổi' : '＋ Tạo đơn ngay') + '</button>' +
+                '</div>' +
+              '</footer>' +
+            '</form>' +
+          '</div>';
+
+        var versionForm = document.getElementById('orderForm');
+        if (versionForm) {
+            watchOrderSubmit(versionForm, id);
+            versionForm.dataset.orderVersion = o.updatedAt || '';
+            if (id && !detailReady) Array.from(versionForm.querySelectorAll('input,select,textarea')).forEach(function(el){ el.disabled = true; });
+        }
         bindAccessoryForm();
-        if(window.MEE_ORDER_FORM_LAYOUT)window.MEE_ORDER_FORM_LAYOUT();
-        if(window.MEE_ORDER_FORM_ENHANCE)window.MEE_ORDER_FORM_ENHANCE();
-        window._pasted = []; window._editExistingUrls = o.driveUrls || o.imageUrls || []; window._orderRequestId = id ? '' : (window._orderRequestId || safeUuid()); ov.onpaste = function (e) { var _a; var items = __spreadArray([], __read((((_a = e.clipboardData) === null || _a === void 0 ? void 0 : _a.items) || [])), false).filter(function (x) { return x.type.startsWith('image/'); }); if (items.length) {
-        items.forEach(function (x) { return window._pasted.push(x.getAsFile()); });
-        toast('Đã nhận ảnh từ clipboard.');
-    } }; if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC(); }
+        if (window.MEE_ORDER_FORM_LAYOUT) window.MEE_ORDER_FORM_LAYOUT();
+        if (window.MEE_ORDER_FORM_ENHANCE) window.MEE_ORDER_FORM_ENHANCE();
+        if (window.MEE_AUTOGROW && versionForm) window.MEE_AUTOGROW.bind(versionForm);
+        window._pasted = [];
+        syncEditImageMaps(o);
+        window._orderRequestId = id ? '' : (window._orderRequestId || safeUuid());
+        ov.onpaste = function (e) {
+            var _a;
+            var items = __spreadArray([], __read((((_a = e.clipboardData) === null || _a === void 0 ? void 0 : _a.items) || [])), false).filter(function (x) { return x.type.startsWith('image/'); });
+            if (items.length) {
+                items.forEach(function (x) { return window._pasted.push(x.getAsFile()); });
+                toast('Đã nhận ảnh từ clipboard.');
+            }
+        };
+        if (window.MEE_V364_OVERLAY_SYNC) window.MEE_V364_OVERLAY_SYNC();
+    }
     function orderFormFeedback(form,message,error,field){
         var box=form.querySelector('[data-order-feedback]');
-        if(!box){box=document.createElement('div');box.setAttribute('data-order-feedback','');box.setAttribute('role','status');box.setAttribute('aria-live','polite');var submit=form.querySelector('#orderSubmit');form.insertBefore(box,submit);}
-        box.textContent=message;box.className=error?'notice red':'notice';if(error&&/người khác cập nhật|Tải lại chi tiết/.test(message)){var compare=document.createElement('button');compare.type='button';compare.className='btn';compare.textContent='Xem bản đơn mới (giữ form)';compare.onclick=function(){var id=window._editingOrderId;if(!id)return;gas('getOrder',{orderId:id}).then(function(r){if(!r.ok)throw new Error(r.message);window.alert('Đơn hiện tại\nMẫu: '+r.order.flower+'\nGiờ: '+r.order.date+' '+r.order.time+'\nĐịa chỉ: '+r.order.address+'\nGhi chú: '+r.order.note+'\n\nĐóng form rồi mở lại để lưu trên bản mới.');}).catch(function(e){toast(e.message,1);});};box.appendChild(compare);}
-        if(error){box.scrollIntoView({block:'center'});if(field&&field.focus)field.focus();}
+        if(!box){
+            box=document.createElement('div');
+            box.setAttribute('data-order-feedback','');
+            box.setAttribute('role','status');
+            box.setAttribute('aria-live','polite');
+            var foot=form.querySelector('.mee3-form-footer');
+            if(foot)foot.insertBefore(box,foot.firstChild);
+            else { var submit=form.querySelector('#orderSubmit'); form.insertBefore(box,submit); }
+        }
+        box.textContent=message;box.className=error?'notice red':'notice';
+        if(error&&/người khác cập nhật|Tải lại chi tiết/.test(message)){
+            var compare=document.createElement('button');
+            compare.type='button';compare.className='btn secondary';compare.style.marginLeft='8px';compare.textContent='Xem bản đơn mới (giữ form)';
+            compare.onclick=function(){
+                var id=window._editingOrderId;if(!id)return;
+                gas('getOrder',{orderId:id}).then(function(r){
+                    if(!r.ok)throw new Error(r.message);
+                    if(window.MEE_UI_V3&&window.MEE_UI_V3.openCompareDialog)window.MEE_UI_V3.openCompareDialog(r.order);
+                    else toast('Bản mới: '+r.order.flower+' ('+r.order.date+' '+r.order.time+')');
+                }).catch(function(e){toast(e.message,1);});
+            };
+            box.appendChild(compare);
+        }
+        if(error&&field&&field.focus){field.scrollIntoView({block:'center'});field.focus();}
         return false;
     }
     function watchOrderSubmit(form,id){
@@ -1102,7 +1232,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
             }
         }); });
     }
-    function buildOrderCopyText(o, id) { var accessory = [o.card ? 'Thiệp: ' + (o.cardText || '') + ' (10.000đ)' : '', o.banner ? 'Banner ×' + Math.max(1,Number(o.bannerQty||1)) + ': ' + (o.bannerText || '') + ' (' + vnd(Math.max(1,Number(o.bannerQty||1))*35000) + ')' : '', Number(o.charmFee) ? 'Charm: ' + (o.charmText || '') + ' (' + vnd(o.charmFee) + ')' : '', Number(o.paperFee) ? 'Thay giấy: ' + (o.paperText || '') + ' (' + vnd(o.paperFee) + ')' : ''].filter(Boolean); return __spreadArray(__spreadArray(['THÔNG TIN ĐƠN HÀNG', 'Mã đơn: ' + (id || o.id || ''), 'Khách hàng: ' + (o.customer || ''), 'SĐT: ' + (o.phone || ''), 'Ngày nhận: ' + dateVN(o.date) + (o.time ? ' · ' + o.time : ''), 'Mẫu hoa: ' + (o.flower || ''), 'Note: ' + (o.note || '')], __read(accessory), false), ['Vận chuyển: ' + (o.shipping || ''), 'Địa chỉ: ' + (o.address || ''), 'Tiền hoa: ' + vnd(o.flowerTotal !== undefined ? o.flowerTotal : o.total), 'Thanh toán: ' + (o.payment || '')], false).filter(function (x) { return !/: $/.test(x); }).join('\n'); }
+    function buildOrderCopyText(o, id) { var accessory = [o.card ? 'Thiệp: ' + (o.cardText || '') + ' (' + vnd(Math.max(1,Number(o.cardQty||1))*10000) + ')' : '', o.banner ? 'Banner ×' + Math.max(1,Number(o.bannerQty||1)) + ': ' + (o.bannerText || '') + ' (' + vnd(Math.max(1,Number(o.bannerQty||1))*35000) + ')' : '', Number(o.charmFee) ? 'Charm: ' + (o.charmText || '') + ' (' + vnd(o.charmFee) + ')' : '', Number(o.paperFee) ? 'Thay giấy: ' + (o.paperText || '') + ' (' + vnd(o.paperFee) + ')' : ''].filter(Boolean); return __spreadArray(__spreadArray(['THÔNG TIN ĐƠN HÀNG', 'Khách hàng: ' + (o.customer || ''), 'SĐT: ' + (o.phone || ''), 'Ngày nhận: ' + dateVN(o.date) + (o.time ? ' · ' + o.time : ''), 'Mẫu hoa: ' + (o.flower || ''), 'Note: ' + (o.note || ''), String(o.tagNoteFree || '').trim() ? 'Tag note free: ' + o.tagNoteFree : ''], __read(accessory), false), ['Vận chuyển: ' + (o.shipping || ''), 'Địa chỉ: ' + (o.address || ''), 'Tiền hoa: ' + vnd(o.flowerTotal !== undefined ? o.flowerTotal : o.total), 'Thanh toán: ' + (o.payment || '')], false).filter(function (x) { return x && !/: $/.test(x); }).join('\n'); }
     function copyOrderById(id) { var o = orderById(id); if (o)
         copyText(buildOrderCopyText(o, id), 'thông tin đơn hàng'); }
     function copyOrderField(id, field, label) { var o = orderById(id); if (o)
@@ -1425,6 +1555,8 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     function ordersDebtNotes(o){var x=[];if(o.card){var q=Math.max(1,Number(o.cardQty||1)),fee=Number(o.cardFee)||q*10000;x.push('+'+vnd(fee)+' thiệp'+(q>1?' (×'+q+')':''));}if(o.banner){var bq=Math.max(1,Number(o.bannerQty||1));x.push('+'+vnd(bq*35000)+' banner'+(bq>1?' (×'+bq+')':''));}if(Number(o.charmFee))x.push('+'+vnd(o.charmFee)+' charm');if(Number(o.paperFee))x.push('+'+vnd(o.paperFee)+' thay giấy');if(Number(o.vat))x.push('+'+vnd(o.vat)+' VAT');var html=x.length?'<div class="debt-breakdown">'+x.map(esc).join('<br>')+'</div>':'';if(isShop(o.shipping))html+='<span class="orders-ship-note">+phí ship</span>';return html;}
     function shipFeeAction(o){return o&&o.canShip&&isShop(o.shipping)?'<button class="btn" onclick="MEEOPS7.openShipFeeForm(\''+o.id+'\')">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</button>':'';}
 
+    function productionPaymentLabel(o){if(o.fullPaid)return 'Đã thanh toán toàn bộ đơn (Full Paid)';if(o.settled)return 'Bankful full hoa';return paymentLabel(o);}
+    function tagNoteFreeBlock(o){var v=String(o&&o.tagNoteFree||'').trim();return v?'<div class="mee3-prod-tag-note"><strong>Tag note free:</strong>'+multiline(v)+'</div>':'';}
     function card(o, select) {
   if (select === void 0) select = false;
   o=normalizeOrderStatus(o);
@@ -1439,10 +1571,11 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     '<div class="meta" style="font-size:12px;margin:4px 0">' + dateVN(o.date) + ' · <b>' + esc(timeVN(o.time)) + '</b> · ' + esc(o.sale) + '</div>' +
     (select ? orderPreview(o) : '') +
     '<div class="multiline" style="font-size:13px;line-height:1.4">' + multiline(o.flower) + '</div>' +
+    tagNoteFreeBlock(o) +
     (o.hasAccessories ? '<div class="badge gold" style="margin-top:6px;font-size:10.5px">CÓ PHỤ KIỆN</div>' : '') +
     '<div class="order-top mee-production-finance" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">' +
       '<span class="money" style="font-weight:700;color:var(--text-primary)">' + vnd(o.flowerTotal) + '</span>' +
-      '<span class="sub" style="font-size:12px;color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + (o.debt ? 'Nợ ' + vnd(o.debt) : paymentLabel(o)) + '</span>' +
+      '<span class="sub" style="font-size:12px;color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + (o.debt ? 'Nợ ' + vnd(o.debt) : productionPaymentLabel(o)) + '</span>' +
     '</div>' +
     '<div class="order-actions">' +
       '<button class="btn secondary" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'production\')">Chi tiết</button>' +
@@ -1460,7 +1593,8 @@ function opsTile(o) {
     '<div>' +
       '<div class="order-top"><b>' + esc(timeVN(o.time)) + ' · ' + esc(o.customer) + '</b><span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></div>' +
       '<div class="meta" style="margin:4px 0">' + dateVN(o.date) + ' · ' + esc(o.sale) + '</div>' +
-      '<div class="ops-lines"><span class="multiline">' + multiline(o.flower) + '</span><b>' + vnd(o.flowerTotal) + '</b><span>☎ ' + (esc(o.phone) || '—') + '</span><span style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + (o.debt ? 'Nợ ' + vnd(o.debt) : paymentLabel(o)) + '</span></div>' +
+      '<div class="ops-lines"><span class="multiline">' + multiline(o.flower) + '</span><b>' + vnd(o.flowerTotal) + '</b><span>' + (window.MEE_ICONS ? window.MEE_ICONS.icon('phone','mee3-ico-sm') : '☎') + ' ' + (esc(o.phone) || '—') + '</span><span style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + (o.debt ? 'Nợ ' + vnd(o.debt) : productionPaymentLabel(o)) + '</span></div>' +
+      tagNoteFreeBlock(o) +
       (o.hasAccessories ? '<span class="badge gold" style="font-size:10px;margin-top:4px">CÓ PHỤ KIỆN</span>' : '') +
     '</div>' +
     '<div class="order-actions">' +
@@ -1686,14 +1820,30 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
   storageSet('mee_orders_view', view);
   if (S.page === 'orders') renderOrders();
 }
+    function v3Icon(name, sz){ return window.MEE_ICONS ? window.MEE_ICONS.icon(name, sz) : ''; }
+    function v3ShipIcon(shipping){ return window.MEE_ICONS ? window.MEE_ICONS.shipping(shipping) : ''; }
+    function orderAccessoryPills(o){
+      var pills=[];
+      if(o.card)pills.push('Thiệp'+(Number(o.cardQty)>1?' ×'+o.cardQty:''));
+      if(o.banner)pills.push('Banner'+(Number(o.bannerQty)>1?' ×'+o.bannerQty:''));
+      if(Number(o.charmFee))pills.push('Charm');
+      if(Number(o.paperFee))pills.push('Thay giấy');
+      if(Number(o.vat))pills.push('VAT');
+      return pills;
+    }
     function renderOrders() {
   var r = S.data.orders || {}, list = (r.items || []).map(normalizeOrderStatus), el = document.getElementById('content');
   if (!el) return;
+  var isAdmin = Boolean(S.user && S.user.role === 'ADMIN');
+  var trashOpen = Boolean(window.MEE_UI_V3 && window.MEE_UI_V3.isTrashOpen());
   var view = S.ordersView;
   if (view !== 'table' && view !== 'grid') view = storageGet('mee_orders_view') === 'table' ? 'table' : 'grid';
   S.ordersView = view;
+
   var total = r.total === undefined || r.total === null ? list.length : Number(r.total);
   if (!Number.isFinite(total) || total < 0) total = list.length;
+  var scopeTotal = r.scopeTotal === undefined || r.scopeTotal === null ? total : Number(r.scopeTotal);
+  if (!Number.isFinite(scopeTotal) || scopeTotal < 0) scopeTotal = total;
 
   var curTab = S.filters.orders.statusTab || 'Tất cả';
   if (['Tất cả', 'Chờ bó', 'Chờ giao', 'Chờ lấy', 'Đã giao', 'Còn nợ'].indexOf(curTab) === -1) {
@@ -1701,113 +1851,141 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
     S.filters.orders.statusTab = curTab;
   }
 
-  var counts = {
-    'Tất cả': list.length,
-    'Chờ bó': 0,
-    'Chờ giao': 0,
-    'Chờ lấy': 0,
-    'Đã giao': 0,
-    'Còn nợ': 0
-  };
+  var serverCounts = r.counts && typeof r.counts === 'object' ? r.counts : null;
+  var counts = serverCounts ? {
+    'Tất cả': Number(serverCounts['Tất cả'] ?? serverCounts.ALL ?? scopeTotal) || 0,
+    'Chờ bó': Number(serverCounts['Chờ bó'] || 0),
+    'Chờ giao': Number(serverCounts['Chờ giao'] || 0),
+    'Chờ lấy': Number(serverCounts['Chờ lấy'] || 0),
+    'Đã giao': Number(serverCounts['Đã giao'] || 0),
+    'Còn nợ': Number(serverCounts['Còn nợ'] ?? serverCounts.DEBT ?? 0) || 0
+  } : (function(){
+    var c = { 'Tất cả': total, 'Chờ bó': 0, 'Chờ giao': 0, 'Chờ lấy': 0, 'Đã giao': 0, 'Còn nợ': 0 };
+    list.forEach(function(o) {
+      if (o.status === 'Chờ bó') c['Chờ bó']++;
+      else if (o.status === 'Chờ giao') c['Chờ giao']++;
+      else if (o.status === 'Chờ lấy') c['Chờ lấy']++;
+      else if (o.status === 'Đã giao') c['Đã giao']++;
+      if (Number(o.debt) > 0) c['Còn nợ']++;
+    });
+    return c;
+  })();
 
-  list.forEach(function(o) {
-    if (o.status === 'Chờ bó') counts['Chờ bó']++;
-    else if (o.status === 'Chờ giao') counts['Chờ giao']++;
-    else if (o.status === 'Chờ lấy') counts['Chờ lấy']++;
-    else if (o.status === 'Đã giao') counts['Đã giao']++;
-    if (Number(o.debt) > 0) counts['Còn nợ']++;
-  });
+  var serverTabMatched = !serverCounts ? false :
+    (curTab === 'Tất cả' && (!r.statusTab || r.statusTab === 'ALL')) ||
+    (curTab === 'Còn nợ' && (r.debtOnly === true || r.statusTab === 'DEBT')) ||
+    (r.statusTab === curTab);
 
-  var filteredList = list.filter(function(o) {
+  var filteredList = serverTabMatched ? list : list.filter(function(o) {
     if (curTab === 'Tất cả') return true;
     if (curTab === 'Còn nợ') return Number(o.debt) > 0;
     return o.status === curTab;
   });
 
+  var activeTotal = serverTabMatched ? total : (counts[curTab] || filteredList.length);
+
   var rows = filteredList.map(function(o) {
-    return '<tr class="' + (o.hasAccessories ? 'row-alert' : '') + '" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'orders\')">' +
-      '<td class="nowrap">' + dateVN(o.date) + '<br><b>' + esc(timeVN(o.time)) + '</b></td>' +
+    var accPills = orderAccessoryPills(o);
+    return '<tr class="' + (o.hasAccessories ? 'has-accessories' : '') + '" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'orders\')">' +
+      '<td class="nowrap">' + dateVN(o.date) + '<br><b class="mee3-num">' + esc(timeVN(o.time)) + '</b></td>' +
       '<td><b>' + esc(o.customer) + '</b><br><span class="sub">' + (esc(o.phone) || '—') + '</span></td>' +
-      '<td class="note-cell">' + tableSample(o) + '</td>' +
-      '<td class="address-cell">' + esc(o.shipping) + (o.address ? '<br><span class="sub">' + esc(o.address) + '</span>' : '') + '</td>' +
+      '<td class="note-cell"><div class="mee3-clamp-2">' + tableSample(o) + '</div>' + (String(o.tagNoteFree||'').trim() ? '<div class="mee3-card-pills"><span class="mee3-badge mee3-badge-tag">Tag note free</span></div>' : '') + '</td>' +
+      '<td class="address-cell"><div class="mee3-clamp-2">' + v3ShipIcon(o.shipping) + ' ' + esc(o.shipping) + (o.address ? '<br><span class="sub">' + esc(o.address) + '</span>' : '') + '</div></td>' +
       '<td>' + esc(o.sale || '—') + '</td>' +
-      '<td><span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></td>' +
-      '<td><b>' + vnd(o.flowerTotal) + '</b></td>' +
-      '<td>' + esc(paymentLabel(o)) + '<br><span class="sub">Đã thu ' + vnd(o.paid) + '</span></td>' +
-      '<td><b style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + vnd(o.debt) + '</b>' + ordersDebtNotes(o) + '</td>' +
+      '<td><span class="mee3-badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' + (accPills.length ? '<div class="mee3-card-pills" style="margin-top:4px">' + accPills.slice(0,2).map(function(p){ return '<span class="mee3-badge mee3-badge-acc">' + esc(p) + '</span>'; }).join('') + '</div>' : '') + '</td>' +
+      '<td class="mee3-col-num"><b>' + vnd(o.flowerTotal) + '</b></td>' +
+      '<td class="mee3-col-num">' + esc(paymentLabel(o)) + '<br><span class="sub">Đã thu ' + vnd(o.paid) + '</span></td>' +
+      '<td class="mee3-col-num"><b style="color:' + (o.debt ? 'var(--v3-danger)' : 'var(--v3-success)') + '">' + vnd(o.debt) + '</b>' + ordersDebtNotes(o) + '</td>' +
     '</tr>';
   }).join('');
 
-  var mobileCards = filteredList.map(function(o) {
+  var gridCards = filteredList.map(function(o) {
     var thumb = firstImage(o, 180) || (o.sampleUrls && o.sampleUrls[0]) || o.imageUrl || (o.driveUrls && o.driveUrls[0]);
     var thumbHtml = thumb ?
-        '<img class="order-card-mobile-thumb" src="' + attr(thumb) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)" alt="Hoa">' :
-        '<div class="order-card-mobile-thumb-empty">🌸</div>';
+        '<img class="mee3-card-thumb order-card-mobile-thumb" src="' + attr(thumb) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)" alt="Ảnh hoa">' :
+        '<div class="mee3-card-thumb-empty order-card-mobile-thumb-empty">' + v3Icon('flower', 'mee3-ico-lg') + '</div>';
 
-    var debtStyle = Number(o.debt) > 0 ? 'color:var(--danger);font-weight:700' : 'color:var(--text-muted)';
-    var debtText = paymentLabel(o) + (Number(o.debt) > 0 ? ' · Nợ: ' + vnd(o.debt) : ' · Công nợ 0đ');
+    var hasDebt = Number(o.debt) > 0;
+    var debtCls = hasDebt ? 'mee3-card-debt has-debt' : (o.paymentVerified ? 'mee3-card-debt is-paid' : 'mee3-card-debt');
+    var debtText = hasDebt ? ('Nợ ' + vnd(o.debt)) : (o.fullPaid ? 'Full Paid · 0 ₫' : (o.settled ? 'Đã tất toán · 0 ₫' : paymentLabel(o)));
+    var accPills = orderAccessoryPills(o);
+    var hasTagFree = Boolean(String(o.tagNoteFree || '').trim());
 
-    return '<article tabindex="0" role="button" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}" class="order-card-mobile mee-orders-card ' + (o.hasAccessories ? 'row-alert' : '') + '" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'orders\')">' +
-      '<div class="order-card-mobile-top">' +
-        '<span class="order-card-mobile-time">⏰ ' + esc(timeVN(o.time)) + ' · ' + dateVN(o.date) + '</span>' +
-        '<span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' +
+    return '<article tabindex="0" role="button" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}" class="mee3-card order-card-mobile mee-orders-card' + (o.hasAccessories ? ' has-accessories' : '') + '" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'orders\')">' +
+      '<div class="mee3-card-head">' +
+        '<span class="mee3-card-time mee3-num">' + v3Icon('clock', 'mee3-ico-sm') + ' <b>' + esc(timeVN(o.time)) + '</b> · ' + dateVN(o.date) + '</span>' +
+        '<span class="mee3-badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' +
       '</div>' +
-      '<div class="order-card-mobile-body">' +
+      '<div class="mee3-card-body">' +
         thumbHtml +
-        '<div class="order-card-mobile-details">' +
-          '<div class="order-card-mobile-customer">' + esc(o.customer || 'Khách vãng lai') + '</div>' +
-          '<div class="order-card-mobile-contact">📞 ' + (esc(o.phone) || 'Chưa có SĐT') + (o.sale ? ' · Sale: ' + esc(o.sale) : '') + '</div>' +
-          '<div class="order-card-mobile-flower" title="' + attr(o.flower || '') + '">' + esc(o.flower || 'Mẫu hoa chuẩn') + (o.note ? ' · <i>' + esc(o.note) + '</i>' : '') + '</div>' +
-          (o.shipping ? '<div style="font-size:12px;color:var(--text-secondary);margin-top:2px">🚚 ' + esc(o.shipping) + (o.address ? ' — ' + esc(o.address) : '') + '</div>' : '') +
+        '<div class="mee3-card-info">' +
+          '<div class="mee3-card-customer">' + esc(o.customer || 'Khách vãng lai') + '</div>' +
+          '<div class="mee3-card-meta-line">' + v3Icon('phone', 'mee3-ico-sm') + '<span>' + (esc(o.phone) || 'Chưa có SĐT') + (o.sale ? ' · ' + esc(o.sale) : '') + '</span></div>' +
+          '<div class="mee3-card-flower" title="' + attr(o.flower || '') + '">' + esc(o.flower || 'Mẫu hoa chuẩn') + '</div>' +
+          (o.note ? '<div class="mee3-card-note">' + esc(o.note) + '</div>' : '') +
+          (o.shipping ? '<div class="mee3-card-ship">' + v3ShipIcon(o.shipping) + '<span>' + esc(o.shipping) + (o.address ? ' — ' + esc(o.address) : '') + '</span></div>' : '') +
+          ((accPills.length || hasTagFree) ? '<div class="mee3-card-pills">' +
+            accPills.map(function(p){ return '<span class="mee3-badge mee3-badge-acc">' + esc(p) + '</span>'; }).join('') +
+            (hasTagFree ? '<span class="mee3-badge mee3-badge-tag">' + v3Icon('tag', 'mee3-ico-sm') + ' Tag note free</span>' : '') +
+          '</div>' : '') +
         '</div>' +
       '</div>' +
-      '<div class="order-card-mobile-footer mee-orders-card-footer">' +
-        '<div>' +
-          '<span style="font-size:12px;color:var(--text-muted)">Tiền hoa: </span>' +
-          '<b>' + vnd(o.flowerTotal) + '</b>' +
-        '</div>' +
-        '<div style="' + debtStyle + '">' + esc(debtText) + '</div>' +
-        ordersDebtNotes(o) +
+      '<div class="mee3-card-foot">' +
+        '<div class="mee3-card-price-wrap"><span class="mee3-card-price-label">Hoa</span><span class="mee3-card-price">' + vnd(o.flowerTotal) + '</span></div>' +
+        '<div class="' + debtCls + '">' + esc(debtText) + '</div>' +
       '</div>' +
     '</article>';
   }).join('');
 
   var statusTabs = ['Tất cả', 'Chờ bó', 'Chờ giao', 'Chờ lấy', 'Đã giao', 'Còn nợ'];
-  var tabsHtml = '<div class="status-filter-tabs">' + statusTabs.map(function(t) {
-    var count = counts[t] || 0;
-    return '<button type="button" class="status-pill ' + (t === curTab ? 'active' : '') + '" onclick="MEEOPS7.setOrderStatusFilter(\'' + t + '\')">' +
-      '<span>' + t + '</span>' +
-      '<span class="status-pill-count">' + count + '</span>' +
-    '</button>';
-  }).join('') + '</div>';
+  var tabsHtml = '<div class="mee3-filter-bar">' +
+    '<div class="mee3-tabs status-filter-tabs" role="tablist" aria-label="Lọc trạng thái đơn">' + statusTabs.map(function(t) {
+      var count = counts[t] || 0;
+      return '<button type="button" role="tab" aria-selected="' + (t === curTab ? 'true' : 'false') + '" class="mee3-tab status-pill ' + (t === curTab ? 'active' : '') + '" onclick="MEEOPS7.setOrderStatusFilter(\'' + t + '\')">' +
+        '<span>' + t + '</span>' +
+        '<span class="mee3-tab-count status-pill-count">' + count + '</span>' +
+      '</button>';
+    }).join('') + '</div>' +
+    '<div class="mee3-showing-meta">Đang hiển thị <b class="mee3-num">' + filteredList.length + ' / ' + activeTotal + '</b> đơn</div>' +
+  '</div>';
 
-  var viewControls = '<div class="mee-orders-view-toggle" role="group" aria-label="Kiểu hiển thị đơn hàng">' +
-    [['grid','▦','Lưới'],['table','☷','Bảng']].map(function(item) {
-      return '<button type="button" class="mee-orders-view-button" aria-pressed="' + (view === item[0] ? 'true' : 'false') + '" onclick="MEEOPS7.setOrdersView(\'' + item[0] + '\')"><span aria-hidden="true">' + item[1] + '</span><span>' + item[2] + '</span></button>';
+  var viewControls = '<div class="mee3-view-toggle mee-orders-view-toggle" role="group" aria-label="Kiểu hiển thị đơn hàng">' +
+    [['grid','grid','Lưới'],['table','table','Bảng']].map(function(item) {
+      return '<button type="button" class="mee3-view-btn mee-orders-view-button" aria-pressed="' + (view === item[0] ? 'true' : 'false') + '" onclick="MEEOPS7.setOrdersView(\'' + item[0] + '\')">' + v3Icon(item[1], 'mee3-ico-sm') + '<span>' + item[2] + '</span></button>';
     }).join('') + '</div>';
 
+  var trashBtn = isAdmin ? '<button type="button" class="mee3-trash-btn' + (trashOpen ? ' is-active' : '') + '" data-mee3-open-trash onclick="window.MEE_UI_V3&&' + (trashOpen ? 'window.MEE_UI_V3.closeTrash()' : 'window.MEE_UI_V3.openTrash()') + '">' + v3Icon('trash', 'mee3-ico-sm') + '<span>' + (trashOpen ? 'Đang xem Thùng rác' : 'Thùng rác') + '</span></button>' : '';
+
   el.innerHTML =
-    '<section class="mee-orders-v2 mee-orders-view-' + view + '" aria-label="Đơn hàng">' +
-      '<header class="mee-orders-toolbar">' +
-        '<div class="mee-orders-heading"><h2>ĐƠN HÀNG</h2><div class="sub">' + total + (r.searchScope === 'ALL_DATES' ? ' đơn khớp tìm kiếm' : ' đơn trong kỳ') + ' · Chạm đơn để xem chi tiết</div></div>' +
-        '<div class="mee-orders-toolbar-actions">' +
-          rangeFilters('orders') + viewControls +
-          '<button type="button" class="btn primary" onclick="MEEOPS7.openOrderForm()">＋ Tạo đơn</button>' +
+    '<section class="mee3-orders mee-orders-v2 mee3-view-' + view + ' mee-orders-view-' + view + '" aria-label="Đơn hàng">' +
+      '<header class="mee3-orders-header mee-orders-toolbar">' +
+        '<div class="mee3-orders-title-group">' +
+          '<div class="mee3-orders-title-row">' +
+            '<h2 class="mee3-orders-title">Đơn hàng</h2>' +
+            '<span class="mee3-orders-scope-pill">' + scopeTotal + (r.searchScope === 'ALL_DATES' ? ' đơn khớp tìm kiếm' : ' đơn trong kỳ') + '</span>' +
+          '</div>' +
+          '<div class="mee3-orders-sub">Chọn đơn để mở chi tiết, sao chép hoặc in hóa đơn + QR</div>' +
+        '</div>' +
+        '<div class="mee3-orders-controls mee-orders-toolbar-actions">' +
+          (trashOpen ? '' : rangeFilters('orders') + viewControls) +
+          trashBtn +
         '</div>' +
       '</header>' +
-      tabsHtml +
-      '<div class="table-wrap sheet-table-desktop mee-orders-table" role="region" aria-label="Bảng đơn hàng, cuộn ngang để xem đầy đủ" tabindex="0">' +
-        '<table class="control-table sheet-table">' +
-          '<thead><tr><th>Ngày / Giờ</th><th>Khách / SĐT</th><th>Mẫu / Note</th><th>Vận chuyển / Địa chỉ</th><th>Sale</th><th>Trạng thái</th><th>Tiền hoa</th><th>Thanh toán</th><th>Công nợ</th></tr></thead>' +
-          '<tbody>' + (rows || '<tr><td colspan="9" class="empty">Không có đơn phù hợp với bộ lọc.</td></tr>') + '</tbody>' +
-        '</table>' +
-      '</div>' +
-      '<div class="orders-mobile-list mee-orders-grid" aria-label="Lưới đơn hàng">' +
-        (mobileCards || '<div class="empty mee-orders-empty">Không có đơn phù hợp với bộ lọc.</div>') +
-      '</div>' +
-      (r.hasMore ? '<div class="mee-orders-pagination"><button type="button" class="btn secondary" onclick="MEEOPS7.loadMoreOrders()">Hiển thị thêm · ' + list.length + '/' + total + '</button></div>' : '') +
+      (trashOpen ? window.MEE_UI_V3.renderTrashMarkup() :
+        tabsHtml +
+        '<div class="mee3-table-wrap table-wrap sheet-table-desktop mee-orders-table" role="region" aria-label="Bảng đơn hàng, cuộn ngang để xem đầy đủ" tabindex="0">' +
+          '<table class="mee3-table control-table sheet-table">' +
+            '<thead><tr><th>Ngày / Giờ</th><th>Khách / SĐT</th><th>Mẫu / Note</th><th>Vận chuyển / Địa chỉ</th><th>Sale</th><th>Trạng thái</th><th class="mee3-col-num">Tiền hoa</th><th class="mee3-col-num">Thanh toán</th><th class="mee3-col-num">Công nợ</th></tr></thead>' +
+            '<tbody>' + (rows || '<tr><td colspan="9" class="empty">Không có đơn phù hợp với bộ lọc.</td></tr>') + '</tbody>' +
+          '</table>' +
+        '</div>' +
+        '<div class="mee3-grid orders-mobile-list mee-orders-grid" aria-label="Lưới đơn hàng">' +
+          (gridCards || '<div class="empty mee-orders-empty">Không có đơn phù hợp với bộ lọc.</div>') +
+        '</div>' +
+        (r.hasMore ? '<div class="mee3-pagination mee-orders-pagination"><button type="button" class="btn secondary" onclick="MEEOPS7.loadMoreOrders()">Tải thêm đơn (' + filteredList.length + ' / ' + activeTotal + ')</button></div>' : '')) +
     '</section>';
-if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();}
+  if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();
+}
     async function loadDebt(force){if(force===void 0)force=false;var f=S.filters.debt,args={start:f.start,end:f.end};if(S.user.role==='ADMIN'&&f.sale)args.sale=f.sale;try{var r=await requestPage('getDebtReview',args,12000,force,'Đang tải công nợ…');if(!r)return;S.data.debt=r;rememberOrders(r.items);if(S.page==='debt')renderDebt();if(S.user.role==='ADMIN')ensureOptions().then(function(){if(S.page==='debt')renderDebt();}).catch(function(){});}catch(e){toast(e.message,1);renderError(e);}}
     function debtSettlementNote(o){var note=o.status!=='Đã giao'?'Chưa giao · Chưa thể gửi tất toán':o.shipFeePending?'Chưa có phí ship · Cần bổ sung trước khi gửi':Number(o.debt)===0?'Dư nợ 0đ · Vẫn cần tất toán':'';return note?'<div class="sub">'+esc(note)+'</div>':'';}
     function renderDebt() {
@@ -1867,68 +2045,103 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
     '</div>' +
     '<div class="debt-mobile">' + (cards || empty()) + '</div>';
 if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();}
-    function openDrawer(id,context){var o=orderById(id);if(!o)return;S.currentDrawer=id;S.drawerContext=context||S.page;renderDrawer(o,!o.detailLoaded);ensureOrderDetail(id).then(function(full){var ov=document.getElementById('overlay');if(S.currentDrawer===id&&ov&&ov.querySelector('.drawer')&&!ov.querySelector('#orderForm'))renderDrawer(full,false);}).catch(function(e){if(S.currentDrawer===id)toast(e.message,1);});}
+    function openDrawer(id,context){
+      var o=orderById(id);if(!o)return;
+      S.currentDrawer=id;S.drawerContext=context||S.page;
+      var warm=Boolean(o.detailLoaded&&Date.now()-((S.detailAt&&S.detailAt.get(id))||0)<20000);
+      renderDrawer(o,!warm&&!o.detailLoaded);
+      if(warm)return;
+      ensureOrderDetail(id).then(function(full){
+        var ov=document.getElementById('overlay');
+        if(S.currentDrawer===id&&ov&&ov.querySelector('.drawer')&&!ov.querySelector('#orderForm'))renderDrawer(full,false);
+      }).catch(function(e){if(S.currentDrawer===id)toast(e.message,1);});
+    }
     function renderDrawer(o, loadingDetail) {
   var ov = document.getElementById('overlay');
   if (!ov) return;
-  var ctx = S.drawerContext || S.page, isDebt = ctx === 'debt';
-  var imgs = (o.imageUrls || []).map(function(u, i) {
-    var img='<img src="' + attr(imageSrc(u, loadingDetail?360:1000)) + '" loading="eager" decoding="async" onerror="MEEOPS7.imageFallback(this)">';
-    return loadingDetail?img:'<a href="' + attr((o.driveUrls || [])[i] || u) + '" target="_blank" title="Xem ảnh gốc">'+img+'</a>';
+  var ctx = S.drawerContext || S.page, isDebt = ctx === 'debt', isDeleted = Boolean(o.isDeleted);
+  var fullImgs = Array.isArray(o.imageUrls) ? o.imageUrls : [];
+  var prevImgs = (Array.isArray(o.previewUrls) && o.previewUrls.length === fullImgs.length) ? o.previewUrls : fullImgs;
+  var imgs = prevImgs.map(function(previewUrl, i) {
+    var fullUrl = fullImgs[i] || previewUrl;
+    var img = '<img src="' + attr(imageSrc(previewUrl, 360)) + '" data-full-src="' + attr(fullUrl) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)" alt="Ảnh mẫu ' + (i + 1) + '">';
+    return loadingDetail ? img : '<a href="' + attr(fullUrl) + '" data-full-src="' + attr(fullUrl) + '" target="_blank" rel="noopener" title="Xem ảnh gốc">' + img + '</a>';
   }).join('');
-  var actions = shipFeeAction(o) + (isDebt ? settlementAction(o) : ((o.canEdit ? '<button type="button" class="btn primary" data-mee-order-action="edit" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settlementAction(o))) + (S.user&&S.user.role==='ADMIN'?'<button type="button" class="btn danger full mee-delete-order" data-mee-delete-order="'+attr(o.id)+'">Xóa đơn</button>':'');
 
-  ov.innerHTML = '<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()">' +
-    '<aside class="drawer mee-order-drawer-v2" aria-label="Chi tiết đơn hàng">' +
-      '<header class="drawer-head mee-order-drawer-head">' +
+  var canDel = !isDeleted && (o.canDelete === true || (o.canDelete === undefined && S.user && S.user.role === 'ADMIN' && !o.locked && !o.fullPaid));
+  var settleBtn = (o.settlementStatus === 'PENDING' || o.settlementStatus === 'APPROVED' || o.settled || o.canSubmitSettlement) ? settlementAction(o) : '';
+  var actions = isDeleted
+    ? (S.user && S.user.role === 'ADMIN' ? '<button type="button" class="btn primary" data-mee3-restore-order="' + attr(o.id) + '">' + v3Icon('restore', 'mee3-ico-sm') + ' Khôi phục đơn</button>' : '')
+    : (canDel ? '<button type="button" class="btn mee3-btn-delete mee-delete-order" data-mee-delete-order="' + attr(o.id) + '">' + v3Icon('trash', 'mee3-ico-sm') + ' Xóa đơn</button>' : '') +
+      shipFeeAction(o) +
+      (isDebt ? settleBtn : ((o.canEdit ? '<button type="button" class="btn primary" data-mee-order-action="edit" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settleBtn));
+
+  var quickBar = '<div class="mee3-quickbar">' +
+    (!isDebt ? '<button type="button" class="mee3-quickbtn" data-mee-copy-order-id="' + attr(o.id) + '" data-mee-order-action="copy" onclick="MEEOPS7.copyOrderById(\'' + o.id + '\')">' + v3Icon('copy', 'mee3-ico-sm') + ' Copy đơn</button>' : '') +
+    (o.phone ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')">' + v3Icon('phone', 'mee3-ico-sm') + ' Copy SĐT</button>' : '') +
+    (String(o.tagNoteFree||'').trim() ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'tagNoteFree\',\'Tag note free\')">' + v3Icon('tag', 'mee3-ico-sm') + ' Copy Tag</button>' : '') +
+  '</div>';
+
+  ov.innerHTML = '<div class="drawer-bg mee3-drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()">' +
+    '<aside class="drawer mee3-drawer mee-order-drawer-v2" data-mee-order-id="' + attr(o.id) + '" aria-label="Chi tiết đơn hàng">' +
+      '<header class="drawer-head mee3-drawer-head mee-order-drawer-head">' +
         '<div>' +
-          '<h3 style="margin:0;font-size:18px;font-weight:700;color:var(--text-primary)">' + esc(o.customer) + '</h3>' +
-          '<div class="sub" style="font-size:12px;margin-top:2px">' + esc(o.id) + ' · <span class="badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span></div>' +
+          '<h3 class="mee3-drawer-title">' + esc(o.customer) + '</h3>' +
+          '<div class="mee3-drawer-sub"><span class="mee3-num">' + esc(o.id) + '</span><span>·</span><span class="mee3-badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' + (o.hasAccessories ? '<span class="mee3-badge mee3-badge-acc">Có phụ kiện</span>' : '') + (isDeleted ? '<span class="mee3-badge mee3-badge-danger">Trong Thùng rác</span>' : '') + '</div>' +
         '</div>' +
-        '<button class="close" onclick="MEEOPS7.closeOverlay()">×</button>' +
+        '<button type="button" class="close" aria-label="Đóng" onclick="MEEOPS7.closeOverlay()">×</button>' +
       '</header>' +
-      '<div class="mee-order-drawer-body">' +
-      (o.hasAccessories ? '<div class="notice" style="background:var(--warning-bg);color:var(--warning);border-color:var(--warning-border);font-weight:600">ĐƠN CÓ PHỤ KIỆN ĐẶC BIỆT</div>' : '') +
-      settlementStateHtml(o) +
-      (loadingDetail ? '<div class="order-detail-loading" style="padding:20px 0"><span class="mini-spinner"></span> Đang tải ảnh và chi tiết…</div>' : (imgs ? '<div class="thumbs" style="margin-bottom:14px">' + imgs + '</div>' : '')) +
-      detail(o, !isDebt) +
+      quickBar +
+      '<div class="mee3-drawer-body mee-order-drawer-body">' +
+        (isDeleted ? '<div class="mee3-trash-reason-box"><b>Đơn đã bị xóa mềm</b> · Lý do: ' + esc(o.deletedReason || '—') + ' · Bởi: ' + esc(o.deletedBy || '—') + '</div>' : '') +
+        settlementStateHtml(o) +
+        (loadingDetail ? '<div class="order-detail-loading" style="padding:12px 0"><span class="mini-spinner"></span> Đang tải ảnh và chi tiết…</div>' :
+          (imgs ? '<div class="mee3-thumb-strip thumbs">' + imgs + '</div>' + (prevImgs.length > 1 ? '<div class="mee3-thumb-count">' + prevImgs.length + ' ảnh mẫu · Chạm ảnh để xem bản gốc</div>' : '') : '')) +
+        detail(o, !isDebt) +
       '</div>' +
-      '<footer class="order-actions mee-order-drawer-footer">' + actions + '</footer>' +
+      '<footer class="order-actions mee3-drawer-foot mee-order-drawer-footer">' + actions + '</footer>' +
     '</aside>' +
-  '</div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
+  '</div>';
+  if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
   if(window.MEE_COPY_ACTIONS_SYNC)window.MEE_COPY_ACTIONS_SYNC();
-if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();if(window.MEE_ORDER_ACTIONS_OVERLAY_SYNC)window.MEE_ORDER_ACTIONS_OVERLAY_SYNC();}
+  if(window.MEE_ORDER_ACTIONS_OVERLAY_SYNC)window.MEE_ORDER_ACTIONS_OVERLAY_SYNC();
+}
     function detail(o, allowFullCopy) {
   if (allowFullCopy === void 0) allowFullCopy = true;
-  var cardQty=Math.max(1,Number(o.cardQty||1)),cardFee=Number(o.cardFee)||cardQty*10000,accessoryRows=[],contentBlocks=[];
-  if(o.card){accessoryRows.push('<div><span>Thiệp × '+cardQty+'</span><b>'+vnd(cardFee)+'</b></div>');if(String(o.cardText||'').trim())contentBlocks.push('<div class="mee-detail-section mee-detail-card"><div class="mee-detail-section-head"><span>NỘI DUNG THIỆP</span><button type="button" class="btn secondary" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'cardText\',\'nội dung thiệp\')">⧉ Sao chép</button></div><div class="mee-detail-text">'+multiline(o.cardText)+'</div></div>');}
-  if(o.banner){accessoryRows.push('<div><span>Banner ×'+Math.max(1,Number(o.bannerQty||1))+'</span><b>'+vnd(Math.max(1,Number(o.bannerQty||1))*35000)+'</b></div>');if(String(o.bannerText||'').trim())contentBlocks.push('<div class="mee-detail-section"><div class="mee-detail-section-head"><span>NỘI DUNG BANNER</span></div><div class="mee-detail-text">'+multiline(o.bannerText)+'</div></div>');}
-  if(Number(o.charmFee)){accessoryRows.push('<div><span>Đính charm</span><b>'+vnd(o.charmFee)+'</b></div>');if(String(o.charmText||'').trim())contentBlocks.push('<div class="mee-detail-section"><div class="mee-detail-section-head"><span>GHI CHÚ CHARM</span></div><div class="mee-detail-text">'+multiline(o.charmText)+'</div></div>');}
-  if(Number(o.paperFee)){accessoryRows.push('<div><span>Thay giấy</span><b>'+vnd(o.paperFee)+'</b></div>');if(String(o.paperText||'').trim())contentBlocks.push('<div class="mee-detail-section"><div class="mee-detail-section-head"><span>GHI CHÚ THAY GIẤY</span></div><div class="mee-detail-text">'+multiline(o.paperText)+'</div></div>');}
-  if(Number(o.vat))accessoryRows.push('<div><span>VAT</span><b>'+vnd(o.vat)+'</b></div>');
-  var noteBlock=String(o.note||'').trim()?'<div class="mee-detail-section mee-detail-note"><div class="mee-detail-section-head"><span>GHI CHÚ KHÁCH</span><button type="button" class="btn secondary" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'note\',\'ghi chú khách\')">⧉ Sao chép</button></div><div class="mee-detail-text">'+multiline(o.note)+'</div></div>':'';
-  return '<div class="mee-detail-stack">' +
-    '<div class="mee-detail-section">' +
-      '<div class="mee-detail-section-head"><span>THÔNG TIN ĐƠN HÀNG</span></div>' +
-      '<div class="mee-detail-grid">' +
-        '<div><span>Thời gian nhận</span><b>' + dateVN(o.date) + ' · ' + esc(timeVN(o.time)) + '</b></div>' +
-        '<div><span>Sale phụ trách</span><b>' + esc(o.sale || '—') + '</b></div>' +
-        '<div class="copyable" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')"><span>Số điện thoại</span><b>' + (esc(o.phone) || '—') + ' ⧉</b></div>' +
-        '<div class="span2"><span>Mẫu hoa</span><b class="multiline">' + multiline(o.flower) + '</b></div>' +
+  var shipIco = typeof v3ShipIcon === 'function' ? v3ShipIcon(o.shipping) : '';
+  var cardQty=Math.max(1,Number(o.cardQty||1)),cardFee=Number(o.cardFee)||cardQty*10000,accessoryRows=[],noteBlocks=[];
+  if(String(o.note||'').trim())noteBlocks.push('<div class="mee3-note-block mee-detail-note"><div class="mee3-note-block-head"><span>GHI CHÚ KHÁCH</span><button type="button" class="mee3-note-copy" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'note\',\'ghi chú khách\')">Copy</button></div><div class="mee3-note-text">'+multiline(o.note)+'</div></div>');
+  if(o.card){accessoryRows.push('<div class="mee3-fin-row"><span>Thiệp × '+cardQty+'</span><b class="mee3-fin-val">'+vnd(cardFee)+'</b></div>');if(String(o.cardText||'').trim())noteBlocks.push('<div class="mee3-note-block mee-detail-card"><div class="mee3-note-block-head"><span>NỘI DUNG THIỆP</span><button type="button" class="mee3-note-copy" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'cardText\',\'nội dung thiệp\')">Copy</button></div><div class="mee3-note-text">'+multiline(o.cardText)+'</div></div>');}
+  if(String(o.tagNoteFree||'').trim())noteBlocks.push('<div class="mee3-note-block is-tag-free"><div class="mee3-note-block-head"><span>Tag note free</span><button type="button" class="mee3-note-copy" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'tagNoteFree\',\'Tag note free\')">Copy</button></div><div class="mee3-note-text">'+multiline(o.tagNoteFree)+'</div></div>');
+  if(o.banner){accessoryRows.push('<div class="mee3-fin-row"><span>Banner ×'+Math.max(1,Number(o.bannerQty||1))+'</span><b class="mee3-fin-val">'+vnd(Math.max(1,Number(o.bannerQty||1))*35000)+'</b></div>');if(String(o.bannerText||'').trim())noteBlocks.push('<div class="mee3-note-block"><div class="mee3-note-block-head"><span>NỘI DUNG BANNER</span></div><div class="mee3-note-text">'+multiline(o.bannerText)+'</div></div>');}
+  if(Number(o.charmFee)){accessoryRows.push('<div class="mee3-fin-row"><span>Đính charm</span><b class="mee3-fin-val">'+vnd(o.charmFee)+'</b></div>');if(String(o.charmText||'').trim())noteBlocks.push('<div class="mee3-note-block"><div class="mee3-note-block-head"><span>GHI CHÚ CHARM</span></div><div class="mee3-note-text">'+multiline(o.charmText)+'</div></div>');}
+  if(Number(o.paperFee)){accessoryRows.push('<div class="mee3-fin-row"><span>Thay giấy</span><b class="mee3-fin-val">'+vnd(o.paperFee)+'</b></div>');if(String(o.paperText||'').trim())noteBlocks.push('<div class="mee3-note-block"><div class="mee3-note-block-head"><span>GHI CHÚ THAY GIẤY</span></div><div class="mee3-note-text">'+multiline(o.paperText)+'</div></div>');}
+  if(Number(o.vat))accessoryRows.push('<div class="mee3-fin-row"><span>VAT</span><b class="mee3-fin-val">'+vnd(o.vat)+'</b></div>');
+
+  return '<div class="mee-detail-stack" style="display:flex;flex-direction:column;gap:12px">' +
+    '<div class="mee3-detail-card mee3-detail-finance">' +
+      '<div class="mee3-detail-card-head"><span>TÀI CHÍNH & THANH TOÁN</span><span class="mee3-badge ' + (o.debt ? 'mee3-badge-danger' : 'mee3-badge-success') + '">' + (o.debt ? 'Còn nợ ' + vnd(o.debt) : 'Công nợ 0 ₫') + '</span></div>' +
+      '<div>' +
+        '<div class="mee3-fin-row"><span>Giá hoa</span><b class="mee3-fin-val">' + vnd(o.flowerTotal) + '</b></div>' +
+        accessoryRows.join('') +
+        '<div class="mee3-fin-row"><span>Phí ship</span><b class="mee3-fin-val">' + (o.shipFeePending ? '<span class="mee3-badge mee3-badge-danger">Chưa nhập</span>' : vnd(o.shipFee)) + '</b></div>' +
+        '<div class="mee3-fin-row"><span>' + esc(paymentLabel(o)) + '</span><b class="mee3-fin-val">' + vnd(o.paid) + '</b></div>' +
+        (o.fullPaid ? '<div class="mee-full-paid-proof" style="margin-top:8px"><div><b>✓ FULL PAID · TỰ XÁC NHẬN</b><small>Không vào Payment Check · Công nợ 0 ₫</small></div>' + (o.fullPaidBillUrls && o.fullPaidBillUrls.length ? '<div class="mee3-bill-links">' + o.fullPaidBillUrls.map(function(u, i){ return '<a class="mee3-bill-link" href="' + attr(u) + '" data-lightbox-src="' + attr(u) + '" target="_blank" rel="noopener">Xem Bill ' + (i + 1) + '</a>'; }).join('') + '</div>' : '') + '</div>' : '') +
+        '<div class="mee3-fin-total"><span>Công nợ hiện tại</span><b class="mee3-fin-val" style="color:' + (o.debt ? 'var(--v3-danger)' : 'var(--v3-success)') + '">' + vnd(o.debt) + '</b></div>' +
       '</div>' +
     '</div>' +
-    noteBlock+contentBlocks.join('')+
-    '<div class="mee-detail-section mee-detail-shipping"><div class="mee-detail-section-head"><span>VẬN CHUYỂN & ĐỊA CHỈ</span></div><div class="mee-detail-grid"><div><span>Hình thức giao</span><b>'+esc(o.shipping||'—')+'</b></div><div><span>Địa chỉ</span><b>'+(esc(o.address)||'Nhận tại cửa hàng')+'</b></div></div></div>'+
-    '<div class="mee-detail-section">' +
-      '<div class="mee-detail-section-head"><span>TÀI CHÍNH & THANH TOÁN</span></div>' +
-      '<div class="mee-finance-row"><span>Giá hoa</span><b>' + vnd(o.flowerTotal) + '</b></div>' +
-      (accessoryRows.length?'<div class="mee-finance-accessories"><div class="mee-finance-accessory-title"><span>Phụ kiện ('+accessoryRows.length+')</span><b>'+vnd((Number(o.accessoryTotal)||0)+Number(o.vat||0))+'</b></div>'+accessoryRows.join('')+'</div>':'')+
-      '<div class="mee-finance-row"><span>Phí ship</span><b>' + (o.shipFeePending ? '<span class="badge red">Chưa nhập</span>' : vnd(o.shipFee)) + '</b></div>' +
-      '<div class="mee-finance-row"><span>' + esc(paymentLabel(o)) + '</span><b>' + vnd(o.paid) + '</b></div>' +
-      (o.fullPaid?'<div class="mee-full-paid-proof"><div><b>✓ FULL PAID · TỰ XÁC NHẬN</b><small>Không vào Payment Check · Công nợ 0đ</small></div>'+(o.fullPaidBillUrls&&o.fullPaidBillUrls.length?'<div class="mee-full-paid-proof-links">'+o.fullPaidBillUrls.map(function(u,i){return '<a href="'+attr(u)+'" target="_blank">Bill '+(i+1)+'</a>';}).join('')+'</div>':'')+'</div>':'')+
-      '<div class="mee-finance-total"><span>Công nợ hiện tại</span><b style="color:' + (o.debt ? 'var(--danger)' : 'var(--success)') + '">' + vnd(o.debt) + '</b></div>' +
+    '<div class="mee3-detail-card">' +
+      '<div class="mee3-detail-card-head"><span>THÔNG TIN ĐƠN HÀNG</span></div>' +
+      '<div class="mee3-detail-kv">' +
+        '<div><span class="mee3-kv-label">Thời gian nhận</span><span class="mee3-kv-val mee3-num">' + dateVN(o.date) + ' · ' + esc(timeVN(o.time)) + '</span></div>' +
+        '<div><span class="mee3-kv-label">Sale phụ trách</span><span class="mee3-kv-val">' + esc(o.sale || '—') + '</span></div>' +
+        '<div class="copyable" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')"><span class="mee3-kv-label">Số điện thoại (chạm để copy)</span><span class="mee3-kv-val mee3-num">' + (esc(o.phone) || '—') + '</span></div>' +
+        '<div><span class="mee3-kv-label">Hình thức giao</span><span class="mee3-kv-val">' + shipIco + ' ' + esc(o.shipping || '—') + '</span></div>' +
+        '<div class="mee3-span2"><span class="mee3-kv-label">Địa chỉ giao nhận</span><span class="mee3-kv-val">' + (esc(o.address) || 'Nhận tại cửa hàng') + '</span></div>' +
+        '<div class="mee3-span2"><span class="mee3-kv-label">Mẫu hoa</span><span class="mee3-kv-val multiline">' + multiline(o.flower) + '</span></div>' +
+      '</div>' +
     '</div>' +
-    (allowFullCopy ? '<button type="button" class="btn secondary full" data-mee-order-action="copy" onclick="MEEOPS7.copyOrderById(\'' + o.id + '\')">⧉ Copy toàn bộ thông tin đơn</button>' : '') +
+    (noteBlocks.length ? '<div class="mee3-detail-card mee3-detail-notes-card"><div class="mee3-detail-card-head"><span>GHI CHÚ, THIỆP & TAG</span></div>' + noteBlocks.join('') + '</div>' : '') +
   '</div>';
 }
     function openShipFeeForm(id){var o=orderById(id);if(!o||!o.canShip||!isShop(o.shipping))return toast('Đơn này không thể nhập phí ship.',1);var ov=document.getElementById('overlay');if(!ov)return;var val=o.shipConfirmed?new Intl.NumberFormat('vi-VN').format(o.shipFee):'';ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><form action="javascript:void(0)" class="modal" style="max-width:460px" onsubmit="MEEOPS7.submitShipFee(event,\''+o.id+'\')"><div class="modal-head"><div><h3 style="margin:0">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</h3><div class="sub">'+esc(o.customer)+' · '+esc(o.shipping)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><label>PHÍ SHIP THỰC TẾ</label><input name="shipFee" inputmode="numeric" value="'+attr(val)+'" oninput="MEEOPS7.formatMoneyInput(this)" required autofocus><button class="btn primary full" style="margin-top:16px">Lưu phí ship</button></form></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();}
@@ -1948,7 +2161,40 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
  (S.user.role==='ADMIN'?kpiScoreForm(m,r):'')+'</section>';if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();}
     function kpiScoreForm(month,r){var sales=(S.options.sales&&S.options.sales.length)?S.options.sales:Array.from(new Set((r.items||[]).map(function(x){return x.sale;}).filter(Boolean)));ensureOptions().then(function(){}).catch(function(){});return '<form action="javascript:void(0)" class="section order" onsubmit="MEEOPS7.saveKpiScore(event,\''+month+'\')"><div class="section-head"><h3>CHẤM KPI VẬN HÀNH</h3><span class="sub">Admin</span></div><div class="form-grid">'+selectField('Sale','saleName',sales,'')+field('Ngày xảy ra lỗi','date',today(),true,'date')+'<div class="span2"><label>Loại lỗi</label><select name="error"><option value="FOLLOW_ORDER|5">Không theo sát đơn (-5)</option><option value="WRONG_BRIEF|5">Brief thiếu / sai thông tin mẫu, đơn (-5)</option><option value="UNAUTHORIZED_DISCOUNT|10">Tự ý hạ giá hoa (-10)</option><option value="LATE_SETTLEMENT|10">Chậm tất toán / sót đơn (-10)</option><option value="WRONG_TIME_UPDATE|10">Note sai thời gian / không cập nhật khi thay đổi (-10)</option><option value="CUSTOMER_ATTITUDE|10">Cư xử không đúng mực với khách hàng (-10)</option></select></div>'+field('Số lần','count',1,true,'number')+field('Mã đơn liên quan','orderId','')+area('Ghi chú / minh chứng','note','')+'</div><button class="btn primary" style="margin-top:12px">Lưu phiếu chấm</button></form>';}
     function renderFlowers(){var d=(S.filters.flowers.start||S.filters.flowers.date)+'|'+(S.filters.flowers.end||S.filters.flowers.start||S.filters.flowers.date),r=S.data.flowers[d]||{},el=document.getElementById('content');if(!el)return;el.innerHTML=rangeFilters('flowers')+'<div class="section-head"><div><h3 style="margin:0">NGUYÊN LIỆU THEO ĐƠN</h3><div class="sub">Đếm số đơn có từng loại hoa · không tính tồn/cành</div></div><span class="badge '+(r.reviewCount?'red':'')+'">'+(r.reviewCount||0)+' cần rà soát</span></div><div class="order-grid">'+((r.items||[]).map(function(f){return '<article class="order"><div class="order-top"><b>'+esc(f.name)+'</b><span class="badge">'+f.orders+' đơn</span></div><div class="meta">'+(f.orderList||[]).map(function(x){return esc(x.time+' · '+x.customer);}).join('<br>')+'</div></article>';}).join('')||empty())+'</div>'+(r.reviewCount?'<div class="section"><h3>Cần kiểm tra</h3><div class="order-grid">'+(r.reviewOrders||[]).map(function(x){return '<div class="order"><b>'+esc(x.customer)+'</b><div class="meta">'+esc(x.time)+' · '+esc(x.flower)+'</div></div>';}).join('')+'</div></div>':'');if(window.MEE_MATERIALS_RENDER)window.MEE_MATERIALS_RENDER();if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();}
-    function openOrderForm(id){if(id===void 0)id='';S.currentDrawer='';var o=id?(orderById(id)||{}):{};window._orderRequestId=id?'':safeUuid();renderOrderForm(o,id,!id||!!o.detailLoaded);ensureOptions().then(function(){var sel=document.getElementById('orderSale'),submit=document.getElementById('orderSubmit');if(sel&&S.user.role!=='SALE'){var current=(orderById(id)||o).sale||((!id&&S.user.role==='THO_OPS')?S.user.name:''),sales=S.options.sales||[],opts=current&&!sales.some(function(x){return norm(x)===norm(current);})?[current].concat(sales):sales;sel.disabled=false;sel.innerHTML='<option value="">Chọn Sale phụ trách</option>'+opts.map(function(x){return '<option value="'+attr(x)+'" '+(norm(x)===norm(current)?'selected':'')+'>'+esc(x)+'</option>';}).join('');if(current)sel.value=opts.find(function(x){return norm(x)===norm(current);})||'';else if(S.user.role==='THO_OPS'){var own=opts.find(function(x){return norm(x)===norm(S.user.name);});if(own)sel.value=own;}}if(submit)submit.disabled=false;}).catch(function(e){toast(e.message,1);var submit=document.getElementById('orderSubmit');if(submit&&S.user.role==='ADMIN')submit.disabled=true;});if(id&&!o.detailLoaded)ensureOrderDetail(id).then(function(full){window._editExistingUrls=full.driveUrls||full.imageUrls||[];var f=document.getElementById('orderForm');if(f&&window._editingOrderId===id&&f.dataset.detailReady==='0')renderOrderForm(full,id,true);}).catch(function(e){toast(e.message,1);});}
+    function openOrderForm(id){
+      if(id===void 0)id='';
+      S.currentDrawer='';
+      var o=id?(orderById(id)||{}):{};
+      var hasUnresolvedRefs=id&&(Array.isArray(o.driveUrls)&&o.driveUrls.some(function(u){return /^(?:supabase|r2):\/\//.test(String(u||''))}))&&(!Array.isArray(o.previewUrls)||o.previewUrls.length<o.driveUrls.length);
+      var ready=!id||(!!o.detailLoaded&&!hasUnresolvedRefs);
+      window._orderRequestId=id?'':safeUuid();
+      renderOrderForm(o,id,ready);
+      ensureOptions().then(function(){
+        var sel=document.getElementById('orderSale'),submit=document.getElementById('orderSubmit');
+        if(sel&&S.user.role!=='SALE'){
+          var current=(orderById(id)||o).sale||((!id&&S.user.role==='THO_OPS')?S.user.name:''),sales=S.options.sales||[],opts=current&&!sales.some(function(x){return norm(x)===norm(current);})?[current].concat(sales):sales;
+          sel.disabled=false;
+          sel.innerHTML='<option value="">Chọn Sale phụ trách</option>'+opts.map(function(x){return '<option value="'+attr(x)+'" '+(norm(x)===norm(current)?'selected':'')+'>'+esc(x)+'</option>';}).join('');
+          if(current)sel.value=opts.find(function(x){return norm(x)===norm(current);})||'';
+          else if(S.user.role==='THO_OPS'){var own=opts.find(function(x){return norm(x)===norm(S.user.name);});if(own)sel.value=own;}
+        }
+        if(submit)submit.disabled=false;
+      }).catch(function(e){toast(e.message,1);var submit=document.getElementById('orderSubmit');if(submit&&S.user.role==='ADMIN')submit.disabled=true;});
+      if(id&&!ready){
+        ensureOrderDetail(id,hasUnresolvedRefs).then(function(full){
+          syncEditImageMaps(full);
+          var f=document.getElementById('orderForm');
+          if(f&&window._editingOrderId===id&&f.dataset.detailReady==='0')renderOrderForm(full,id,true);
+        }).catch(function(e){toast(e.message,1);});
+      }
+    }
+
+    window.loadOrdersPage = loadOrdersPage;
+    window.renderOrders = renderOrders;
+    window.gas = gas;
+    window.toast = toast;
+    window.loadPage = loadPage;
+    window.closeOverlay = closeOverlay;
 
     window.__MEE_BOOT_STAGE__ = 'api-export';
     window.MEEOPS7 = {
@@ -1964,7 +2210,10 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
         setOrdersView: setOrdersView,
         setOrderStatusFilter: function(status) {
           S.filters.orders.statusTab = status;
+          S.filters.orders.page = 1;
+          if (window.MEE_UI_V3 && window.MEE_UI_V3.trashState) window.MEE_UI_V3.trashState.active = false;
           renderOrders();
+          loadOrdersPage(false);
         },
         datePickerApply: datePickerApply,
         datePickerMove: datePickerMove,

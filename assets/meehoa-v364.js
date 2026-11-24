@@ -25,23 +25,19 @@
     var active=!!ov.firstElementChild;
     document.body.classList.toggle('mee-overlay-open-v364',active);
     if(!active)return;
-    if(!qs('.mee-overlay-global-close-v364',ov)){
-      var b=document.createElement('button');
-      b.type='button';b.className='mee-overlay-global-close-v364';b.setAttribute('aria-label','Đóng');b.textContent='×';
-      b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();closeActiveOverlay()});
-      ov.appendChild(b);
-    }
-    var panel=qs('.modal,.drawer,.mobile-menu-sheet,.calendar-modal',ov);
+    var panel=qs('.modal,.drawer,.mobile-menu-sheet,.calendar-modal,.mee3-order-drawer-form',ov);
     if(panel&&!panel.dataset.meeScrollInit){panel.dataset.meeScrollInit='1';panel.scrollTop=0}
   }
 
   function openProof(src){
-    var ov=qs('#overlay');if(!ov)return;
+    var ov=qs('#overlay');if(!ov||!src)return;
     qsa('.mee-proof-layer-v364',ov).forEach(function(x){x.remove()});
     var layer=document.createElement('div');layer.className='mee-proof-layer-v364';
-    layer.innerHTML='<div class="modal-bg mee-proof-lightbox-v364"><div class="mee-proof-view-v364"><button class="close" type="button" onclick="window.MEEV364CloseOverlay()">×</button><img src="'+esc(src)+'" alt="Xem ảnh"></div></div>';
+    var ext=/^https?:\/\//i.test(String(src))?'<a class="mee3-proof-ext" href="'+esc(src)+'" target="_blank" rel="noopener">Mở tab mới ↗</a>':'';
+    layer.innerHTML='<div class="modal-bg mee-proof-lightbox-v364"><div class="mee3-proof-toolbar">'+ext+'<button class="close" type="button" aria-label="Đóng ảnh" onclick="window.MEEV364CloseOverlay()">×</button></div><div class="mee-proof-view-v364"><img src="'+esc(src)+'" alt="Xem ảnh"></div></div>';
     ov.appendChild(layer);ensureOverlayControls();
   }
+  window.MEEV364OpenProof=openProof;
 
   function paymentChecks(grid){
     return qsa('.settle-check',grid).filter(function(x){return !x.disabled});
@@ -116,22 +112,36 @@
     return kept;
   }
 
+  function existingDisplaySrc(u,i){
+    var map=window._editPreviewMap||{};
+    if(map[u])return map[u];
+    var list=Array.isArray(window._editPreviewUrls)?window._editPreviewUrls:[];
+    if(list[i])return list[i];
+    return u;
+  }
+  function existingFullSrc(u,i){
+    var map=window._editFullMap||{};
+    if(map[u])return map[u];
+    var list=Array.isArray(window._editFullUrls)?window._editFullUrls:[];
+    if(list[i])return list[i];
+    return existingDisplaySrc(u,i);
+  }
   function renderOrderImageManager(form,input,state){
     var box=qs('.mee-order-image-manager-v364',form);if(!box)return;
     var existing=syncExistingUrls(state);
     var pasted=Array.isArray(window._pasted)?window._pasted:[];
-    var sig=existing.join('||')+'##'+state.newFiles.map(fileKey).join('||')+'##'+pasted.map(fileKey).join('||');
+    var sig=existing.map(function(u,i){return u+'@'+existingDisplaySrc(u,i)}).join('||')+'##'+state.newFiles.map(fileKey).join('||')+'##'+pasted.map(fileKey).join('||');
     if(box.dataset.signature===sig)return;box.dataset.signature=sig;
     var parts=[];
-    existing.forEach(function(u,i){parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(u)+'" alt="Ảnh hiện có"><span>Hiện có</span><button type="button" data-remove-existing="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
-    state.newFiles.forEach(function(f,i){parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(previewForFile(f,state))+'" alt="Ảnh mới"><span>Ảnh mới</span><button type="button" data-remove-new="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
-    pasted.forEach(function(f,i){if(!f)return;parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(previewForFile(f,state))+'" alt="Ảnh paste"><span>Ảnh paste</span><button type="button" data-remove-pasted="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
+    existing.forEach(function(u,i){var thumb=existingDisplaySrc(u,i),full=existingFullSrc(u,i);parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(thumb)+'" data-full-src="'+esc(full)+'" loading="lazy" decoding="async" alt="Ảnh hiện có"><span>Hiện có</span><button type="button" data-remove-existing="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
+    state.newFiles.forEach(function(f,i){var src=previewForFile(f,state);parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(src)+'" data-full-src="'+esc(src)+'" alt="Ảnh mới"><span>Ảnh mới</span><button type="button" data-remove-new="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
+    pasted.forEach(function(f,i){if(!f)return;var src=previewForFile(f,state);parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(src)+'" data-full-src="'+esc(src)+'" alt="Ảnh paste"><span>Ảnh paste</span><button type="button" data-remove-pasted="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
     box.innerHTML=parts.length?'<div class="mee-order-image-grid-v364">'+parts.join('')+'</div><div class="mee-order-image-help-v364">Có '+parts.length+' ảnh sẽ được giữ/lưu. Bấm × trên ảnh để bỏ.</div>':'<div class="mee-order-image-empty-v364">Chưa có ảnh nào được chọn.</div>';
 
-    qsa('[data-remove-existing]',box).forEach(function(b){b.onclick=function(){var idx=Number(b.dataset.removeExisting);var current=Array.isArray(window._editExistingUrls)?window._editExistingUrls.slice():[];var url=current[idx];if(url)state.removedExisting.add(url);window._editExistingUrls=current.filter(function(_,j){return j!==idx});box.dataset.signature='';renderOrderImageManager(form,input,state)}});
+    qsa('[data-remove-existing]',box).forEach(function(b){b.onclick=function(){var idx=Number(b.dataset.removeExisting);var current=Array.isArray(window._editExistingUrls)?window._editExistingUrls.slice():[];var url=current[idx];if(url)state.removedExisting.add(url);window._editExistingUrls=current.filter(function(_,j){return j!==idx});if(Array.isArray(window._editPreviewUrls))window._editPreviewUrls=window._editPreviewUrls.filter(function(_,j){return j!==idx});if(Array.isArray(window._editFullUrls))window._editFullUrls=window._editFullUrls.filter(function(_,j){return j!==idx});box.dataset.signature='';renderOrderImageManager(form,input,state)}});
     qsa('[data-remove-new]',box).forEach(function(b){b.onclick=function(){state.newFiles.splice(Number(b.dataset.removeNew),1);rebuildFileInput(input,state);box.dataset.signature='';renderOrderImageManager(form,input,state)}});
     qsa('[data-remove-pasted]',box).forEach(function(b){b.onclick=function(){var i=Number(b.dataset.removePasted);if(Array.isArray(window._pasted))window._pasted.splice(i,1);box.dataset.signature='';renderOrderImageManager(form,input,state)}});
-    qsa('.mee-order-image-tile-v364 img',box).forEach(function(img){img.onclick=function(){openProof(img.src)}});
+    qsa('.mee-order-image-tile-v364 img',box).forEach(function(img){img.onclick=function(){openProof(img.dataset.fullSrc||img.src)}});
   }
 
   function patchOrderImageUploader(){
@@ -152,15 +162,6 @@
     renderOrderImageManager(form,input,state);
   }
 
-  function patchPaidCopy(){
-    if(!window.S||!['production','orders'].includes(S.page))return;
-    var root=qs('#content');if(!root)return;
-    qsa('.ops-tile,.order:not(.settlement-card),.order-card-mobile',root).forEach(function(card){
-      var walker=document.createTreeWalker(card,NodeFilter.SHOW_TEXT);var n;
-      while((n=walker.nextNode()))if(String(n.nodeValue||'').trim()==='Đã tất toán')n.nodeValue='Bankful full hoa';
-    });
-  }
-
   function patchMaterialsLabel(){
     if(!window.S||S.page!=='flowers')return;
     var d=S.filters&&S.filters.flowers&&S.filters.flowers.date;
@@ -175,7 +176,7 @@
     }
   }
 
-  function contentSync(){patchPayment();patchPaidCopy();patchMaterialsLabel()}
+  function contentSync(){patchPayment();patchMaterialsLabel()}
   function overlaySync(){patchOrderImageUploader();ensureOverlayControls()}
   function patch(){contentSync();overlaySync()}
   function init(){
@@ -186,11 +187,18 @@
       ov.addEventListener('click',function(e){
         var target=e.target;
         if(target&&target.matches&&target.matches('.modal-bg,.drawer-bg')){e.preventDefault();closeActiveOverlay();return}
-        var a=target&&target.closest?target.closest('.thumbs a'):null;
-        if(a&&ov.contains(a)){var img=qs('img',a);if(img){e.preventDefault();e.stopPropagation();openProof(img.src)}}
+        var lb=target&&target.closest?target.closest('[data-lightbox-src]'):null;
+        if(lb&&ov.contains(lb)){e.preventDefault();e.stopPropagation();openProof(lb.getAttribute('data-lightbox-src')||lb.getAttribute('href'));return}
+        var a=target&&target.closest?target.closest('.thumbs a,.mee3-thumb-strip a'):null;
+        if(a&&ov.contains(a)){var img=qs('img',a);if(img){e.preventDefault();e.stopPropagation();openProof(a.dataset.fullSrc||img.dataset.fullSrc||a.getAttribute('href')||img.src)}}
       },true);
     }
-    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&qs('#overlay')&&qs('#overlay').firstElementChild){e.preventDefault();closeActiveOverlay()}});
+    document.addEventListener('keydown',function(e){
+      if(e.key!=='Escape')return;
+      if(qs('#meeInvoicePreview')){e.preventDefault();if(window.MEE_CLOSE_INVOICE)window.MEE_CLOSE_INVOICE();else qs('#meeInvoicePreview').remove();return}
+      if(qs('.mee3-dialog-layer')){e.preventDefault();if(window.MEE_UI_V3)window.MEE_UI_V3.closeDialog();else qs('.mee3-dialog-layer').remove();return}
+      if(qs('#overlay')&&qs('#overlay').firstElementChild){e.preventDefault();closeActiveOverlay()}
+    });
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();

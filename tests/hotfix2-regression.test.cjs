@@ -38,12 +38,12 @@ test('copy contract is canonical, sectioned and newline-safe', () => {
   assert.match(ops, /removeAttribute\('onclick'\)/);
 });
 
-test('admin delete remains canonical and early creation confirmation is removed', () => {
+test('soft delete remains canonical with mandatory reason dialog and early creation confirmation is removed', () => {
   assert.doesNotMatch(ops, /meehoasg-create-status|mee_pending_create|MEEOPS7\.saveOrder=/);
   assert.match(ops, /meehoasg-delete-order/);
-  assert.match(ops, /S\.user\.role!==['"]ADMIN['"]/);
+  assert.match(ops, /openDeleteDialog/);
+  assert.doesNotMatch(ops, /window\.confirm/);
   assert.ok(entry.includes('meehoa-core.js'));
   assert.match(ops, /data-mee-delete-order/);
-  assert.ok(require('node:fs').readFileSync('html','utf8').includes('btn danger full mee-delete-order'));
-  assert.match(ops, /window\.confirm/);
+  assert.ok(require('node:fs').readFileSync('html','utf8').includes('mee-delete-order'));
 });

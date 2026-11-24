@@ -28,7 +28,9 @@ export function normalizeOperationOrder(input,user,current={}) {
   const shipping=clean(d.shipping),shipActive=clean(d.shipFeeActive)==='1';
   if(shipActive&&shipping!=='Shop book ship')throw Error('Phí ship chỉ dùng cho đơn Shop book ship.');
   return {customer:clean(d.customer),phone:clean(d.phone),order_date:date,order_time:t[1].padStart(2,'0')+':'+t[2],
-    flower:clean(d.flower),note:clean(d.note),shipping,address:clean(d.address),flower_total:operationMoney(d.flowerTotal),payment:clean(d.payment),
+    flower:clean(d.flower),note:clean(d.note),
+    tag_note_free:d.tagNoteFree===undefined&&d.tag_note_free===undefined?clean(current.tag_note_free):clean(d.tagNoteFree??d.tag_note_free),
+    shipping,address:clean(d.address),flower_total:operationMoney(d.flowerTotal),payment:clean(d.payment),
     sale:user.role==='SALE'?user.username:clean(d.sale||current.sale||user.username),
     card,card_qty:qty,card_text:clean(d.cardText),banner,banner_qty:bannerQty,banner_text:clean(d.bannerText),
     charm_fee:operationMoney(d.charmFee,true),charm_text:clean(d.charmText),paper_fee:operationMoney(d.paperFee,true),paper_text:clean(d.paperText),vat:operationMoney(d.vat,true),
@@ -57,7 +59,7 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
     const p=payload||{},requestId=clean(p.requestId);
     if(!requestId||requestId.length>128)return operationFailure('Thiếu mã yêu cầu hợp lệ.','REQUEST_ID_REQUIRED');
     const fingerprint=await sha256(JSON.stringify(stable({action,orderId:p.orderId||'',expectedUpdatedAt:p.expectedUpdatedAt||'',
-      order:p.order||null,shipFee:p.shipFee??null,status:p.status||'',settlementId:p.settlementId||'',decision:p.decision||'',reason:p.reason||'',note:p.note||'',billFiles:p.billFiles||[]})));
+      order:p.order||null,shipFee:p.shipFee??null,status:p.status||'',settlementId:p.settlementId||'',decision:p.decision||'',reason:p.reason||'',reasonCode:p.reasonCode||'',note:p.note||'',billFiles:p.billFiles||[]})));
     // Read a completed receipt before uploading; retries never mutate an order.
     const args={p_actor:user.username,p_request_id:requestId,p_action:action,p_fingerprint:fingerprint};
     const receipt=await rpc('mee_ops_lookup',args);if(receipt)return receipt;
@@ -112,6 +114,15 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
     }else if(action==='reviewSettlement'){
       input.settlementId=clean(p.settlementId);input.decision=clean(p.decision).toUpperCase();input.reason=clean(p.reason);
     }else if(action==='updateStatus'){input.status=clean(p.status);}
+    else if(action==='deleteOrder'){
+      const reason=clean(p.reason);
+      if(!reason)return operationFailure('Vui lòng nhập lý do xóa đơn hàng.','DELETE_REASON_REQUIRED');
+      input.reason=reason;
+      input.reasonCode=clean(p.reasonCode||'OTHER').toUpperCase();
+    }else if(action==='restoreOrder'){
+      if(user.role!=='ADMIN')return operationFailure('Chỉ Admin mới có quyền khôi phục đơn hàng.','NOT_OWNER');
+      input.reason=clean(p.reason);
+    }
     submitted=true;
     const result=await rpc('mee_ops_mutate',{...args,p_input:input});
     if(result?.ok===false)await discard(staged);

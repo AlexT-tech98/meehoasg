@@ -1,5 +1,5 @@
-// Canonical delete endpoint: queue, audit and receipt commit through mee_ops_mutate.
-const BUILD='2026.10.09-delete-atomic2';
+// Canonical delete endpoint: soft-delete, audit history and receipt commit through mee_ops_mutate.
+const BUILD='2026.11.25-delete-soft-v3';
 const SUPABASE_URL=Deno.env.get('SUPABASE_URL');
 const SERVICE_KEY=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const clean=v=>String(v??'').trim();
@@ -16,22 +16,19 @@ Deno.serve(async req=>{
  if(req.method!=='POST')return reply({ok:false,message:'POST only'},405);
  if(!SUPABASE_URL||!SERVICE_KEY)return reply({ok:false,message:'Not configured'},503);
  try{
-  const body=await req.json(),token=clean(body.token),orderId=clean(body.orderId);
+  const body=await req.json(),token=clean(body.token),orderId=clean(body.orderId),reason=clean(body.reason),reasonCode=clean(body.reasonCode||'OTHER').toUpperCase();
   if(!/^[0-9a-f]{64}$/i.test(token)||!orderId||orderId.length>128)return reply({ok:false,code:'AUTH_REQUIRED',message:'Thiếu thông tin xóa đơn.'});
   const sessions=await rest('app_sessions',{token_hash:'eq.'+await sha256(token),select:'username,expires_at',limit:'1'}),session=sessions[0],expiry=Date.parse(session?.expires_at);
   if(!session||!Number.isFinite(expiry)||expiry<=Date.now())return reply({ok:false,code:'AUTH_REQUIRED',message:'Phiên đăng nhập không hợp lệ.'});
   const users=await rest('app_users',{username:'eq.'+session.username,select:'username,role,active',limit:'1'}),user=users[0];
   if(!user?.active)return reply({ok:false,code:'AUTH_REQUIRED',message:'Tài khoản đã bị khóa.'});
-  if(user.role!=='ADMIN')return reply({ok:false,code:'NOT_OWNER',message:'Chỉ Admin được xóa đơn.'});
-  // Existing cached clients lack keys/versions. A stable delete intent safely
-  // retries after a lost response or archive; new clients send the viewed version.
-  const requestId=clean(body.requestId)||'delete:'+await sha256(orderId);
+  if(!['ADMIN','SALE','THO_OPS'].includes(user.role))return reply({ok:false,code:'NOT_OWNER',message:'Không có quyền xóa đơn hàng.'});
+  if(!reason)return reply({ok:false,code:'DELETE_REASON_REQUIRED',message:'Vui lòng nhập lý do xóa đơn hàng.'});
+  const requestId=clean(body.requestId)||'delete:'+await sha256(orderId+'|'+reason);
   if(requestId.length>128)return reply({ok:false,code:'REQUEST_ID_REQUIRED',message:'Mã yêu cầu không hợp lệ.'});
-  const args={p_actor:user.username,p_request_id:requestId,p_action:'deleteOrder',p_fingerprint:await sha256(JSON.stringify({orderId}))};
+  const args={p_actor:user.username,p_request_id:requestId,p_action:'deleteOrder',p_fingerprint:await sha256(JSON.stringify({orderId,reason,reasonCode}))};
   let expectedUpdatedAt=clean(body.expectedUpdatedAt);
-  const mutate=()=>rest('rpc/mee_ops_mutate',{},'POST',{...args,p_input:{orderId,expectedUpdatedAt}});
-  // The transaction rechecks the current Admin role before receipt recovery.
-  // A legacy first attempt with no version returns VERSION_REQUIRED without writes.
+  const mutate=()=>rest('rpc/mee_ops_mutate',{},'POST',{...args,p_input:{orderId,expectedUpdatedAt,reason,reasonCode}});
   let result=await mutate();
   if(!expectedUpdatedAt&&result?.code==='VERSION_REQUIRED'){
    const rows=await rest('orders',{id:'eq.'+orderId,select:'updated_at',limit:'1'});

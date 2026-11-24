@@ -63,7 +63,9 @@ test('drawer separates customer note and card content from finance rows',()=>{
   assert.match(html,/Dòng 1<br>Dòng 2/);
   assert.match(html,/Thiệp × 2/);
   assert.match(html,/20\.000 ₫/);
-  const finance=html.slice(html.indexOf('TÀI CHÍNH & THANH TOÁN'));
+  const finStart=html.indexOf('TÀI CHÍNH & THANH TOÁN');
+  const finEnd=html.indexOf('THÔNG TIN ĐƠN HÀNG',finStart);
+  const finance=finEnd>finStart?html.slice(finStart,finEnd):html.slice(finStart);
   assert.doesNotMatch(finance,/Dòng 1|Dòng 2/);
 });
 

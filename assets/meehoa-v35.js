@@ -29,7 +29,7 @@
     ov.innerHTML='<div class="modal-bg mee-calendar-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()">'+
       '<div class="calendar-modal">'+
         '<div class="modal-head"><div><h3 style="margin:0">'+(single?'Chọn ngày':'Chọn khoảng ngày')+'</h3><div class="sub">'+(single?'Chọn ngày cần xem':'Chọn ngày bắt đầu, sau đó chọn ngày kết thúc')+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div>'+
-        '<div class="calendar-shortcuts"><button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'today\')">Hôm nay</button>'+(single?'':'<button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'week\')">7 ngày</button><button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'month\')">Tháng này</button>')+'</div>'+
+        '<div class="calendar-shortcuts"><button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'today\')">Hôm nay</button><button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'tomorrow\')">Ngày mai</button>'+(single?'':'<button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'week\')">7 ngày</button><button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'month\')">Tháng này</button>')+'</div>'+
         '<div class="calendar-head"><button type="button" class="calendar-nav" onclick="MEEOPS7.datePickerMonth(-1)">‹</button><strong>'+monthLabel(x.month)+'</strong><button type="button" class="calendar-nav" onclick="MEEOPS7.datePickerMonth(1)">›</button></div>'+
         '<div class="calendar-grid"><div class="calendar-dow">T2</div><div class="calendar-dow">T3</div><div class="calendar-dow">T4</div><div class="calendar-dow">T5</div><div class="calendar-dow">T6</div><div class="calendar-dow">T7</div><div class="calendar-dow">CN</div>'+cells.join('')+'</div>'+
         (single?'':'<div class="calendar-selection '+(x.start&&!x.end?'mee-range-waiting':'')+'"><div><b>'+dateVN2(x.start)+'</b><div class="sub">Bắt đầu</div></div><span>→</span><div style="text-align:right"><b>'+endText+'</b><div class="sub">Kết thúc</div></div></div>')+
@@ -70,6 +70,7 @@
     MEEOPS7.datePickerShortcut=function(which){
       var x=window._meeDatePicker;if(!x)return;var t=todayISO();
       if(which==='today'){x.start=t;x.end=t}
+      else if(which==='tomorrow'){var tm=addDays(t,1);x.start=tm;x.end=tm}
       else if(which==='week'){x.start=t;x.end=addDays(t,6)}
       else{var d=new Date(),s=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-01',e=new Date(d.getFullYear(),d.getMonth()+1,0);x.start=s;x.end=e.getFullYear()+'-'+pad(e.getMonth()+1)+'-'+pad(e.getDate())}
       x.freshRange=false;x.awaitingEnd=false;x.month=monthStart(x.start);renderMeeRangePicker();
@@ -114,7 +115,7 @@
     if(!window.S)return;var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],ov=qs('#overlay');if(!r||!ov)return;
     var item=(r.items||[]).find(function(x){return x.name===name});if(!item)return;
     var orders=(item.orderList||[]).map(function(x){return '<article class="mee-material-order"><div class="mee-material-order-top"><div><b>'+esc(x.customer||'Chưa rõ khách')+'</b><div class="sub">'+esc((x.time||'—')+' · '+dateVN2(x.date||d))+'</div></div><span class="badge">'+esc(name)+'</span></div><div class="flower-copy">'+esc(x.flower||'')+'</div>'+(x.id?'<button type="button" class="btn" data-open-order="'+attr(x.id)+'">Mở đơn hàng</button>':'')+'</article>'}).join('');
-    ov.innerHTML='<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer"><div class="drawer-head"><div><h3 style="margin:0">'+esc(name)+'</h3><div class="sub">'+Number(item.orders||0)+' đơn cần loại hoa này</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="mee-material-drawer-list">'+(orders||'<div class="empty">Không có đơn.</div>')+'</div></aside></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
+    ov.innerHTML='<div class="drawer-bg mee3-drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer mee3-drawer" aria-label="Nguyên liệu theo đơn"><header class="drawer-head mee3-drawer-head"><div><h3 class="mee3-drawer-title">'+esc(name)+'</h3><div class="mee3-drawer-sub">'+Number(item.orders||0)+' đơn cần loại hoa này</div></div><button type="button" class="close" aria-label="Đóng" onclick="MEEOPS7.closeOverlay()">×</button></header><div class="mee3-drawer-body"><div class="mee-material-drawer-list">'+(orders||'<div class="empty">Không có đơn.</div>')+'</div></div><footer class="mee3-drawer-foot"><button type="button" class="btn secondary" onclick="MEEOPS7.closeOverlay()">Đóng</button></footer></aside></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
     qsa('[data-open-order]',ov).forEach(function(btn){btn.addEventListener('click',function(){var id=btn.dataset.openOrder;if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();setTimeout(function(){if(window.MEEOPS7&&MEEOPS7.openDrawer)MEEOPS7.openDrawer(id,'production')},0)})});
   }
 
