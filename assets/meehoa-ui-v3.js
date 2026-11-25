@@ -220,7 +220,7 @@
   }
 
   /* Admin Trash State & Renderer (TC-14, TC-15) */
-  var trashState = { active: false, loading: false, q: '', page: 1, data: null, error: '' };
+  var trashState = { active: false, loading: false, q: '', page: 1, paymentAuditOnly: false, data: null, error: '' };
 
   async function loadTrash(force){
     if(!window.S || !S.user || S.user.role !== 'ADMIN') return;
@@ -228,7 +228,7 @@
     trashState.error = '';
     if(window.renderOrders) window.renderOrders();
     try{
-      var r = await window.gas('getDeletedOrders', { q: trashState.q, page: trashState.page, pageSize: 40 });
+      var r = await window.gas('getDeletedOrders', { q: trashState.q, page: trashState.page, pageSize: 40, paymentAuditOnly: trashState.paymentAuditOnly });
       if(!r || !r.ok) throw new Error((r && r.message) || 'Không tải được Thùng rác.');
       trashState.data = r;
     }catch(e){
@@ -243,6 +243,7 @@
   function renderTrashMarkup(){
     var d = trashState.data || { items: [], total: 0 };
     var items = d.items || [];
+    var auditSum = d.paymentAuditSummary || { count: 0, totalCollected: 0, totalDebt: 0 };
     var cards = items.map(function(o){
       var hist = (o.deletionHistory || []).slice(0, 4).map(function(h){
         var verb = h.eventType === 'RESTORE' ? 'Khôi phục' : 'Xóa';
@@ -271,10 +272,15 @@
       '</article>';
     }).join('');
 
+    var auditFilterBtn = auditSum.count > 0
+      ? '<button type="button" class="mee3-trash-filter-btn' + (trashState.paymentAuditOnly ? ' is-active' : '') + '" onclick="window.MEE_UI_V3.toggleTrashPaymentAudit()">' + icon('alert', 'mee3-ico-sm') + ' Có phát sinh thu tiền (' + auditSum.count + ' · ' + esc(vnd(auditSum.totalCollected)) + ')</button>'
+      : '';
+
     return '<div class="mee3-trash-shell">' +
       '<div class="mee3-trash-banner">' +
         '<div><b>Thùng rác đơn hàng (' + Number(d.total || 0) + ')</b><div style="font-size:12px;color:var(--v3-muted)">Chỉ Admin được xem và khôi phục. Không có xóa vĩnh viễn để đảm bảo an toàn kiểm toán.</div></div>' +
         '<div class="mee3-trash-search">' +
+          auditFilterBtn +
           '<input type="search" id="mee3TrashSearch" value="' + esc(trashState.q) + '" placeholder="Tìm mã đơn, khách, người xóa, lý do…" onkeydown="if(event.key===\'Enter\')window.MEE_UI_V3.searchTrash(this.value)">' +
           '<button type="button" class="btn secondary" onclick="window.MEE_UI_V3.searchTrash((document.getElementById(\'mee3TrashSearch\')||{}).value||\'\')">Tìm</button>' +
           '<button type="button" class="btn secondary" onclick="window.MEE_UI_V3.closeTrash()">← Quay lại Đơn hàng</button>' +
@@ -282,7 +288,7 @@
       '</div>' +
       (trashState.loading ? '<div class="empty">Đang tải Thùng rác…</div>' :
         trashState.error ? '<div class="empty">' + esc(trashState.error) + '</div>' :
-        (cards ? '<div class="mee3-trash-list">' + cards + '</div>' : '<div class="empty">Thùng rác đang trống.</div>')) +
+        (cards ? '<div class="mee3-trash-list">' + cards + '</div>' : '<div class="empty">' + (trashState.paymentAuditOnly ? 'Không có đơn đã xóa nào có phát sinh thu tiền.' : 'Thùng rác đang trống.') + '</div>')) +
     '</div>';
   }
 
@@ -341,6 +347,11 @@
       },
       searchTrash: function(q){
         trashState.q = String(q || '').trim();
+        trashState.page = 1;
+        loadTrash(true);
+      },
+      toggleTrashPaymentAudit: function(){
+        trashState.paymentAuditOnly = !trashState.paymentAuditOnly;
         trashState.page = 1;
         loadTrash(true);
       },

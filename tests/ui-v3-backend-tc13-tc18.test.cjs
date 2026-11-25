@@ -150,7 +150,7 @@ test('TC-14/TC-15/TC-16: Soft delete ownership matrix, mandatory reason, financi
   await pg.query("insert into public.settlement_requests (id, order_id, sale_username, status) values ('SET-1', 'MEE-PEND', 'sale1', 'PENDING')");
 
   // 1. Empty or whitespace reason rejected
-  const noReason = await mutate(pg, 'sale1', 'r-del-noreason', 'deleteOrder', {
+  const noReason = await mutate(pg, 'admin', 'r-del-noreason', 'deleteOrder', {
     orderId: 'MEE-S1', expectedUpdatedAt: s1.row.updated_at, reason: '   ', reasonCode: 'OTHER'
   });
   assert.equal(noReason.ok, false);
@@ -192,13 +192,33 @@ test('TC-14/TC-15/TC-16: Soft delete ownership matrix, mandatory reason, financi
     assert.equal(blocked.code, 'ORDER_LOCKED');
   }
 
-  // 5. SALE deletes own order with partial deposit -> succeeds and preserves payment & images
-  const saleOwn = await mutate(pg, 'sale1', 'r-sale-own', 'deleteOrder', {
+  // 5. SALE CANNOT self-delete own order that already collected deposit (paid > 0) -> PAYMENT_RECONCILIATION_REQUIRED
+  const salePaidBlocked = await mutate(pg, 'sale1', 'r-sale-paid-block', 'deleteOrder', {
     orderId: 'MEE-S1', expectedUpdatedAt: s1.row.updated_at, reason: 'Khách hủy đơn', reasonCode: 'CUSTOMER_CANCELLED'
   });
-  assert.equal(saleOwn.ok, true);
-  assert.equal(saleOwn.row.payment, 'Cọc 200k');
-  assert.equal(saleOwn.row.image_urls.length, 1);
+  assert.equal(salePaidBlocked.ok, false);
+  assert.equal(salePaidBlocked.code, 'PAYMENT_RECONCILIATION_REQUIRED');
+
+  // SALE CAN delete own UNPAID order (paid = 0)
+  const s1Unpaid = await mutate(pg, 'sale1', 'r-s1-unpaid', 'createOrder', {
+    newOrderId: 'MEE-S1-UNPAID',
+    order: baseOrder({ sale: 'sale1', payment: 'Chưa thanh toán' })
+  });
+  const saleOwnUnpaid = await mutate(pg, 'sale1', 'r-sale-own-unpaid', 'deleteOrder', {
+    orderId: 'MEE-S1-UNPAID', expectedUpdatedAt: s1Unpaid.row.updated_at, reason: 'Tạo nhầm đơn', reasonCode: 'CREATED_BY_MISTAKE'
+  });
+  assert.equal(saleOwnUnpaid.ok, true);
+  assert.equal(saleOwnUnpaid.hadPayment, false);
+
+  // ADMIN CAN soft-delete deposited order (MEE-S1, Cọc 200k) with mandatory reason -> preserves payment, images, and flags hadPayment=true for reconciliation
+  const adminPaidDel = await mutate(pg, 'admin', 'r-admin-paid-del', 'deleteOrder', {
+    orderId: 'MEE-S1', expectedUpdatedAt: s1.row.updated_at, reason: 'Khách hủy đơn đã cọc', reasonCode: 'CUSTOMER_CANCELLED'
+  });
+  assert.equal(adminPaidDel.ok, true);
+  assert.equal(adminPaidDel.hadPayment, true);
+  assert.equal(Number(adminPaidDel.paidAmount), 200000);
+  assert.equal(adminPaidDel.row.payment, 'Cọc 200k');
+  assert.equal(adminPaidDel.row.image_urls.length, 1);
 
   // 6. ADMIN deletes another Sale's eligible order -> succeeds
   const adminDel = await mutate(pg, 'admin', 'r-admin-del', 'deleteOrder', {
@@ -211,7 +231,7 @@ test('TC-14/TC-15/TC-16: Soft delete ownership matrix, mandatory reason, financi
   // 7. Restore denied for SALE and THO_OPS
   for (const actor of ['sale1', 'tho1']) {
     const denied = await mutate(pg, actor, 'r-res-deny-' + actor, 'restoreOrder', {
-      orderId: 'MEE-S1', expectedUpdatedAt: saleOwn.row.updated_at
+      orderId: 'MEE-S1', expectedUpdatedAt: adminPaidDel.row.updated_at
     });
     assert.equal(denied.ok, false);
     assert.equal(denied.code, 'NOT_OWNER');
@@ -219,23 +239,23 @@ test('TC-14/TC-15/TC-16: Soft delete ownership matrix, mandatory reason, financi
 
   // 8. ADMIN restores MEE-S1 in-place; history preserved across restore + second delete
   const restored = await mutate(pg, 'admin', 'r-res-ok', 'restoreOrder', {
-    orderId: 'MEE-S1', expectedUpdatedAt: saleOwn.row.updated_at, reason: 'Khách đặt lại'
+    orderId: 'MEE-S1', expectedUpdatedAt: adminPaidDel.row.updated_at, reason: 'Khách đặt lại'
   });
   assert.equal(restored.ok, true);
   assert.equal(restored.row.id, 'MEE-S1');
   assert.equal(restored.row.is_deleted, false);
   assert.equal(restored.row.restored_by, 'admin');
   assert.ok(restored.row.restored_at);
-  assert.equal(restored.row.deleted_reason, 'Khách hủy đơn', 'Last deletion reason retained on row');
+  assert.equal(restored.row.deleted_reason, 'Khách hủy đơn đã cọc', 'Last deletion reason retained on row');
 
-  const delAgain = await mutate(pg, 'sale1', 'r-del-again', 'deleteOrder', {
+  const delAgain = await mutate(pg, 'admin', 'r-del-again', 'deleteOrder', {
     orderId: 'MEE-S1', expectedUpdatedAt: restored.row.updated_at, reason: 'Khách đổi ý lần 2', reasonCode: 'OTHER'
   });
   assert.equal(delAgain.ok, true);
 
   const hist = (await pg.query("select event_type, actor_username, reason_text as reason from public.order_deletion_history where order_id = 'MEE-S1' order by id asc")).rows;
   assert.deepEqual(hist.map(h => h.event_type), ['DELETE', 'RESTORE', 'DELETE']);
-  assert.equal(hist[0].reason, 'Khách hủy đơn');
+  assert.equal(hist[0].reason, 'Khách hủy đơn đã cọc');
   assert.equal(hist[1].reason, 'Khách đặt lại');
   assert.equal(hist[2].reason, 'Khách đổi ý lần 2');
 
@@ -493,4 +513,198 @@ test('TC-14/TC-18: Edge core getDeletedOrders auth, soft-delete exclusion across
   const prod = await adminCore.fastProduction({ date: '2026-11-25' });
   assert.equal(prod.orders.length, 1);
   assert.equal(prod.orders[0].id, 'MEE-ACT');
+
+  // Task 4.2: fastDebt exposes deletedWithPaymentAudit without altering active summary.debt/items
+  adminCore.all = async (table, q) => {
+    if (table !== 'orders') return [];
+    if (q && q.is_deleted === 'is.true') return [{
+      id: 'MEE-DEL-PAID', updated_at: '2026-11-25T00:00:00Z', customer: 'Khách cọc đã xóa', phone: '0901112222', address: '',
+      order_date: '2026-11-25', order_time: '11:00', flower: 'Hồng', note: '', tag_note_free: '',
+      shipping: 'Ghé lấy', flower_total: 700000, payment: 'Cọc 300k', sale: 'sale1', status: 'Chờ bó',
+      settled: false, full_paid: false, full_paid_bill_urls: [], image_urls: [],
+      is_deleted: true, deleted_at: '2026-11-25T02:00:00Z', deleted_by: 'admin', deleted_by_role: 'ADMIN',
+      deleted_reason: 'Khách hủy đơn đã cọc', deleted_reason_code: 'CUSTOMER_CANCELLED'
+    }];
+    return [{
+      id: 'MEE-ACT-DEBT', updated_at: '2026-11-25T00:00:00Z', customer: 'Khách nợ active', phone: '', address: '',
+      order_date: '2026-11-25', order_time: '10:00', flower: 'Tulip', note: '', tag_note_free: '',
+      shipping: 'Ghé lấy', flower_total: 500000, payment: 'Chưa thanh toán', sale: 'sale1', status: 'Chờ bó',
+      settled: false, full_paid: false, full_paid_bill_urls: [], image_urls: [], is_deleted: false
+    }];
+  };
+  const debtRes = await adminCore.fastDebt({ start: '2026-11-25', end: '2026-11-25' });
+  assert.equal(debtRes.items.length, 1);
+  assert.equal(debtRes.summary.debt, 500000);
+  assert.equal(debtRes.deletedWithPaymentAudit.count, 1);
+  assert.equal(debtRes.deletedWithPaymentAudit.totalCollected, 300000);
+  assert.equal(debtRes.deletedWithPaymentAudit.items[0].id, 'MEE-DEL-PAID');
+});
+
+test('RC2 Ownership Hardening: duplicate display_name fails closed & sale reassignment revokes previous owner', async () => {
+  const pg = await createDb();
+  await pg.exec(`
+    insert into public.app_users(username, password_hash, display_name, role, active) values
+      ('dup_lan_1', 'h', 'Lan', 'SALE', true),
+      ('dup_lan_2', 'h', 'Lan', 'SALE', true);
+  `);
+
+  // 1. Creating order with ambiguous display_name 'Lan' is rejected with SALE_AMBIGUOUS
+  const ambigCreate = await mutate(pg, 'admin', 'r-ambig-create', 'createOrder', {
+    newOrderId: 'MEE-AMB-1',
+    order: baseOrder({ sale: 'Lan' })
+  });
+  assert.equal(ambigCreate.ok, false);
+  assert.equal(ambigCreate.code, 'SALE_AMBIGUOUS');
+
+  // 2. Creating order with exact username 'dup_lan_1' succeeds and ONLY dup_lan_1 owns it
+  const exactCreate = await mutate(pg, 'admin', 'r-exact-create', 'createOrder', {
+    newOrderId: 'MEE-EXACT-1',
+    order: baseOrder({ sale: 'dup_lan_1', payment: 'Chưa thanh toán' })
+  });
+  assert.equal(exactCreate.ok, true);
+  const ownerCheck = (await pg.query(`
+    select username, public.mee_ops_owner('dup_lan_1', u) as owns_exact,
+           public.mee_ops_owner('Lan', u) as owns_ambig
+    from public.app_users u where username in ('dup_lan_1', 'dup_lan_2') order by username
+  `)).rows;
+  assert.equal(ownerCheck[0].owns_exact, true);
+  assert.equal(ownerCheck[1].owns_exact, false);
+  assert.equal(ownerCheck[0].owns_ambig, false, 'Ambiguous legacy display_name must fail closed');
+  assert.equal(ownerCheck[1].owns_ambig, false, 'Ambiguous legacy display_name must fail closed');
+
+  // 3. Legacy row storing ambiguous display_name 'Lan': neither dup_lan_1 nor dup_lan_2 can delete/edit it
+  await pg.query(`
+    insert into public.orders(id, customer, phone, order_date, order_time, flower, note, shipping, address, flower_total, payment, sale, status)
+    values ('MEE-LEG-AMB', 'Khách cũ', '0900000000', '2026-11-25', '10:00', 'Hồng', '', 'Ghé lấy', '', 400000, 'Chưa thanh toán', 'Lan', 'Chờ bó')
+  `);
+  const legUpdatedAt = (await pg.query("select updated_at from public.orders where id = 'MEE-LEG-AMB'")).rows[0].updated_at;
+  for (const actor of ['dup_lan_1', 'dup_lan_2']) {
+    const delTry = await mutate(pg, actor, 'r-amb-del-' + actor, 'deleteOrder', {
+      orderId: 'MEE-LEG-AMB', expectedUpdatedAt: legUpdatedAt, reason: 'Khách hủy đơn', reasonCode: 'CUSTOMER_CANCELLED'
+    });
+    assert.equal(delTry.ok, false);
+    assert.equal(delTry.code, 'NOT_OWNER');
+  }
+
+  // 4. Reassigning order from sale1 -> sale2 revokes sale1 immediately and grants sale2
+  const owned = await mutate(pg, 'sale1', 'r-own-create', 'createOrder', {
+    newOrderId: 'MEE-REASSIGN-1',
+    order: baseOrder({ sale: 'sale1', payment: 'Chưa thanh toán' })
+  });
+  assert.equal(owned.ok, true);
+  const reassigned = await mutate(pg, 'admin', 'r-own-reassign', 'updateOrder', {
+    orderId: 'MEE-REASSIGN-1',
+    expectedUpdatedAt: owned.row.updated_at,
+    order: baseOrder({ sale: 'sale2', payment: 'Chưa thanh toán' })
+  });
+  assert.equal(reassigned.ok, true);
+  assert.equal(reassigned.row.sale, 'sale2');
+
+  const oldOwnerEdit = await mutate(pg, 'sale1', 'r-old-edit', 'updateOrder', {
+    orderId: 'MEE-REASSIGN-1',
+    expectedUpdatedAt: reassigned.row.updated_at,
+    order: baseOrder({ sale: 'sale1', flower: 'Hijack' })
+  });
+  assert.equal(oldOwnerEdit.ok, false);
+  assert.equal(oldOwnerEdit.code, 'NOT_OWNER');
+
+  const oldOwnerDel = await mutate(pg, 'sale1', 'r-old-del', 'deleteOrder', {
+    orderId: 'MEE-REASSIGN-1',
+    expectedUpdatedAt: reassigned.row.updated_at,
+    reason: 'Khách hủy đơn', reasonCode: 'CUSTOMER_CANCELLED'
+  });
+  assert.equal(oldOwnerDel.ok, false);
+  assert.equal(oldOwnerDel.code, 'NOT_OWNER');
+
+  const newOwnerDel = await mutate(pg, 'sale2', 'r-new-del', 'deleteOrder', {
+    orderId: 'MEE-REASSIGN-1',
+    expectedUpdatedAt: reassigned.row.updated_at,
+    reason: 'Khách hủy đơn', reasonCode: 'CUSTOMER_CANCELLED'
+  });
+  assert.equal(newOwnerDel.ok, true);
+
+  // 5. Edge JS saleDirectory() & canonicalSale() match SQL fail-closed semantics on duplicate display_name
+  const source = fs.readFileSync(path.join(ROOT, 'supabase/functions/meehoasg-api-core/index.js'), 'utf8').replace(/^import .*\n/gm, '');
+  const c = {
+    console, TextEncoder, URL, Date, Intl, crypto: webcrypto,
+    createOperationService: () => ({ run: async () => ({ ok: true }) }),
+    createOperationStorage: () => ({}),
+    Deno: { env: { get: () => '' }, serve() {} }
+  };
+  vm.createContext(c);
+  vm.runInContext(source, c);
+  c.all = async () => [
+    { username: 'dup_lan_1', display_name: 'Lan', role: 'SALE', active: true },
+    { username: 'dup_lan_2', display_name: 'Lan', role: 'SALE', active: true },
+    { username: 'sale_unique', display_name: 'Minh', role: 'SALE', active: true }
+  ];
+  const dir = await c.saleDirectory();
+  assert.equal(c.canonicalSale('dup_lan_1', dir).username, 'dup_lan_1');
+  assert.equal(c.canonicalSale('dup_lan_2', dir).username, 'dup_lan_2');
+  assert.equal(c.canonicalSale('Minh', dir).username, 'sale_unique');
+  const ambigCanon = c.canonicalSale('Lan', dir);
+  assert.equal(ambigCanon.known, false);
+  assert.equal(ambigCanon.ambiguous, true);
+  assert.equal(ambigCanon.username, '');
+
+  await pg.close();
+});
+
+test('RC2 Rollback & Backwards Compatibility: Old FE + New API/DB preserves tag_note_free & hides soft-deleted orders across backup/restore', async () => {
+  const pg = await createDb();
+
+  // 1. Create order with tag_note_free and a second order then soft-delete it
+  const activeTag = await mutate(pg, 'sale1', 'r-rb-1', 'createOrder', {
+    newOrderId: 'MEE-RB-TAG',
+    order: baseOrder({ sale: 'sale1', tag_note_free: 'Chúc mừng khai trương phát đạt' })
+  });
+  assert.equal(activeTag.ok, true);
+  assert.equal(activeTag.row.tag_note_free, 'Chúc mừng khai trương phát đạt');
+
+  const toDel = await mutate(pg, 'sale1', 'r-rb-2', 'createOrder', {
+    newOrderId: 'MEE-RB-DEL',
+    order: baseOrder({ sale: 'sale1', tag_note_free: 'Tag của đơn đã xóa', payment: 'Chưa thanh toán' })
+  });
+  const delRes = await mutate(pg, 'sale1', 'r-rb-3', 'deleteOrder', {
+    orderId: 'MEE-RB-DEL', expectedUpdatedAt: toDel.row.updated_at, reason: 'Khách hủy đơn', reasonCode: 'CUSTOMER_CANCELLED'
+  });
+  assert.equal(delRes.ok, true);
+
+  // 2. Old Frontend (40667052) sends updateOrder WITHOUT tag_note_free -> MUST preserve existing tag_note_free
+  const legacyOrderPayload = baseOrder({ sale: 'sale1', note: 'Sửa từ FE cũ' });
+  delete legacyOrderPayload.tag_note_free;
+  const legacyEdit = await mutate(pg, 'sale1', 'r-rb-4', 'updateOrder', {
+    orderId: 'MEE-RB-TAG',
+    expectedUpdatedAt: activeTag.row.updated_at,
+    order: legacyOrderPayload
+  });
+  assert.equal(legacyEdit.ok, true);
+  assert.equal(legacyEdit.row.note, 'Sửa từ FE cũ');
+  assert.equal(legacyEdit.row.tag_note_free, 'Chúc mừng khai trương phát đạt', 'Old FE edit must NOT wipe tag_note_free');
+
+  // 3. Old Frontend (40667052) calls legacy 5-arg mee_search_orders_page -> works & NEVER resurfaces soft-deleted order
+  const legacySearch = (await pg.query(
+    "select public.mee_search_orders_page('', '2026-11-25', '2026-11-25', 80, 0) as res"
+  )).rows[0].res;
+  assert.equal(legacySearch.total, 1);
+  assert.deepEqual(legacySearch.rows.map(r => r.id), ['MEE-RB-TAG']);
+
+  // 4. Snapshot backup/restore roundtrip preserves tag_note_free, is_deleted, deleted_reason & order_deletion_history
+  const dump = await pg.dumpDataDir();
+  const restoredPg = new PGlite({ loadDataDir: dump });
+  try {
+    const tagRow = (await restoredPg.query("select tag_note_free, is_deleted from public.orders where id = 'MEE-RB-TAG'")).rows[0];
+    const delRow = (await restoredPg.query("select tag_note_free, is_deleted, deleted_reason from public.orders where id = 'MEE-RB-DEL'")).rows[0];
+    const histCnt = (await restoredPg.query("select count(*)::int as c from public.order_deletion_history where order_id = 'MEE-RB-DEL'")).rows[0].c;
+    assert.equal(tagRow.tag_note_free, 'Chúc mừng khai trương phát đạt');
+    assert.equal(tagRow.is_deleted, false);
+    assert.equal(delRow.tag_note_free, 'Tag của đơn đã xóa');
+    assert.equal(delRow.is_deleted, true);
+    assert.equal(delRow.deleted_reason, 'Khách hủy đơn');
+    assert.equal(histCnt, 1);
+  } finally {
+    await restoredPg.close();
+  }
+
+  await pg.close();
 });

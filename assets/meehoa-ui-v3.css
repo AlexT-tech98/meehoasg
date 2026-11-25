@@ -1554,10 +1554,93 @@ body .fab {
   z-index: var(--v3-z-invoice);
 }
 
+/* Debt Review Deleted-with-Payment Audit Banner & Card Payment Subtext */
+.mee3-debt-audit-banner {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: var(--v3-radius-md);
+  border: 1px solid var(--v3-warning-border);
+  background: var(--v3-warning-bg);
+  color: var(--v3-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mee3-debt-audit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mee3-debt-audit-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--v3-warning);
+}
+.mee3-debt-audit-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+}
+.mee3-debt-audit-item {
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-warning-border);
+  border-radius: var(--v3-radius);
+  padding: 9px 11px;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mee3-debt-audit-item-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  align-items: baseline;
+}
+.mee3-card-pay-sub {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--v3-text-soft);
+  margin-right: 4px;
+}
+.mee3-trash-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: var(--v3-radius);
+  border: 1px solid var(--v3-warning-border);
+  background: var(--v3-warning-bg);
+  color: var(--v3-warning);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mee3-trash-filter-btn.is-active {
+  background: var(--v3-warning);
+  border-color: var(--v3-warning);
+  color: #FFFFFF;
+}
+.mee3-drawer-audit-hint {
+  font-size: 11.5px;
+  color: var(--v3-warning);
+  background: var(--v3-warning-bg);
+  border: 1px solid var(--v3-warning-border);
+  border-radius: var(--v3-radius);
+  padding: 5px 9px;
+  line-height: 1.3;
+}
+
 /* ===== RESPONSIVE MOBILE OPTIMIZATION (DC-04, TC-03, TC-11) ===== */
 @media (max-width: 900px) {
   .mee3-orders-header {
-    padding: 12px 14px;
+    padding: 10px 12px;
   }
   .mee3-grid {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -1565,30 +1648,87 @@ body .fab {
 }
 
 @media (max-width: 760px) {
+  body.mee-ui-v3 .topbar {
+    height: auto;
+    min-height: 48px;
+    padding: 5px 10px;
+    gap: 6px;
+  }
+  body.mee-ui-v3 .topbar .mee-menu-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+  body.mee-ui-v3 .topbar #globalSearchInput {
+    height: 34px;
+    font-size: 13px;
+  }
+  body.mee-ui-v3 .topbar .mee3-topbar-create {
+    height: 34px;
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
+  body.mee-ui-v3 .content {
+    padding: 6px 10px calc(84px + env(safe-area-inset-bottom));
+  }
   .mee3-orders {
-    gap: 10px;
+    gap: 6px;
   }
   .mee3-orders-header {
-    padding: 10px 12px;
-    gap: 8px;
-    border-radius: var(--v3-radius-md);
+    padding: 6px 10px;
+    gap: 6px;
+    border-radius: var(--v3-radius);
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .mee3-orders-title-group {
+    flex: 0 1 auto;
+    gap: 2px;
+  }
+  .mee3-orders-title-row {
+    gap: 6px;
   }
   .mee3-orders-title {
-    font-size: 15.5px;
+    font-size: 14.5px;
+    line-height: 1.2;
+  }
+  .mee3-orders-scope-pill {
+    font-size: 11px;
+    padding: 2px 7px;
+  }
+  .mee3-hide-mobile {
+    display: none;
   }
   .mee3-orders-sub {
     display: none;
   }
   .mee3-orders-controls {
-    width: 100%;
-    justify-content: space-between;
+    width: auto;
+    flex: 0 1 auto;
+    gap: 6px;
+    justify-content: flex-end;
   }
   .mee3-orders-controls .date-filter-btn {
-    height: 33px;
-    padding: 0 10px;
-    font-size: 12px;
+    height: 30px;
+    padding: 0 8px;
+    font-size: 11.5px;
+    border-radius: 7px;
+  }
+  .mee3-trash-btn {
+    height: 30px;
+    padding: 0 8px;
+    font-size: 11.5px;
+    border-radius: 7px;
   }
   .mee3-view-toggle {
+    display: none;
+  }
+  .mee3-filter-bar {
+    gap: 4px;
+  }
+  .mee3-showing-meta {
     display: none;
   }
   .mee3-orders.mee3-view-table .mee3-table-wrap {
@@ -1599,7 +1739,7 @@ body .fab {
   }
   .mee3-grid {
     grid-template-columns: 1fr;
-    gap: 9px;
+    gap: 8px;
   }
   .mee3-card {
     padding: 10px 12px;
@@ -1614,13 +1754,18 @@ body .fab {
   .mee3-card-customer {
     font-size: 14px;
   }
-  .mee3-tab {
-    height: 31px;
-    padding: 0 10px;
-    font-size: 12px;
+  .mee3-tabs {
+    gap: 5px;
+    padding-bottom: 1px;
   }
-  .mee3-showing-meta {
+  .mee3-tab {
+    height: 29px;
+    padding: 0 9px;
     font-size: 11.5px;
+  }
+  .mee3-tab-count {
+    font-size: 10.5px;
+    padding: 0 5px;
   }
   #overlay .mee3-drawer,
   #overlay form#orderForm.mee3-order-drawer-form {

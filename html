@@ -1906,13 +1906,15 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
         '<div class="mee3-card-thumb-empty order-card-mobile-thumb-empty">' + v3Icon('flower', 'mee3-ico-lg') + '</div>';
 
     var hasDebt = Number(o.debt) > 0;
+    var payLabel = paymentLabel(o);
     var debtCls = hasDebt ? 'mee3-card-debt has-debt' : (o.paymentVerified ? 'mee3-card-debt is-paid' : 'mee3-card-debt');
-    var debtText = hasDebt ? ('Nợ ' + vnd(o.debt)) : (o.fullPaid ? 'Full Paid · 0 ₫' : (o.settled ? 'Đã tất toán · 0 ₫' : paymentLabel(o)));
+    var debtText = hasDebt ? ('Nợ ' + vnd(o.debt)) : (o.fullPaid ? payLabel : (o.settled ? 'Đã tất toán · 0 ₫' : payLabel));
+    var paySubHtml = (hasDebt && Number(o.paid) > 0 && payLabel) ? '<span class="mee3-card-pay-sub">' + esc(payLabel) + ' ·</span>' : '';
     var accPills = orderAccessoryPills(o);
     var hasTagFree = Boolean(String(o.tagNoteFree || '').trim());
 
     return '<article tabindex="0" role="button" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}" class="mee3-card order-card-mobile mee-orders-card' + (o.hasAccessories ? ' has-accessories' : '') + '" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'orders\')">' +
-      '<div class="mee3-card-head">' +
+      '<div class="mee3-card-head order-card-mobile-top">' +
         '<span class="mee3-card-time mee3-num">' + v3Icon('clock', 'mee3-ico-sm') + ' <b>' + esc(timeVN(o.time)) + '</b> · ' + dateVN(o.date) + '</span>' +
         '<span class="mee3-badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' +
       '</div>' +
@@ -1930,9 +1932,9 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
           '</div>' : '') +
         '</div>' +
       '</div>' +
-      '<div class="mee3-card-foot">' +
+      '<div class="mee3-card-foot order-card-mobile-footer">' +
         '<div class="mee3-card-price-wrap"><span class="mee3-card-price-label">Hoa</span><span class="mee3-card-price">' + vnd(o.flowerTotal) + '</span></div>' +
-        '<div class="' + debtCls + '">' + esc(debtText) + '</div>' +
+        '<div class="' + debtCls + '">' + paySubHtml + esc(debtText) + '</div>' +
       '</div>' +
     '</article>';
   }).join('');
@@ -1962,7 +1964,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
         '<div class="mee3-orders-title-group">' +
           '<div class="mee3-orders-title-row">' +
             '<h2 class="mee3-orders-title">Đơn hàng</h2>' +
-            '<span class="mee3-orders-scope-pill">' + scopeTotal + (r.searchScope === 'ALL_DATES' ? ' đơn khớp tìm kiếm' : ' đơn trong kỳ') + '</span>' +
+            '<span class="mee3-orders-scope-pill">' + filteredList.length + '/' + activeTotal + '<span class="mee3-hide-mobile">' + (r.searchScope === 'ALL_DATES' ? ' đơn khớp tìm kiếm' : ' đơn trong kỳ') + '</span></span>' +
           '</div>' +
           '<div class="mee3-orders-sub">Chọn đơn để mở chi tiết, sao chép hoặc in hóa đơn + QR</div>' +
         '</div>' +
@@ -2025,6 +2027,25 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
     '</article>';
   }).join('');
 
+  var deletedAudit = r.deletedWithPaymentAudit && r.deletedWithPaymentAudit.count > 0 ? r.deletedWithPaymentAudit : null;
+  var deletedAuditHtml = deletedAudit ? (
+    '<section class="mee3-debt-audit-banner" aria-label="Đơn đã xóa có phát sinh thu tiền">' +
+      '<div class="mee3-debt-audit-head">' +
+        '<div class="mee3-debt-audit-title">' + v3Icon('alert', 'mee3-ico-sm') + ' Có ' + deletedAudit.count + ' đơn đã xóa nhưng đã ghi nhận thu tiền (' + vnd(deletedAudit.totalCollected) + ') — cần đối chiếu</div>' +
+        (S.user.role === 'ADMIN' ? '<button type="button" class="btn secondary" style="height:30px;padding:0 10px;font-size:12px" onclick="MEEOPS7.go(\'orders\');setTimeout(function(){window.MEE_UI_V3&&window.MEE_UI_V3.openTrash();},120)">Mở Thùng rác</button>' : '') +
+      '</div>' +
+      '<div class="mee3-debt-audit-list">' +
+        deletedAudit.items.map(function(d){
+          return '<div class="mee3-debt-audit-item">' +
+            '<div class="mee3-debt-audit-item-top"><b>' + esc(d.customer) + '</b><span class="mee3-badge mee3-badge-danger">Đã thu ' + vnd(d.paid) + '</span></div>' +
+            '<div style="color:var(--v3-muted)">' + esc(d.id) + ' · ' + dateVN(d.date) + ' ' + esc(timeVN(d.time)) + ' · Sale: ' + esc(d.sale) + '</div>' +
+            '<div><b>Lý do xóa:</b> ' + esc(d.deletedReason || '—') + ' (bởi ' + esc(d.deletedBy || '—') + ')</div>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+    '</section>'
+  ) : '';
+
   el.innerHTML = 
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
@@ -2037,6 +2058,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
       stat('Số đơn chưa tất toán', (sum.orders || 0) + ' đơn', 'Không gồm đơn Full Paid') +
       stat('Chưa nhập phí ship', (sum.shipFeePending || 0) + ' đơn', 'Shop book ship chưa có phí thực tế') +
     '</div>' +
+    deletedAuditHtml +
     '<div class="debt-desktop table-wrap">' +
       '<table class="control-table">' +
         '<thead><tr><th>Ngày / Giờ</th><th>Khách</th><th>Mẫu hoa</th><th>Sale</th><th>Tiền hoa</th><th>Ship</th><th>Đã thu</th><th>Công nợ</th></tr></thead>' +
@@ -2069,10 +2091,11 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
   }).join('');
 
   var canDel = !isDeleted && (o.canDelete === true || (o.canDelete === undefined && S.user && S.user.role === 'ADMIN' && !o.locked && !o.fullPaid));
+  var delAuditHint = !isDeleted && o.deleteRequiresAdminAudit ? '<div class="mee3-drawer-audit-hint">Đơn đã ghi nhận thu tiền/cọc — liên hệ Admin nếu cần xóa &amp; đối chiếu công nợ.</div>' : '';
   var settleBtn = (o.settlementStatus === 'PENDING' || o.settlementStatus === 'APPROVED' || o.settled || o.canSubmitSettlement) ? settlementAction(o) : '';
   var actions = isDeleted
     ? (S.user && S.user.role === 'ADMIN' ? '<button type="button" class="btn primary" data-mee3-restore-order="' + attr(o.id) + '">' + v3Icon('restore', 'mee3-ico-sm') + ' Khôi phục đơn</button>' : '')
-    : (canDel ? '<button type="button" class="btn mee3-btn-delete mee-delete-order" data-mee-delete-order="' + attr(o.id) + '">' + v3Icon('trash', 'mee3-ico-sm') + ' Xóa đơn</button>' : '') +
+    : (canDel ? '<button type="button" class="btn mee3-btn-delete mee-delete-order" data-mee-delete-order="' + attr(o.id) + '">' + v3Icon('trash', 'mee3-ico-sm') + ' Xóa đơn</button>' : delAuditHint) +
       shipFeeAction(o) +
       (isDebt ? settleBtn : ((o.canEdit ? '<button type="button" class="btn primary" data-mee-order-action="edit" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settleBtn));
 

@@ -44,6 +44,34 @@ REVOKE ALL ON public.order_deletion_history FROM PUBLIC, anon, authenticated;
 GRANT ALL ON public.order_deletion_history TO service_role;
 GRANT USAGE, SELECT ON SEQUENCE public.order_deletion_history_id_seq TO service_role;
 
+-- Hardened ownership check (TC-15):
+-- 1) Exact username match is always authoritative and unambiguous.
+-- 2) Legacy display_name match is allowed ONLY when no other active user owns that string as username
+--    AND the display_name is unique among active users (fails closed on duplicate display_name).
+CREATE OR REPLACE FUNCTION public.mee_ops_owner(sale text, u public.app_users)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path TO 'public', 'pg_temp'
+AS $$
+  SELECT
+    lower(trim(coalesce(sale, ''))) = lower(trim(u.username))
+    OR (
+      lower(trim(coalesce(sale, ''))) = lower(trim(u.display_name))
+      AND NOT EXISTS (
+        SELECT 1 FROM public.app_users u2
+        WHERE u2.active
+          AND lower(trim(u2.username)) = lower(trim(coalesce(sale, '')))
+          AND u2.username <> u.username
+      )
+      AND (
+        SELECT count(*) FROM public.app_users u3
+        WHERE u3.active
+          AND lower(trim(u3.display_name)) = lower(trim(u.display_name))
+      ) = 1
+    )
+$$;
+
 -- Canonical fulfillment status projection matching JS `fulfillmentStatus(row)`
 CREATE OR REPLACE FUNCTION public.mee_ops_visible_status(o public.orders)
 RETURNS text
@@ -279,7 +307,8 @@ declare
  r jsonb; prior jsonb; v_id text; v_now timestamptz; v_total numeric;
  v_full boolean; v_new_bills jsonb; v_bills jsonb; v_images jsonb; v_decision text;
  v_count integer; v_ship numeric; v_status text; v_source_status text; v_ready_status text;
- v_sale text; v_expected timestamptz; v_reason text; v_reason_code text; v_tag_note text;
+ v_sale text; v_sale_raw text; v_sale_matches integer; v_expected timestamptz;
+ v_reason text; v_reason_code text; v_tag_note text; v_paid numeric;
 begin
  select * into u from public.app_users where username=p_actor and active for share;
  if not found then return jsonb_build_object('ok',false,'code','AUTH_REQUIRED','message','Tài khoản đã bị khóa.'); end if;
@@ -321,6 +350,10 @@ begin
      end if;
      if o.full_paid then
        return jsonb_build_object('ok',false,'code','ORDER_LOCKED','message','Đơn Full Paid đã tự xác nhận thanh toán; không thể xóa trực tiếp.');
+     end if;
+     v_paid:=public.mee_ops_paid(o);
+     if u.role<>'ADMIN' and v_paid>0 then
+       return jsonb_build_object('ok',false,'code','PAYMENT_RECONCILIATION_REQUIRED','message','Đơn đã ghi nhận thanh toán/cọc; chỉ Admin được xóa sau khi kiểm tra đối chiếu công nợ.');
      end if;
    elsif p_action='restoreOrder' then
      if not coalesce(o.is_deleted,false) and not coalesce(o.delete_after_sheet_sync,false) then
@@ -377,7 +410,7 @@ begin
      where id=o.id returning * into n;
    insert into public.order_deletion_history(order_id,event_type,actor_username,actor_name,actor_role,reason_code,reason_text,occurred_at,order_snapshot)
      values(o.id,'DELETE',u.username,u.display_name,u.role,v_reason_code,v_reason,v_now,to_jsonb(o));
-   r:=jsonb_build_object('ok',true,'orderId',o.id,'row',to_jsonb(n),'deleted',true,'message','Đã chuyển đơn hàng vào Thùng rác.');
+   r:=jsonb_build_object('ok',true,'orderId',o.id,'row',to_jsonb(n),'deleted',true,'hadPayment',coalesce(v_paid,0)>0,'paidAmount',coalesce(v_paid,0),'message',case when coalesce(v_paid,0)>0 then 'Đã chuyển đơn có phát sinh thu tiền vào Thùng rác (vẫn hiển thị tại mục đối chiếu Công nợ).' else 'Đã chuyển đơn hàng vào Thùng rác.' end);
 
  elsif p_action='restoreOrder' then
    v_reason:=trim(coalesce(p_input->>'reason','Khôi phục đơn hàng'));
@@ -418,10 +451,19 @@ begin
      return jsonb_build_object('ok',false,'code','SHIPPING_STATUS_CONFLICT',
        'message','Đưa đơn về Chờ bó trước khi đổi giữa giao hàng và ghé lấy.');
    end if;
-   v_sale:=case when u.role='SALE' then u.username else n.sale end;
-   select username into v_sale from public.app_users where active and
-     (lower(trim(username))=lower(trim(v_sale)) or lower(trim(display_name))=lower(trim(v_sale)))
-     order by (lower(trim(username))=lower(trim(v_sale))) desc limit 1;
+   v_sale_raw:=case when u.role='SALE' then u.username else n.sale end;
+   v_sale:=null;
+   select username into v_sale from public.app_users
+     where active and lower(trim(username))=lower(trim(coalesce(v_sale_raw,''))) limit 1;
+   if v_sale is null then
+     select count(*)::int, min(username) into v_sale_matches, v_sale
+       from public.app_users
+       where active and lower(trim(display_name))=lower(trim(coalesce(v_sale_raw,'')));
+     if v_sale_matches>1 then
+       return jsonb_build_object('ok',false,'code','SALE_AMBIGUOUS','message','Tên người phụ trách bị trùng giữa nhiều tài khoản. Vui lòng chọn theo mã tài khoản (username).');
+     end if;
+     if v_sale_matches=0 then v_sale:=null; end if;
+   end if;
    if v_sale is null then return jsonb_build_object('ok',false,'code','SALE_REQUIRED','message','Cần chọn người phụ trách hợp lệ.'); end if;
    if p_action='createOrder' then
      if exists(select 1 from public.orders where request_id=p_request_id) then
