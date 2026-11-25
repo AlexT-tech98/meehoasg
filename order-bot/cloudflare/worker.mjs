@@ -47,13 +47,128 @@ import {
   verifyWebhookSecret,
   sendTelegramMessage,
   downloadTelegramPhoto,
-  savePhotoToR2
+  savePhotoToR2,
+  deletePhotoFromR2,
+  bytesToBase64
 } from './telegram.mjs';
 
 import { callCreateOrder } from './ops-client.mjs';
-import { extractFieldsWithGemini } from './gemini.mjs';
+import { extractFieldsWithGemini, sanitizeAiFields } from './gemini.mjs';
 
 const DEFAULT_ALLOWED_USER_ID = 5252724920;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_OPS_PAYLOAD_BYTES = Math.floor(11.5 * 1024 * 1024);
+const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const html = value => String(value ?? '').replace(/[&<>"']/g, char => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}[char]));
+
+/**
+ * Read a stored photo from R2 and return a validated base64 data URL.
+ * Fails closed (returns null) if missing, unreadable, oversize, or invalid MIME.
+ */
+export async function evidenceDataUrl(ref, env) {
+  if (!ref?.r2_key || !env?.MEDIA_R2) return null;
+  try {
+    const object = await env.MEDIA_R2.get(ref.r2_key);
+    if (!object) return null;
+    const source = typeof object.arrayBuffer === 'function'
+      ? await object.arrayBuffer()
+      : (object.buffer || object.body);
+    if (!source) return null;
+    const bytes = source instanceof Uint8Array
+      ? source
+      : ArrayBuffer.isView(source)
+        ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength)
+        : new Uint8Array(source);
+    if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) return null;
+    const lowerKey = String(ref.r2_key).toLowerCase();
+    const type = object.httpMetadata?.contentType || (
+      lowerKey.endsWith('.png')
+        ? 'image/png'
+        : lowerKey.endsWith('.webp')
+          ? 'image/webp'
+          : 'image/jpeg'
+    );
+    if (!ALLOWED_IMAGE_MIMES.has(type)) return null;
+    return `data:${type};base64,${bytesToBase64(bytes)}`;
+  } catch {
+    console.error('[r2] evidenceDataUrl read failed');
+    return null;
+  }
+}
+
+/**
+ * Safely delete R2 images belonging to a cancelled draft.
+ * NEVER deletes images from submitted drafts, other active drafts, or any OPS order in D1.
+ */
+export async function cleanupCancelledDraftMedia(draftToCancel, remainingDrafts, env) {
+  if (!env?.MEDIA_R2 || !draftToCancel?.id) return { deleted: [], skipped: [] };
+  if (draftToCancel.status === 'submitted' || draftToCancel.opsOrderId) {
+    return { deleted: [], skipped: [] };
+  }
+
+  const candidateKeys = [
+    ...(draftToCancel.sampleRefs || []).map(r => r?.r2_key),
+    ...(draftToCancel.draftBillRefs || []).map(r => r?.r2_key)
+  ].filter(Boolean);
+
+  if (!candidateKeys.length) return { deleted: [], skipped: [] };
+
+  const ownedSamplePrefix = `order-images/sample-${draftToCancel.id}-`;
+  const ownedBillPrefix = `settlement-bills/unverified-${draftToCancel.id}-`;
+
+  // Collect keys still referenced by any other draft
+  const referencedByOtherDrafts = new Set();
+  for (const [k, d] of Object.entries(remainingDrafts || {})) {
+    if (k.startsWith('__') || !d || d.id === draftToCancel.id) continue;
+    for (const ref of [...(d.sampleRefs || []), ...(d.draftBillRefs || [])]) {
+      if (ref?.r2_key) referencedByOtherDrafts.add(ref.r2_key);
+    }
+  }
+
+  const deleted = [];
+  const skipped = [];
+
+  for (const key of new Set(candidateKeys)) {
+    if (!key.startsWith(ownedSamplePrefix) && !key.startsWith(ownedBillPrefix)) {
+      skipped.push(key);
+      continue;
+    }
+    if (referencedByOtherDrafts.has(key)) {
+      skipped.push(key);
+      continue;
+    }
+    if (env.DB) {
+      try {
+        const usedInOrders = await env.DB.prepare(
+          'SELECT row_key FROM orders WHERE data LIKE ? LIMIT 1'
+        ).bind(`%${key}%`).first();
+        if (usedInOrders) {
+          skipped.push(key);
+          continue;
+        }
+      } catch (err) {
+        const msg = String(err?.message || '').toLowerCase();
+        if (!msg.includes('no such table')) {
+          // On unexpected D1 error, fail safe: do NOT delete R2 object
+          skipped.push(key);
+          continue;
+        }
+      }
+    }
+    const ok = await deletePhotoFromR2(env.MEDIA_R2, key);
+    if (ok) deleted.push(key);
+    else skipped.push(key);
+  }
+
+  return { deleted, skipped };
+}
 
 /**
  * Pure transition of draft status without filesystem calls
@@ -114,9 +229,9 @@ export default {
           } else {
             opsError = `HTTP_${opsRes.status}`;
           }
-        } catch (e) {
+        } catch {
           opsHealth = false;
-          opsError = e.message;
+          opsError = 'OPS_HEALTH_UNAVAILABLE';
         }
 
         const stale = env.DB ? await findStaleConfirming(env.DB) : [];
@@ -130,17 +245,16 @@ export default {
               if (tgData.ok) {
                 webhookInfo = {
                   url: tgData.result?.url || '',
-                  has_custom_certificate: tgData.result?.has_custom_certificate || false,
-                  pending_update_count: tgData.result?.pending_update_count || 0,
+                  has_custom_certificate: Boolean(tgData.result?.has_custom_certificate),
+                  pending_update_count: Number(tgData.result?.pending_update_count) || 0,
                   last_error_date: tgData.result?.last_error_date || null,
-                  last_error_message: tgData.result?.last_error_message || null,
-                  max_connections: tgData.result?.max_connections || 40,
-                  ip_address: tgData.result?.ip_address || null
+                  has_last_error: Boolean(tgData.result?.last_error_message),
+                  max_connections: Number(tgData.result?.max_connections) || 40
                 };
               }
             }
-          } catch (e) {
-            webhookInfo = { error: e.message };
+          } catch {
+            webhookInfo = { error: 'WEBHOOK_INFO_UNAVAILABLE' };
           }
         }
 
@@ -160,8 +274,8 @@ export default {
         }), {
           headers: { 'Content-Type': 'application/json' }
         });
-      } catch (err) {
-        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+      } catch {
+        return new Response(JSON.stringify({ ok: false, error: 'STATUS_UNAVAILABLE' }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' }
         });
@@ -189,10 +303,13 @@ export async function handleTelegramWebhook(request, rawEnv) {
     BOT_TOKEN: rawEnv?.BOT_TOKEN || rawEnv?.TELEGRAM_BOT_TOKEN,
     OPS_TOKEN: rawEnv?.OPS_TOKEN || rawEnv?.OPS_SERVICE_ROLE_TOKEN
   };
-  // A. Security Check 1: Webhook Secret Token
+  // A. Security Check 1: Webhook Secret Token (fail-closed)
   const expectedSecret = env.TELEGRAM_SECRET_TOKEN;
   if (!verifyWebhookSecret(request, expectedSecret)) {
     return new Response('Forbidden: Invalid Secret Token', { status: 403 });
+  }
+  if (!env.DB || !env.BOT_TOKEN) {
+    return new Response('Service unavailable', { status: 503 });
   }
 
   // B. Parse incoming JSON
@@ -212,8 +329,16 @@ export async function handleTelegramWebhook(request, rawEnv) {
   }
 
   // C. Deduplication check: Has this update already been processed?
-  if (env.DB && await isUpdateProcessed(env.DB, updateId)) {
-    return new Response('OK: Already Processed', { status: 200 });
+  try {
+    if (await isUpdateProcessed(env.DB, updateId)) {
+      return new Response('OK: Already Processed', { status: 200 });
+    }
+  } catch {
+    console.error('[worker] D1 error checking processed update');
+    return new Response('Service unavailable', {
+      status: 503,
+      headers: { 'Retry-After': '5' }
+    });
   }
 
   const chatId = message.chat?.id;
@@ -250,6 +375,10 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
     // 1. Photo message handler
     if (Array.isArray(message.photo) && message.photo.length > 0) {
+      if (!env.MEDIA_R2) {
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Kho ảnh chưa sẵn sàng. Ảnh chưa được thêm vào đơn nháp.');
+        return;
+      }
       const draft = activeDraft(drafts);
 
       if (!draft) {
@@ -270,22 +399,33 @@ export async function handleTelegramWebhook(request, rawEnv) {
       const caption = message.caption || '';
       const isBill = isBillCaption(caption);
 
+      if ((isBill ? draft.draftBillRefs : draft.sampleRefs)?.length >= 10) {
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Mỗi nhóm chỉ nhận tối đa 10 ảnh. Ảnh này chưa được thêm vào đơn nháp.');
+        return;
+      }
+
       // Download photo with 5MB validation
-      const downloadResult = await downloadTelegramPhoto(env.BOT_TOKEN, highestPhoto.file_id, 5 * 1024 * 1024);
+      const downloadResult = await downloadTelegramPhoto(env.BOT_TOKEN, highestPhoto.file_id, MAX_IMAGE_BYTES);
       if (!downloadResult.ok) {
         await sendTelegramMessage(env.BOT_TOKEN, chatId, `⚠️ Không thể tải ảnh: ${downloadResult.error}`);
         return;
       }
 
-      // Save directly to R2 if bound
-      let r2Key = null;
-      if (env.MEDIA_R2) {
-        const ext = downloadResult.mimeType === 'image/png' ? 'png' : 'jpg';
-        const fileHash = (highestPhoto.file_unique_id || String(Date.now())).slice(0, 12);
-        r2Key = isBill
-          ? `settlement-bills/unverified-${draft.id}-${fileHash}.${ext}`
-          : `order-images/sample-${draft.id}-${fileHash}.${ext}`;
-        await savePhotoToR2(env.MEDIA_R2, r2Key, downloadResult.buffer, downloadResult.mimeType);
+      // Store evidence durably in R2 BEFORE accepting the reference into the draft.
+      const ext = downloadResult.mimeType === 'image/png'
+        ? 'png'
+        : downloadResult.mimeType === 'image/webp'
+          ? 'webp'
+          : 'jpg';
+      const fileHash = (highestPhoto.file_unique_id || String(Date.now())).slice(0, 12);
+      const r2Key = isBill
+        ? `settlement-bills/unverified-${draft.id}-${fileHash}.${ext}`
+        : `order-images/sample-${draft.id}-${fileHash}.${ext}`;
+
+      const stored = await savePhotoToR2(env.MEDIA_R2, r2Key, downloadResult.buffer, downloadResult.mimeType);
+      if (!stored) {
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa lưu được ảnh vào kho lưu trữ. Vui lòng gửi lại; ảnh này chưa được thêm vào đơn nháp.');
+        return;
       }
 
       const result = isBill
@@ -294,12 +434,14 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
       if (result.ok) {
         drafts = result.drafts;
-        // attach data url for preview/OPS createOrder payload
+        // D1 stores ONLY durable R2 references & metadata — NEVER base64 data_url.
         const list = isBill ? drafts[drafts.__active].draftBillRefs : drafts[drafts.__active].sampleRefs;
         if (list && list.length > 0) {
-          list[list.length - 1].data_url = downloadResult.base64Url;
-          list[list.length - 1].r2_key = r2Key;
-          list[list.length - 1].uri = r2Key ? `supabase://${r2Key}` : null;
+          const ref = list[list.length - 1];
+          ref.r2_key = r2Key;
+          ref.uri = `supabase://${r2Key}`;
+          ref.mimeType = downloadResult.mimeType;
+          ref.byteSize = downloadResult.byteSize;
         }
         const activeItem = drafts[drafts.__active];
         if (activeItem) {
@@ -318,9 +460,16 @@ export async function handleTelegramWebhook(request, rawEnv) {
           }
         }
 
-        if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, `${result.reply}${extraReply}`, 'HTML');
+        try {
+          await saveDrafts(env.DB, userId, drafts);
+        } catch (saveErr) {
+          // Avoid leaking orphaned R2 object if D1 save fails
+          await deletePhotoFromR2(env.MEDIA_R2, r2Key);
+          throw saveErr;
+        }
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, `${html(result.reply)}${html(extraReply)}`, 'HTML');
       } else {
+        await deletePhotoFromR2(env.MEDIA_R2, r2Key);
         await sendTelegramMessage(env.BOT_TOKEN, chatId, `⚠️ ${result.reply}`);
       }
       return;
@@ -360,9 +509,13 @@ export async function handleTelegramWebhook(request, rawEnv) {
         const res = cmdShow(drafts);
         await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
       } else if (cmd === '/cancel') {
+        const draftToCancel = activeDraft(drafts);
         const res = cmdCancel(drafts, arg);
         if (res.drafts) drafts = res.drafts;
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
+        if (draftToCancel && !drafts[draftToCancel.id]) {
+          await cleanupCancelledDraftMedia(draftToCancel, drafts, env);
+        }
         await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
       } else if (cmd === '/confirm') {
         await handleConfirmCommand(drafts, env, userId, chatId);
@@ -404,10 +557,13 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
     // AI Fallback if structured parsing yields nothing and Gemini Key is available
     if ((!changes || changes.length === 0) && env.GEMINI_API_KEY) {
-      const aiExtracted = await extractFieldsWithGemini(env.GEMINI_API_KEY, rawText, env.GEMINI_MODEL);
+      const rawAi = await extractFieldsWithGemini(env.GEMINI_API_KEY, rawText, env.GEMINI_MODEL);
+      const aiExtracted = sanitizeAiFields(rawAi);
       if (aiExtracted && Object.keys(aiExtracted).length > 0) {
-        // Convert extracted JSON to lines and apply
-        const lines = Object.entries(aiExtracted).map(([k, v]) => `${k}: ${v}`).join('\n');
+        // Convert sanitized allowlisted JSON to single-line entries and apply
+        const lines = Object.entries(aiExtracted)
+          .map(([k, v]) => `${k}: ${String(v).replace(/[\r\n]+/g, ' ').trim()}`)
+          .join('\n');
         const aiApplied = applyFields(draft, lines);
         if (aiApplied.changes?.length) {
           updated = aiApplied.draft;
@@ -461,8 +617,8 @@ export async function handleTelegramWebhook(request, rawEnv) {
     }
   };
 
-  // Run inside per-user lock if D1 is configured
-  if (env.DB) {
+  // Run inside per-user lock; fail closed (HTTP 503) on D1 error without marking update processed
+  try {
     const lockResult = await withLock(env.DB, userId, executeProcess);
     if (lockResult.busy) {
       await sendTelegramMessage(env.BOT_TOKEN, chatId, '⏳ Hệ thống đang xử lý yêu cầu trước của bạn hoặc đang xác nhận đơn. Vui lòng thử lại sau giây lát.');
@@ -472,8 +628,17 @@ export async function handleTelegramWebhook(request, rawEnv) {
       });
     }
     await markUpdateProcessed(env.DB, updateId, userId);
-  } else {
-    await executeProcess();
+  } catch {
+    console.error('[worker] Storage failure during webhook execution');
+    await sendTelegramMessage(
+      env.BOT_TOKEN,
+      chatId,
+      '⚠️ Hệ thống lưu trữ đang tạm gián đoạn. Dữ liệu đơn nháp của bạn vẫn được bảo toàn; vui lòng thử lại sau giây lát.'
+    );
+    return new Response('Service unavailable', {
+      status: 503,
+      headers: { 'Retry-After': '5' }
+    });
   }
 
   return new Response('OK', { status: 200 });
@@ -508,39 +673,97 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
 
   await sendTelegramMessage(env.BOT_TOKEN, chatId, '⏳ Đang kiểm tra ảnh và gửi yêu cầu tạo đơn sang MEEHOA OPS Staging...');
 
-  // 3. Prepare images: download and encode
+  // 3. Prepare images: load durably from R2 (fallback to Telegram ONLY for legacy refs without r2_key)
+  const expectedSampleCount = (draft.sampleRefs || []).length;
   const sampleFiles = [];
   for (const ref of draft.sampleRefs || []) {
-    let dataUrl = ref.data_url;
-    if (!dataUrl && (ref.fileId || ref.file_id)) {
+    let dataUrl = null;
+    if (ref.r2_key) {
+      dataUrl = await evidenceDataUrl(ref, env);
+      if (!dataUrl) {
+        drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+        if (env.DB) await saveDrafts(env.DB, userId, drafts);
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Không đọc được ảnh mẫu đã lưu trong kho ảnh. Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.');
+        return;
+      }
+    } else if (ref.fileId || ref.file_id) {
       const fileId = ref.fileId || ref.file_id;
-      const dl = await downloadTelegramPhoto(env.BOT_TOKEN, fileId);
+      const dl = await downloadTelegramPhoto(env.BOT_TOKEN, fileId, MAX_IMAGE_BYTES);
       if (!dl.ok) {
         drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, `❌ Xác nhận bị hủy: Không thể tải ảnh mẫu từ Telegram (${dl.error}). Vui lòng gửi lại ảnh.`);
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, `❌ Xác nhận bị hủy: Không thể tải ảnh mẫu từ Telegram (${dl.error}). Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.`);
         return;
       }
       dataUrl = dl.base64Url;
+    } else {
+      drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+      if (env.DB) await saveDrafts(env.DB, userId, drafts);
+      await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Thiếu tham chiếu ảnh mẫu hợp lệ. Vui lòng gửi lại ảnh.');
+      return;
     }
-    if (dataUrl) sampleFiles.push({ data: dataUrl });
+    sampleFiles.push({ data: dataUrl });
   }
 
+  const expectedBillCount = (draft.draftBillRefs || []).length;
   const unverifiedBillFiles = [];
   for (const ref of draft.draftBillRefs || []) {
-    let dataUrl = ref.data_url;
-    if (!dataUrl && (ref.fileId || ref.file_id)) {
+    let dataUrl = null;
+    if (ref.r2_key) {
+      dataUrl = await evidenceDataUrl(ref, env);
+      if (!dataUrl) {
+        drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+        if (env.DB) await saveDrafts(env.DB, userId, drafts);
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Không đọc được ảnh bill đã lưu trong kho ảnh. Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.');
+        return;
+      }
+    } else if (ref.fileId || ref.file_id) {
       const fileId = ref.fileId || ref.file_id;
-      const dl = await downloadTelegramPhoto(env.BOT_TOKEN, fileId);
+      const dl = await downloadTelegramPhoto(env.BOT_TOKEN, fileId, MAX_IMAGE_BYTES);
       if (!dl.ok) {
         drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, `❌ Xác nhận bị hủy: Không thể tải ảnh bill từ Telegram (${dl.error}). Vui lòng gửi lại ảnh.`);
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, `❌ Xác nhận bị hủy: Không thể tải ảnh bill từ Telegram (${dl.error}). Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.`);
         return;
       }
       dataUrl = dl.base64Url;
+    } else {
+      drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+      if (env.DB) await saveDrafts(env.DB, userId, drafts);
+      await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Thiếu tham chiếu ảnh bill hợp lệ. Vui lòng gửi lại ảnh.');
+      return;
     }
-    if (dataUrl) unverifiedBillFiles.push({ data: dataUrl });
+    unverifiedBillFiles.push({ data: dataUrl });
+  }
+
+  if (sampleFiles.length !== expectedSampleCount || unverifiedBillFiles.length !== expectedBillCount) {
+    drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+    if (env.DB) await saveDrafts(env.DB, userId, drafts);
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Số lượng ảnh đọc được không khớp với bản nháp. Vui lòng thử lại.');
+    return;
+  }
+
+  // Respect OPS HTTP body size limit (12 MB) before calling createOrder
+  const samplePayloadBytes = sampleFiles.reduce((sum, f) => sum + (f.data?.length || 0), 0);
+  const billPayloadBytes = unverifiedBillFiles.reduce((sum, f) => sum + (f.data?.length || 0), 0);
+  if (samplePayloadBytes > MAX_OPS_PAYLOAD_BYTES) {
+    drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+    if (env.DB) await saveDrafts(env.DB, userId, drafts);
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh mẫu vượt quá giới hạn một lần gửi của OPS (tối đa ~8.5 MB tổng ảnh). Vui lòng gửi ảnh nhỏ hơn hoặc giảm số lượng ảnh.');
+    return;
+  }
+
+  const allBillsInR2 = expectedBillCount > 0 && Boolean(env.DB && env.MEDIA_R2) &&
+    (draft.draftBillRefs || []).every(ref => Boolean(ref.r2_key));
+  const billsForCreateOrder = (samplePayloadBytes + billPayloadBytes > MAX_OPS_PAYLOAD_BYTES && allBillsInR2)
+    ? []
+    : unverifiedBillFiles;
+
+  if (samplePayloadBytes + billsForCreateOrder.reduce((sum, f) => sum + (f.data?.length || 0), 0) > MAX_OPS_PAYLOAD_BYTES) {
+    drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+    if (env.DB) await saveDrafts(env.DB, userId, drafts);
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh vượt quá giới hạn một lần gửi của OPS. Vui lòng giảm dung lượng ảnh và thử lại.');
+    return;
   }
 
   // 4. Call OPS Staging API
@@ -550,17 +773,28 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     env.OPS_TOKEN || '',
     drafts[draft.id],
     sampleFiles,
-    unverifiedBillFiles,
-    fetcher
+    billsForCreateOrder,
+    fetcher,
+    { expectedBillCount }
   );
 
   if (opsRes.ok && opsRes.orderId) {
-    const expectedBillCount = draft.draftBillRefs?.length || 0;
     let billLinkSuccess = true;
     let billLinkError = null;
     let linkedResult = null;
 
-    if (env.DB && expectedBillCount > 0) {
+    const opsAlreadyAttachedBills = Array.isArray(opsRes.order?.unverifiedBillUrls)
+      ? opsRes.order.unverifiedBillUrls.length
+      : (Array.isArray(opsRes.order?.unverified_bill_urls) ? opsRes.order.unverified_bill_urls.length : 0);
+
+    if (expectedBillCount > 0 && opsAlreadyAttachedBills >= expectedBillCount) {
+      linkedResult = {
+        ok: true,
+        linked: opsAlreadyAttachedBills,
+        verifiedCount: opsAlreadyAttachedBills,
+        uris: opsRes.order?.unverifiedBillUrls || opsRes.order?.unverified_bill_urls || []
+      };
+    } else if (env.DB && expectedBillCount > 0) {
       linkedResult = await linkUnverifiedBillsToD1Order(
         env.DB,
         opsRes.orderId,
@@ -607,11 +841,11 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     const flowerTotal = Number(draft.fields.flowerTotal) || 0;
 
     let successMsg = `✅ <b>TẠO ĐƠN THÀNH CÔNG TRÊN MEEHOA OPS STAGING!</b>\n\n` +
-      `🆔 <b>Mã đơn:</b> <code>${opsRes.orderId}</code>\n` +
-      `👤 Khách: ${customer}\n` +
-      `🌸 Mẫu hoa: ${flower}\n` +
-      `📅 Ngày nhận: ${date} lúc ${time}\n` +
-      `🚚 Giao nhận: ${shipping}\n` +
+      `🆔 <b>Mã đơn:</b> <code>${html(opsRes.orderId)}</code>\n` +
+      `👤 Khách: ${html(customer)}\n` +
+      `🌸 Mẫu hoa: ${html(flower)}\n` +
+      `📅 Ngày nhận: ${html(date)} lúc ${html(time)}\n` +
+      `🚚 Giao nhận: ${html(shipping)}\n` +
       `💰 Tiền hoa: ${flowerTotal.toLocaleString('vi-VN')} đ\n` +
       `💳 Thanh toán: Chưa thanh toán (công nợ bảo lưu)\n` +
       `🖼️ Ảnh mẫu: ${sampleFiles.length} ảnh\n`;
@@ -621,8 +855,8 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
         successMsg += `🧾 <b>Bill đính kèm:</b> ${expectedBillCount} bill đã liên kết thành công (chưa xác minh — đối soát tại OPS).\n`;
       } else {
         successMsg += `\n⚠️ <b>CẢNH BÁO LIÊN KẾT BILL:</b>\n` +
-          `Đã tạo đơn thành công nhưng chưa gắn được ${expectedBillCount} bill vào đơn (${billLinkError}).\n` +
-          `👉 Gõ <code>/relink</code> để thử gắn lại bill vào mã đơn <code>${opsRes.orderId}</code> mà không tạo lại đơn mới.\n`;
+          `Đã tạo đơn thành công nhưng chưa gắn được ${expectedBillCount} bill vào đơn (${html(billLinkError)}).\n` +
+          `👉 Gõ <code>/relink</code> để thử gắn lại bill vào mã đơn <code>${html(opsRes.orderId)}</code> mà không tạo lại đơn mới.\n`;
       }
     }
 
@@ -711,7 +945,7 @@ async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
       env.BOT_TOKEN,
       chatId,
       `✅ <b>LIÊN KẾT BILL THÀNH CÔNG!</b>\n\n` +
-      `🆔 Đơn: <code>${targetDraft.opsOrderId}</code>\n` +
+      `🆔 Đơn: <code>${html(targetDraft.opsOrderId)}</code>\n` +
       `🧾 Đã liên kết: ${billCount} bill vào đơn OPS Staging.\n` +
       `💳 Thanh toán: Chưa thanh toán (công nợ bảo lưu — vui lòng đối soát tại OPS).`,
       'HTML'

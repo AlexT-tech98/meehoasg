@@ -174,6 +174,8 @@ Telegram Webhook -> Cloudflare Worker (meehoa-order-bot-staging)
 - **Runtime**: Cloudflare Workers (`nodejs_compat`, compatibility date `2026-11-21`).
 - **Lưu trữ đơn nháp**: Cloudflare D1 (`meehoasg-ops-staging`), bảng `bot_drafts`, `bot_processed_updates`, `bot_audit_logs`.
 - **Lưu trữ ảnh**: Cloudflare R2 (`meehoasg-media-staging`), lưu trực tiếp ảnh mẫu vào `order-images/` và bill vào `settlement-bills/`.
+- **Dung lượng nháp**: D1 chỉ giữ tham chiếu R2 (`r2_key`, `uri`) và Telegram `fileId`; dữ liệu base64 (`data_url`) không bao giờ được nhúng vào JSON D1. Khi `/confirm`, Worker đọc đủ ảnh từ R2 trước khi gọi OPS; thiếu bất kỳ ảnh nào sẽ dừng ngay trước OPS và giữ nguyên nháp. Khi `/cancel` nháp chưa gửi OPS, Worker dọn ảnh R2 thuộc riêng nháp đó (không bao giờ xóa ảnh đã gắn đơn OPS).
+- **Hợp đồng OPS & Bất biến tài chính**: Payload gửi đủ trường camelCase (`date`, `time`, `flowerTotal`, `cardQty`, `cardText`, ...) khớp `normalizeOperationOrder`. Mọi đơn tạo qua Bot luôn giữ `payment = "Chưa thanh toán"` và `fullPaidRequested = false`; lời khách báo (`deposit`/`bankfull`/`fullpaid`) chỉ ghi nhận trong `note` và ảnh bill gắn ở `unverified_bill_urls` để người có quyền đối soát tại OPS — không tự giảm công nợ hay ghi nhận doanh thu KPI.
 - **Liên kết Bill vào Đơn OPS**: Tự động lưu `unverified_bill_urls` trực tiếp vào bảng `orders` của OPS trong D1 và gắn tag chỉ dẫn vào trường `note`. Giữ nguyên bất biến thanh toán (`Chưa thanh toán`, không tự tất toán).
 - **CPU Time đo được**: Trung bình ~0.79 ms/yêu cầu (giới hạn Cloudflare Free là 10 ms).
 - **Chi phí dự kiến**: **0 VNĐ / $0.00 / tháng** trong hạn mức Free Tier (100.000 requests/ngày).

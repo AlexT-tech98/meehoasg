@@ -386,6 +386,8 @@ test('Scenario 6: Multiple sample photos stored in sampleRefs and uploaded to R2
   const active = drafts[drafts.__active];
   assert.equal(active.sampleRefs.length, 2);
   assert.equal(active.draftBillRefs.length, 0);
+  assert.equal(active.sampleRefs[0].data_url, undefined, 'D1 must keep only R2 reference, not base64');
+  assert.ok(active.sampleRefs[0].r2_key);
 
   // Verify R2 has received the images
   assert.equal(r2.objects.size, 2);
@@ -442,6 +444,8 @@ test('Scenario 7: Bill photo is classified into draftBillRefs as unverified bill
   const active = drafts[drafts.__active];
   assert.equal(active.draftBillRefs.length, 1);
   assert.equal(active.sampleRefs.length, 0);
+  assert.equal(active.draftBillRefs[0].data_url, undefined, 'D1 must keep only the R2 reference');
+  assert.ok(active.draftBillRefs[0].r2_key);
 
   // Check R2 destination prefix
   for (const [key] of r2.objects) {

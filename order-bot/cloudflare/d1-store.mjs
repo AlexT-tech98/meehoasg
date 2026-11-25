@@ -31,8 +31,8 @@ export async function loadDrafts(db, userId) {
     }
     return drafts;
   } catch (err) {
-    console.error(`[d1-store] loadDrafts failed for user ${uid}:`, err);
-    return {};
+    console.error(`[d1-store] loadDrafts failed for user ${uid}`);
+    throw err;
   }
 }
 
@@ -286,8 +286,13 @@ export async function linkUnverifiedBillsToD1Order(db, orderId, billRefs = [], m
               error: `Ảnh bill với key "${ref.r2_key}" không tồn tại trong R2 bucket.`
             };
           }
-        } catch (r2Err) {
-          console.warn(`[d1-store] R2 get verification warning for ${ref.r2_key}:`, r2Err);
+        } catch {
+          console.error('[d1-store] R2 get verification failed');
+          return {
+            ok: false,
+            linked: 0,
+            error: 'Không thể xác minh ảnh bill trong kho lưu trữ R2.'
+          };
         }
       }
     }
@@ -374,10 +379,10 @@ export async function linkUnverifiedBillsToD1Order(db, orderId, billRefs = [], m
       }
 
       return { ok: true, linked: billUris.length, verifiedCount: combined.length, uris: combined };
-    } catch (err) {
+    } catch {
       if (attempt === maxRetries) {
-        console.error(`[d1-store] linkUnverifiedBillsToD1Order failed for ${orderId}:`, err);
-        return { ok: false, linked: 0, error: err.message };
+        console.error(`[d1-store] linkUnverifiedBillsToD1Order failed for ${orderId}`);
+        return { ok: false, linked: 0, error: 'Lỗi hệ thống khi liên kết bill vào đơn OPS.' };
       }
       await new Promise(r => setTimeout(r, 100 * attempt));
     }

@@ -322,7 +322,7 @@ export function parseSmartDate(raw, referenceDate = new Date()) {
     const d = String(ref.getDate()).padStart(2, '0');
     return { value: `${y}-${m}-${d}`, isUncertain: false };
   }
-  if (/\b(ngay mai|mai|chieu mai|sang mai)\b/.test(n)) {
+  if (/\b(ngay\s*mai|chieu\s*mai|sang\s*mai|trua\s*mai|toi\s*mai|giao\s*mai|lay\s*mai|nhan\s*mai)\b/.test(n) || /^mai(?:\b|$)/.test(n)) {
     const tomorrow = new Date(ref.getTime() + 24 * 60 * 60 * 1000);
     const y = tomorrow.getFullYear();
     const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
@@ -412,29 +412,39 @@ export function parsePaymentInfo(text, existingFlowerTotal = 0) {
 }
 
 /**
- * Map order-bot payment state to OPS canonical payment string.
- * Aligns with OPS order form (paymentType) options:
- *   - unpaid: 'Chưa thanh toán (0 đ)'
- *   - deposit: 'Đã cọc <amount> đ'
- *   - bankfull: 'Đã thanh toán đủ tiền hoa (Full)'
- *   - fullpaid: 'Đã thanh toán toàn bộ đơn'
- *
- * Invariants:
- *   - Never auto-settle or clear debt: fullPaidRequested stays false
- *   - Unverified bills are attached to unverifiedBillFiles for OPS Payment Check review
- *   - Preserves correct debt calculation in OPS
+ * Format customer's unverified payment claim as an OPS note tag.
+ * Customer claims and unverified bill photos MUST ONLY be recorded in note / draft
+ * until an authorized reviewer reconciles actual funds in OPS.
  */
-export function mapPaymentToOps(paymentState, depositAmount, flowerTotal) {
-  if (paymentState === 'deposit' && depositAmount) {
-    const depStr = Number(depositAmount).toLocaleString('vi-VN');
-    return `Đã cọc ${depStr} đ`;
+export function formatPaymentClaimNote(fields = {}) {
+  const f = fields || {};
+  if (f.paymentState === 'deposit' && f.depositAmount) {
+    const depStr = Number(f.depositAmount).toLocaleString('vi');
+    return `[Khách báo: Đã cọc ${depStr} đ]`;
   }
-  if (paymentState === 'bankfull') {
-    return 'Đã thanh toán đủ tiền hoa (Full)';
+  if (f.paymentState === 'bankfull') {
+    const bfAmount = f.reportedPaidAmount || f.flowerTotal;
+    const bfStr = bfAmount ? ` ${Number(bfAmount).toLocaleString('vi')} đ` : '';
+    return `[Khách báo: Bankfull tiền hoa${bfStr}]`;
   }
-  if (paymentState === 'fullpaid') {
-    return 'Đã thanh toán toàn bộ đơn';
+  if (f.paymentState === 'fullpaid') {
+    return '[Khách báo: Fullpaid toàn bộ đơn]';
   }
+  return '';
+}
+
+/**
+ * Map order-bot payment state to OPS canonical payment string.
+ *
+ * STRICT FINANCIAL INVARIANT:
+ *   Customer claims ("đã cọc", "bankfull", "fullpaid") and unverified bill photos
+ *   NEVER auto-confirm payment, NEVER increase OPS paidAmount, NEVER reduce debt,
+ *   and NEVER trigger Full Paid or KPI credit.
+ *   Therefore, orders created by the bot ALWAYS send payment = 'Chưa thanh toán'
+ *   and fullPaidRequested = false. Customer claims are preserved via formatPaymentClaimNote()
+ *   in order.note and bill photos in unverified_bill_urls for human review in OPS.
+ */
+export function mapPaymentToOps(_paymentState, _depositAmount, _flowerTotal) {
   return 'Chưa thanh toán';
 }
 
@@ -465,13 +475,13 @@ export function draftSummary(draft) {
   if (pState === 'deposit') {
     const depStr = f.depositAmount ? `${Number(f.depositAmount).toLocaleString('vi')} đ` : '(chưa có số tiền)';
     const remStr = (f.flowerTotal && f.depositAmount) ? ` — còn lại: ${(Math.max(0, Number(f.flowerTotal) - Number(f.depositAmount))).toLocaleString('vi')} đ` : '';
-    lines.push(`💳 Thanh toán: Đã cọc ${depStr}${remStr}`);
+    lines.push(`💳 Thanh toán: Đã cọc ${depStr}${remStr} (khách báo — OPS tạo Chưa thanh toán)`);
   } else if (pState === 'bankfull') {
     const bfAmount = f.reportedPaidAmount || f.flowerTotal;
-    const bfStr = bfAmount ? ` (đã chuyển ${Number(bfAmount).toLocaleString('vi')} đ tiền hoa)` : '';
-    lines.push(`💳 Thanh toán: Bankfull${bfStr}`);
+    const bfStr = bfAmount ? ` (khách báo đã chuyển ${Number(bfAmount).toLocaleString('vi')} đ tiền hoa)` : ' (khách báo)';
+    lines.push(`💳 Thanh toán: Bankfull${bfStr} — OPS tạo Chưa thanh toán`);
   } else if (pState === 'fullpaid') {
-    lines.push(`💳 Thanh toán: Fullpaid (khách báo đã thanh toán toàn bộ đơn)`);
+    lines.push(`💳 Thanh toán: Fullpaid (khách báo đã thanh toán toàn bộ đơn — OPS tạo Chưa thanh toán)`);
   } else {
     lines.push(`💳 Thanh toán: Chưa thanh toán`);
   }
@@ -683,21 +693,23 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
     }
 
     // 2. Date and Time detection
-    const hasDate = /\b(ngay|\d{1,2}[/-]\d{1,2}|hom\s*nay|mai|mot)\b/.test(normLine);
+    const hasDate = /\b(ngay|\d{1,2}[/-]\d{1,2}|hom\s*nay|ngay\s*mai|sang\s*mai|trua\s*mai|chieu\s*mai|toi\s*mai|giao\s*mai|lay\s*mai|nhan\s*mai|ngay\s*mot)\b/.test(normLine) || /^mai(?:\b|$)/.test(normLine);
     const hasTime = /\b(?:\d{1,2}h(?:\d{2})?|\d{1,2}:\d{2}|buoi\s*sang|sang\s*mai|sang\s*nay|sang\s*som|\d{1,2}h\s*sang|buoi\s*chieu|chieu\s*mai|chieu\s*nay|\d{1,2}h\s*chieu|buoi\s*toi|toi\s*nay|toi\s*mai|\d{1,2}h\s*toi)\b/i.test(normLine);
     if (hasDate || hasTime) {
       if (hasDate) {
         const smartDate = parseSmartDate(cleanLine, referenceDate);
-        if (smartDate.value) {
+        if (smartDate.isUncertain) {
+          uncertainFields.date = smartDate.reason;
+        } else if (smartDate.value) {
           fields.date = smartDate.value;
-          if (smartDate.isUncertain) uncertainFields.date = smartDate.reason;
         }
       }
       if (hasTime) {
         const smartTime = parseSmartTime(cleanLine);
-        if (smartTime.value) {
+        if (smartTime.isUncertain) {
+          uncertainFields.time = smartTime.reason;
+        } else if (smartTime.value) {
           fields.time = smartTime.value;
-          if (smartTime.isUncertain) uncertainFields.time = smartTime.reason;
         }
       }
       if (!FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|ship|book|lay|ghe|tan\s*noi)\b/.test(normLine)) {
@@ -913,7 +925,7 @@ function applyFields(draft, text, options = {}) {
       }
     }
     for (const [k, reason] of Object.entries(natural.uncertainFields || {})) {
-      if (!newFields[k]) {
+      if (!changes.some(c => c.field === k && !c.uncertain)) {
         uncertain[k] = reason;
         changes.push({ field: k, value: null, uncertain: true, reason });
       }

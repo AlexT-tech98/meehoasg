@@ -3,15 +3,49 @@
  */
 
 /**
- * Verify Telegram Webhook Secret Token header.
+ * Constant-time string comparison to avoid leaking secret length/bytes via timing.
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function timingSafeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+/**
+ * Encode binary bytes to base64 efficiently (avoids O(n^2) char concat on 5MB images).
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+export function bytesToBase64(bytes) {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+  }
+  const chunkSize = 0x8000;
+  const parts = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    parts.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(parts.join(''));
+}
+
+/**
+ * Verify Telegram Webhook Secret Token header (fail-closed).
  * @param {Request} request
  * @param {string} [expectedSecret]
  * @returns {boolean}
  */
 export function verifyWebhookSecret(request, expectedSecret) {
-  if (!expectedSecret) return true; // If no secret configured, allow (e.g. testing)
+  if (!expectedSecret || typeof expectedSecret !== 'string') return false;
   const headerSecret = request.headers.get('x-telegram-bot-api-secret-token');
-  return headerSecret === expectedSecret;
+  if (!headerSecret) return false;
+  return timingSafeEqual(headerSecret, expectedSecret);
 }
 
 /**
@@ -40,8 +74,8 @@ export async function sendTelegramMessage(botToken, chatId, text, parseMode = nu
       body: JSON.stringify(body)
     });
     return res.ok;
-  } catch (err) {
-    console.error('[telegram] sendMessage failed:', err);
+  } catch {
+    console.error('[telegram] sendMessage failed');
     return false;
   }
 }
@@ -52,19 +86,22 @@ export async function sendTelegramMessage(botToken, chatId, text, parseMode = nu
  * @param {string} fileId - Telegram file_id
  * @param {number} [maxBytes=5242880] - Maximum allowed size (default 5MB)
  * @param {Function} [fetcher=fetch] - Injectable fetch
- * @returns {Promise<{ok: boolean, buffer?: ArrayBuffer, base64Url?: string, error?: string}>}
+ * @returns {Promise<{ok: boolean, buffer?: ArrayBuffer, base64Url?: string, filePath?: string, mimeType?: string, byteSize?: number, error?: string}>}
  */
 export async function downloadTelegramPhoto(botToken, fileId, maxBytes = 5 * 1024 * 1024, fetcher = fetch) {
+  if (!botToken || !fileId) {
+    return { ok: false, error: 'Thiếu thông tin tệp ảnh' };
+  }
   try {
     // 1. Get file path from Telegram getFile API
     const getFileUrl = `https://api.telegram.org/bot${botToken}/getFile?file_id=${encodeURIComponent(fileId)}`;
     const metaRes = await fetcher(getFileUrl);
     if (!metaRes.ok) {
-      return { ok: false, error: 'TG getFile request failed' };
+      return { ok: false, error: 'Không thể lấy thông tin ảnh từ Telegram' };
     }
     const meta = await metaRes.json();
     if (!meta.ok || !meta.result?.file_path) {
-      return { ok: false, error: meta.description || 'File not found on Telegram servers' };
+      return { ok: false, error: 'Ảnh không tồn tại hoặc đã hết hạn trên máy chủ Telegram' };
     }
 
     if (meta.result.file_size && meta.result.file_size > maxBytes) {
@@ -79,19 +116,22 @@ export async function downloadTelegramPhoto(botToken, fileId, maxBytes = 5 * 102
     }
 
     const buffer = await fileRes.arrayBuffer();
+    if (!buffer.byteLength) {
+      return { ok: false, error: 'File ảnh rỗng hoặc bị lỗi' };
+    }
     if (buffer.byteLength > maxBytes) {
       return { ok: false, error: 'Ảnh vượt quá 5MB' };
     }
 
-    // Convert to base64 Data URL
-    let binary = '';
+    const lowerPath = String(meta.result.file_path).toLowerCase();
+    const mime = lowerPath.endsWith('.png')
+      ? 'image/png'
+      : lowerPath.endsWith('.webp')
+        ? 'image/webp'
+        : 'image/jpeg';
+
     const bytes = new Uint8Array(buffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    const b64 = btoa(binary);
-    const mime = meta.result.file_path.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    const b64 = bytesToBase64(bytes);
     const base64Url = `data:${mime};base64,${b64}`;
 
     return {
@@ -102,8 +142,8 @@ export async function downloadTelegramPhoto(botToken, fileId, maxBytes = 5 * 102
       mimeType: mime,
       byteSize: buffer.byteLength
     };
-  } catch (err) {
-    return { ok: false, error: err.message || 'Lỗi mạng khi tải ảnh' };
+  } catch {
+    return { ok: false, error: 'Lỗi mạng khi tải ảnh' };
   }
 }
 
@@ -124,8 +164,27 @@ export async function savePhotoToR2(r2Bucket, key, buffer, contentType = 'image/
       httpMetadata: { contentType }
     });
     return true;
-  } catch (err) {
-    console.error(`[r2] savePhotoToR2 failed for key ${key}:`, err);
+  } catch {
+    console.error('[r2] savePhotoToR2 failed');
+    return false;
+  }
+}
+
+/**
+ * Delete an image from Cloudflare R2 bucket (best-effort cleanup).
+ * @param {object} r2Bucket
+ * @param {string} key
+ * @returns {Promise<boolean>}
+ */
+export async function deletePhotoFromR2(r2Bucket, key) {
+  if (!r2Bucket || typeof r2Bucket.delete !== 'function' || !key) {
+    return false;
+  }
+  try {
+    await r2Bucket.delete(key);
+    return true;
+  } catch {
+    console.error('[r2] deletePhotoFromR2 failed');
     return false;
   }
 }

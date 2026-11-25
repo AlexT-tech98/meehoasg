@@ -29,7 +29,7 @@ import {
   markConfirming, markSubmitted, markConfirmFailed,
   draftSummary, loadDrafts, saveDrafts,
   cleanupOrphanedTmpFiles, findStaleConfirming, resetStaleConfirming,
-  mapPaymentToOps,
+  mapPaymentToOps, formatPaymentClaimNote,
 } from './core.mjs';
 
 // ---------------------------------------------------------------------------
@@ -170,6 +170,10 @@ QUY TẮC BẢO MẬT:
 
   async function callCreateOrder(draft, sampleDataUrls = [], billDataUrls = []) {
     const f = draft.fields || {};
+    const noteParts = [];
+    if (f.note) noteParts.push(String(f.note).trim());
+    const claimNote = formatPaymentClaimNote(f);
+    if (claimNote && !noteParts.some(p => p.includes(claimNote))) noteParts.push(claimNote);
     const payload = {
       name: 'createOrder',
       payload: {
@@ -183,7 +187,7 @@ QUY TẮC BẢO MẬT:
           shipping: f.shipping || '',
           address: f.address || '',
           phone: f.phone || '',
-          note: f.note || '',
+          note: noteParts.join(' '),
           flowerTotal: f.flowerTotal ? Number(f.flowerTotal) : 0,
           payment: mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal),
           sale: f.sale || '',

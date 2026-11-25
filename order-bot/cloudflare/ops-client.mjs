@@ -9,9 +9,9 @@
  *   - All secrets and technical error messages are sanitized
  */
 
-import { mapPaymentToOps } from '../core.mjs';
+import { mapPaymentToOps, formatPaymentClaimNote } from '../core.mjs';
 
-export { mapPaymentToOps };
+export { mapPaymentToOps, formatPaymentClaimNote };
 
 /**
  * Call OPS createOrder endpoint.
@@ -21,26 +21,25 @@ export { mapPaymentToOps };
  * @param {Array<{data: string}>} sampleFiles - Sample flower image files (base64 Data URLs)
  * @param {Array<{data: string}>} unverifiedBillFiles - Bill image files (base64 Data URLs)
  * @param {Function} [fetcher=fetch] - Fetch implementation (injectable for testing)
- * @returns {Promise<{ok: boolean, orderId?: string, message?: string, code?: string, unverifiedBillCount?: number}>}
+ * @param {object} [options] - Optional overrides (e.g. expectedBillCount when bills are linked via R2)
+ * @returns {Promise<{ok: boolean, orderId?: string, order?: object, message?: string, code?: string, unverifiedBillCount?: number}>}
  */
-export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [], unverifiedBillFiles = [], fetcher = fetch) {
+export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [], unverifiedBillFiles = [], fetcher = fetch, options = {}) {
   const f = draft.fields || {};
   const noteParts = [];
   if (f.note) noteParts.push(String(f.note).trim());
 
-  if (f.paymentState === 'deposit' && f.depositAmount) {
-    const depStr = Number(f.depositAmount).toLocaleString('vi');
-    noteParts.push(`[Khách báo: Đã cọc ${depStr} đ]`);
-  } else if (f.paymentState === 'bankfull') {
-    const bfAmount = f.reportedPaidAmount || f.flowerTotal;
-    const bfStr = bfAmount ? ` ${Number(bfAmount).toLocaleString('vi')} đ` : '';
-    noteParts.push(`[Khách báo: Bankfull tiền hoa${bfStr}]`);
-  } else if (f.paymentState === 'fullpaid') {
-    noteParts.push(`[Khách báo: Fullpaid toàn bộ đơn]`);
+  const claimNote = formatPaymentClaimNote(f);
+  if (claimNote && !noteParts.some(p => p.includes(claimNote))) {
+    noteParts.push(claimNote);
   }
 
-  if (unverifiedBillFiles.length > 0 && !noteParts.some(p => p.includes('bill chưa xác minh'))) {
-    noteParts.push(`[🧾 Đính kèm ${unverifiedBillFiles.length} bill chưa xác minh]`);
+  const effectiveBillCount = Math.max(
+    unverifiedBillFiles.length,
+    Number(options?.expectedBillCount) || 0
+  );
+  if (effectiveBillCount > 0 && !noteParts.some(p => p.includes('bill chưa xác minh'))) {
+    noteParts.push(`[🧾 Đính kèm ${effectiveBillCount} bill chưa xác minh]`);
   }
 
   const note = noteParts.join(' ');
@@ -64,8 +63,9 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
         address: String(f.address || '').trim(),
         flowerTotal: Number(f.flowerTotal) || 0,
         flower_total: Number(f.flowerTotal) || 0,
-        // Canonical payment mapping to OPS (unpaid, deposit, bankfull, fullpaid)
-        // Strict invariant: fullPaidRequested remains false (no auto-settlement before money review)
+        // STRICT FINANCIAL INVARIANT:
+        // Payment is ALWAYS 'Chưa thanh toán' and fullPaidRequested is ALWAYS false.
+        // Customer claims and bill images never auto-confirm payment or reduce debt.
         payment: mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal),
         sale: String(f.sale || '').trim(),
         card: Boolean(f.card),
@@ -126,10 +126,11 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
     const json = await res.json();
     return {
       ok: Boolean(json.ok),
-      orderId: json.orderId || json.row?.id || null,
+      orderId: json.orderId || json.order?.id || json.row?.id || null,
+      order: json.order || json.row || null,
       code: json.code || null,
       message: json.message || (json.ok ? 'Đã tạo đơn thành công.' : 'Tạo đơn thất bại.'),
-      unverifiedBillCount: unverifiedBillFiles.length,
+      unverifiedBillCount: effectiveBillCount,
       sampleCount: sampleFiles.length
     };
   } catch (err) {
