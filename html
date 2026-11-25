@@ -2007,7 +2007,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
       '<td>' + esc(o.sale || '—') + '</td>' +
       '<td><span class="mee3-badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' + (accPills.length ? '<div class="mee3-card-pills" style="margin-top:4px">' + accPills.slice(0,2).map(function(p){ return '<span class="mee3-badge mee3-badge-acc">' + esc(p) + '</span>'; }).join('') + '</div>' : '') + '</td>' +
       '<td class="mee3-col-num"><b>' + vnd(o.flowerTotal) + '</b></td>' +
-      '<td class="mee3-col-num mee3-col-pay">' + esc(paymentLabel(o)) + '<br><span class="sub">Đã thu ' + vnd(o.paid) + '</span></td>' +
+      '<td class="mee3-col-num mee3-col-pay">' + esc(paymentLabel(o)).replace(/\s+đ(?=$|\s|<|\))/gi, '\u00a0đ') + '<br><span class="sub mee3-nowrap-sub">Đã thu ' + vnd(o.paid) + '</span></td>' +
       '<td class="mee3-col-num"><b style="color:' + (o.debt ? 'var(--v3-danger)' : 'var(--v3-success)') + '">' + vnd(o.debt) + '</b>' + ordersDebtNotes(o) + '</td>' +
     '</tr>';
   }).join('');

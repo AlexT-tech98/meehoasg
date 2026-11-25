@@ -2676,9 +2676,22 @@ body .fab {
 
 .mee3-table td.mee3-col-pay {
   white-space: normal;
-  min-width: 104px;
-  max-width: 148px;
-  line-height: 1.35;
+  min-width: 120px;
+  max-width: 162px;
+  line-height: 1.38;
+}
+
+.mee3-table .mee3-nowrap-sub {
+  display: inline-block;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+.mee3-table .orders-ship-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--v3-muted);
+  font-size: 11px;
 }
 
 .mee3-table td {
