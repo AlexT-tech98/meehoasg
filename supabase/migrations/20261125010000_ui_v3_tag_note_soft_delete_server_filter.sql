@@ -233,9 +233,25 @@ BEGIN
 
   WITH scoped AS MATERIALIZED (
     SELECT
-      o.*,
-      public.mee_ops_visible_status(o) AS vis_status,
-      (public.mee_ops_debt(o) > 0) AS has_debt
+      o.id,
+      o.order_date,
+      o.order_time,
+      CASE
+        WHEN o.status = 'Đã bó' THEN
+          CASE WHEN o.shipping = 'Ghé lấy' THEN 'Chờ lấy' ELSE 'Chờ giao' END
+        ELSE coalesce(o.status, '')
+      END AS vis_status,
+      CASE
+        WHEN coalesce(o.settled, false) OR coalesce(o.full_paid, false) THEN false
+        WHEN coalesce(o.payment, '') IN ('', 'Chưa thanh toán') THEN (
+          coalesce(o.flower_total, 0)
+          + CASE WHEN o.card THEN greatest(1, coalesce(o.card_qty, 1)) * 10000 ELSE 0 END
+          + CASE WHEN o.banner THEN greatest(1, coalesce(o.banner_qty, 1)) * 35000 ELSE 0 END
+          + coalesce(o.charm_fee, 0) + coalesce(o.paper_fee, 0) + coalesce(o.vat, 0)
+          + CASE WHEN lower(coalesce(o.shipping, '')) LIKE '%shop%' AND coalesce(o.ship_confirmed, false) THEN coalesce(o.ship_fee, 0) ELSE 0 END
+        ) > 0
+        ELSE public.mee_ops_debt(o) > 0
+      END AS has_debt
     FROM public.orders o
     WHERE NOT coalesce(o.is_deleted, false)
       AND NOT coalesce(o.delete_after_sheet_sync, false)
@@ -243,12 +259,14 @@ BEGIN
       AND (v_query = '' OR o.ops_search_key LIKE '%' || v_query || '%' ESCAPE E'\\')
   ),
   filtered AS (
-    SELECT * FROM scoped s
+    SELECT id, order_date, order_time
+    FROM scoped s
     WHERE (v_status IS NULL OR s.vis_status = v_status)
       AND (NOT v_debt OR s.has_debt)
   ),
   page AS (
-    SELECT * FROM filtered
+    SELECT id, order_date, order_time
+    FROM filtered
     ORDER BY order_date ASC, order_time ASC, id ASC
     LIMIT p_limit OFFSET p_offset
   ),
@@ -264,8 +282,9 @@ BEGIN
   )
   SELECT jsonb_build_object(
     'rows', coalesce((
-      SELECT jsonb_agg((to_jsonb(p) - 'vis_status' - 'has_debt') ORDER BY p.order_date ASC, p.order_time ASC, p.id ASC)
+      SELECT jsonb_agg(to_jsonb(o) ORDER BY p.order_date ASC, p.order_time ASC, p.id ASC)
       FROM page p
+      JOIN public.orders o ON o.id = p.id
     ), '[]'::jsonb),
     'total', (SELECT count(*)::int FROM filtered),
     'scopeTotal', (SELECT all_count FROM agg),
