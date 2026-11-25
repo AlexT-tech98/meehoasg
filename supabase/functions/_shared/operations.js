@@ -15,13 +15,39 @@ export function operationMoney(value, optional=false) {
   else throw Error('Số tiền không hợp lệ.');
   const n=Number(s);if(!Number.isFinite(n)||n<0||n>999999999999)throw Error('Số tiền không hợp lệ.');return n;
 }
+export const ORDER_SOURCES=['Threads','TikTok','Page/IG','Zalo','Google Map','Khách ghé tiệm'];
+function vnNowHHMM(){return new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());}
 export function normalizeOperationOrder(input,user,current={}) {
-  const d=input||{},date=clean(d.date),time=clean(d.time);
-  const t=time.match(/^(\d{1,2}):(\d{2})$/);
-  if(!clean(d.customer)||!clean(d.flower))throw Error('Thiếu tên khách hoặc mẫu hoa.');
+  const d=input||{},date=clean(d.date);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+'T00:00:00Z'))||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date)throw Error('Ngày nhận không hợp lệ.');
+  const orderType=clean(d.orderType||d.order_type||current.order_type||'STANDARD').toUpperCase();
+  if(!['STANDARD','WALK_IN'].includes(orderType))throw Error('Loại đơn hàng không hợp lệ.');
+  if(orderType==='WALK_IN'){
+    const rawTime=clean(d.time)||vnNowHHMM(),wt=rawTime.match(/^(\d{1,2}):(\d{2})$/);
+    if(!wt||Number(wt[1])>23||Number(wt[2])>59)throw Error('Giờ bán không hợp lệ.');
+    const amount=operationMoney(d.flowerTotal);
+    if(!(amount>0))throw Error('Số tiền đơn khách vãng lai phải lớn hơn 0.');
+    const payMethod=clean(d.walkInPaymentMethod||d.walk_in_payment_method||current.walk_in_payment_method).toUpperCase();
+    if(!['CASH','TRANSFER'].includes(payMethod))throw Error('Vui lòng chọn hình thức thanh toán (Tiền mặt hoặc Chuyển khoản).');
+    return {
+      customer:'Khách vãng lai',phone:'',order_date:date,order_time:wt[1].padStart(2,'0')+':'+wt[2],
+      flower:clean(d.flower)||'Khách vãng lai mua hoa tại tiệm',note:clean(d.note),tag_note_free:'',
+      order_source:'Khách ghé tiệm',order_type:'WALK_IN',walk_in_payment_method:payMethod,
+      shipping:'Ghé lấy',address:'',flower_total:amount,
+      payment:`Đã thanh toán ${amount} đ (${payMethod==='CASH'?'Tiền mặt':'Chuyển khoản'} - Khách vãng lai)`,
+      sale:clean(current.sale||'cmui'),
+      card:false,card_qty:0,card_text:'',banner:false,banner_qty:0,banner_text:'',
+      charm_fee:0,charm_text:'',paper_fee:0,paper_text:'',vat:0,ship_fee:0,ship_confirmed:false,image_urls:[]
+    };
+  }
+  const time=clean(d.time),t=time.match(/^(\d{1,2}):(\d{2})$/);
+  if(!clean(d.customer)||!clean(d.flower))throw Error('Thiếu tên khách hoặc mẫu hoa.');
   if(!t||Number(t[1])>23||Number(t[2])>59)throw Error('Giờ nhận không hợp lệ.');
   if(!['Shop book ship','Khách tự book','Ghé lấy'].includes(clean(d.shipping)))throw Error('Hình thức vận chuyển không hợp lệ.');
+  const hasSource=d.orderSource!==undefined||d.order_source!==undefined;
+  const orderSource=hasSource?clean(d.orderSource??d.order_source):clean(current.order_source);
+  if(orderSource&&!ORDER_SOURCES.includes(orderSource))throw Error('Nguồn đơn không nằm trong danh sách cho phép.');
+  if(bool(d.requireOrderSource)&&!orderSource)throw Error('Vui lòng chọn Nguồn đơn.');
   const card=bool(d.card),banner=bool(d.banner),qty=card?Number(d.cardQty??current.card_qty??1):0,bannerQty=banner?Number(d.bannerQty??current.banner_qty??1):0;
   if(card&&(!Number.isInteger(qty)||qty<1||qty>99||!clean(d.cardText)))throw Error('Thiệp cần số lượng 1–99 và nội dung.');
   if(banner&&(!Number.isInteger(bannerQty)||bannerQty<1||bannerQty>99||!clean(d.bannerText)))throw Error('Banner cần số lượng 1–99 và nội dung.');
@@ -30,6 +56,7 @@ export function normalizeOperationOrder(input,user,current={}) {
   return {customer:clean(d.customer),phone:clean(d.phone),order_date:date,order_time:t[1].padStart(2,'0')+':'+t[2],
     flower:clean(d.flower),note:clean(d.note),
     tag_note_free:d.tagNoteFree===undefined&&d.tag_note_free===undefined?clean(current.tag_note_free):clean(d.tagNoteFree??d.tag_note_free),
+    order_source:orderSource,order_type:'STANDARD',walk_in_payment_method:'',
     shipping,address:clean(d.address),flower_total:operationMoney(d.flowerTotal),payment:clean(d.payment),
     sale:user.role==='SALE'?user.username:clean(d.sale||current.sale||user.username),
     card,card_qty:qty,card_text:clean(d.cardText),banner,banner_qty:bannerQty,banner_text:clean(d.bannerText),
@@ -75,7 +102,9 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
         if(user.role==='SALE'&&![clean(user.username).toLowerCase(),clean(user.display_name).toLowerCase()].includes(clean(current.sale).toLowerCase()))return operationFailure('Sale chỉ được sửa đơn do mình phụ trách.','NOT_OWNER');
       }
       try{input.order=normalizeOperationOrder(p.order,user,current);}catch(e){return operationFailure(e.message);}
-      input.newOrderId=newId('MEE');input.fullPaidRequested=bool(p.order?.fullPaidRequested);
+      input.newOrderId=newId('MEE');
+      input.requireOrderSource=bool(p.order?.requireOrderSource||p.requireOrderSource);
+      input.fullPaidRequested=input.order.order_type==='WALK_IN'?false:bool(p.order?.fullPaidRequested);
       const retained=action==='updateOrder'?(Array.isArray(p.order?.imageUrls)?p.order.imageUrls:current.image_urls||[]):[];
       const currentIds=new Map((current.image_urls||[]).map(u=>[privateImageIdentity(u),u]));
       if(retained.some(u=>!currentIds.has(privateImageIdentity(u))))return operationFailure('Ảnh không thuộc đơn này.','IMAGE_INVALID');

@@ -57,6 +57,6 @@ test('multi-card finance is canonical in base drawer without a DOM repair patch'
   assert.doesNotMatch(ui,/function patchCardFinance/);
   assert.match(base,/cardFee=Number\(o\.cardFee\)\|\|cardQty\*10000/);
   assert.match(base,/Thiệp × '\+cardQty/);
-  assert.match(base,/GHI CHÚ KHÁCH/);
+  assert.match(base,/LƯU Ý ĐƠN HÀNG/);
   assert.match(base,/NỘI DUNG THIỆP/);
 });

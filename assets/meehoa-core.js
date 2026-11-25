@@ -1057,7 +1057,9 @@
     table: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
     alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
     user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
-    ext: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
+    ext: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+    pin: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+    note: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'
   };
 
   function icon(name, sizeClass){
@@ -1198,7 +1200,8 @@
         '<dt>Thời gian</dt><dd>' + esc(dateVN(latestOrder.date) + ' · ' + (latestOrder.time || '—')) + '</dd>' +
         '<dt>Mẫu hoa</dt><dd>' + esc(latestOrder.flower || '—') + '</dd>' +
         '<dt>Địa chỉ</dt><dd>' + esc(latestOrder.address || '—') + '</dd>' +
-        '<dt>Ghi chú</dt><dd>' + esc(latestOrder.note || '—') + '</dd>' +
+        '<dt>Lưu ý đơn hàng</dt><dd>' + esc(latestOrder.note || '—') + '</dd>' +
+        (latestOrder.orderSource ? '<dt>Nguồn đơn</dt><dd>' + esc(latestOrder.orderSource) + '</dd>' : '') +
         (latestOrder.tagNoteFree ? '<dt>Tag note free</dt><dd>' + esc(latestOrder.tagNoteFree) + '</dd>' : '') +
         '<dt>Trạng thái</dt><dd>' + esc(latestOrder.status || '—') + '</dd>' +
       '</dl>' +

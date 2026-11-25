@@ -947,68 +947,164 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         window._editPreviewMap = previewMap;
         window._editFullMap = fullMap;
     }
+    var ORDER_SOURCES_V3 = ['Threads', 'TikTok', 'Page/IG', 'Zalo', 'Google Map', 'Khách ghé tiệm'];
+    function setSectionInputsDisabled(container, disabled) {
+        if (!container) return;
+        Array.from(container.querySelectorAll('input,select,textarea')).forEach(function (el) {
+            if (el.id === 'walkInToggle') return;
+            if (disabled) {
+                el.dataset.meeWasDisabled = el.disabled ? '1' : '0';
+                el.disabled = true;
+            } else {
+                if (el.dataset.meeWasDisabled !== '1') el.disabled = false;
+                delete el.dataset.meeWasDisabled;
+            }
+        });
+    }
+    function toggleWalkInMode(checked) {
+        var form = document.getElementById('orderForm');
+        if (!form) return;
+        var isWalkIn = Boolean(checked);
+        var stdWrap = document.getElementById('standardOrderSections');
+        var wiWrap = document.getElementById('walkInOrderSection');
+        var submit = document.getElementById('orderSubmit');
+        var sub = document.getElementById('orderFormSub');
+        form.dataset.walkInMode = isWalkIn ? '1' : '0';
+        if (stdWrap) {
+            stdWrap.classList.toggle('hidden', isWalkIn);
+            setSectionInputsDisabled(stdWrap, isWalkIn);
+        }
+        if (wiWrap) {
+            wiWrap.classList.toggle('hidden', !isWalkIn);
+            setSectionInputsDisabled(wiWrap, !isWalkIn);
+        }
+        if (submit) {
+            if (isWalkIn) {
+                submit.disabled = false;
+                submit.textContent = '＋ Ghi nhận đơn vãng lai';
+            } else {
+                submit.disabled = Boolean(S.user && S.user.role === 'ADMIN' && !(S.options.sales || []).length);
+                submit.textContent = window._editingOrderId ? 'Lưu thay đổi' : '＋ Tạo đơn ngay';
+            }
+        }
+        if (sub && !window._editingOrderId) {
+            sub.textContent = isWalkIn
+                ? 'Ghi nhận nhanh khách ghé tiệm mua lấy trực tiếp · Phụ trách mặc định: C Mụi'
+                : 'Nhập đầy đủ thông tin đơn hoa, nguồn đơn và thanh toán';
+        }
+        if (isWalkIn && window.MEE_AUTOGROW && wiWrap) window.MEE_AUTOGROW.bind(wiWrap);
+    }
     function renderOrderForm(o, id, detailReady) {
         window._editingOrderId = id || '';
         var sales = S.options.sales || [], ov = document.getElementById('overlay');
         if (!ov) return;
+        var editingWalkIn = Boolean(id && (o.isWalkIn || o.orderType === 'WALK_IN'));
         var currentSale = o.sale || ((!id && S.user.role === 'THO_OPS') ? S.user.name : '');
         var saleOptions = currentSale && !sales.some(function (x) { return norm(x) === norm(currentSale); }) ? __spreadArray([currentSale], __read(sales), false) : sales;
         var saleField = S.user.role !== 'SALE' ? "<div class=\"span2\"><label>SALE PHỤ TRÁCH</label><select name=\"sale\" id=\"orderSale\" ".concat((sales.length || (S.user.role === 'THO_OPS' && currentSale)) ? '' : 'disabled', " required>").concat(saleOptions.length ? saleOptions.map(function (x) { return "<option value=\"".concat(attr(x), "\" ").concat(norm(x) === norm(currentSale) ? 'selected' : '', ">").concat(esc(x), "</option>"); }).join('') : '<option value="">Đang tải danh sách Sale…</option>', "</select></div>") : '';
+        var currentSource = String(o.orderSource || '').trim();
+        var sourceOptions = '<option value="">' + (id ? '— Chưa ghi nhận (đơn cũ) —' : '— Chọn nguồn đơn —') + '</option>' +
+          ORDER_SOURCES_V3.map(function (src) {
+            return '<option value="' + attr(src) + '"' + (currentSource === src ? ' selected' : '') + '>' + esc(src) + '</option>';
+          }).join('');
+        var walkInPay = String(o.walkInPaymentMethod || 'CASH').toUpperCase();
+        var walkInDateVal = editingWalkIn ? (o.date || today()) : today();
+        var walkInAmountVal = editingWalkIn && o.flowerTotal ? new Intl.NumberFormat('vi-VN').format(o.flowerTotal) : '';
+        var walkInNoteVal = editingWalkIn ? (o.flower === 'Khách vãng lai mua hoa tại tiệm' ? '' : (o.flower || '')) : '';
+        var walkInToggleHtml = !id
+          ? '<label class="mee3-walkin-toggle" for="walkInToggle">' +
+              '<input type="checkbox" id="walkInToggle" name="isWalkIn" onchange="MEEOPS7.toggleWalkInMode(this.checked)">' +
+              '<span class="mee3-walkin-toggle-text">' +
+                '<span class="mee3-walkin-toggle-title">Khách vãng lai</span>' +
+                '<span class="mee3-walkin-toggle-sub">Ghi nhận nhanh khách ghé tiệm mua &amp; lấy trực tiếp (tự gán C Mụi, nguồn Khách ghé tiệm)</span>' +
+              '</span>' +
+            '</label>'
+          : '';
+        var walkInSectionHtml =
+          '<div id="walkInOrderSection" class="' + (editingWalkIn ? '' : 'hidden') + '" style="display:flex;flex-direction:column;gap:12px">' +
+            '<section class="mee3-form-section mee3-zone-payment" data-zone="walkin-main">' +
+              '<div class="mee3-form-section-title"><span class="mee3-form-section-num">VL</span><span>Ghi nhận nhanh · Khách vãng lai</span></div>' +
+              '<div class="mee3-form-grid">' +
+                '<div><label>NGÀY BÁN *</label><input name="walkInDate" type="date" value="' + attr(walkInDateVal) + '" required></div>' +
+                '<div><label>SỐ TIỀN (VNĐ) *</label><input name="walkInAmount" inputmode="numeric" placeholder="VD: 350.000" value="' + attr(walkInAmountVal) + '" oninput="MEEOPS7.formatMoneyInput(this)" required></div>' +
+                '<div class="span2">' +
+                  '<label>HÌNH THỨC THANH TOÁN *</label>' +
+                  '<div class="mee3-walkin-pay-group" role="radiogroup" aria-label="Hình thức thanh toán khách vãng lai">' +
+                    '<label class="mee3-walkin-pay-option"><input type="radio" name="walkInPaymentMethod" value="CASH"' + (walkInPay !== 'TRANSFER' ? ' checked' : '') + '><span>Tiền mặt</span></label>' +
+                    '<label class="mee3-walkin-pay-option"><input type="radio" name="walkInPaymentMethod" value="TRANSFER"' + (walkInPay === 'TRANSFER' ? ' checked' : '') + '><span>Chuyển khoản</span></label>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="span2"><label>MÔ TẢ (KHÔNG BẮT BUỘC)</label><textarea name="walkInNote" rows="1" placeholder="VD: Bó hồng đỏ 5 bông, hoa cắt cành mua tại tiệm…">' + esc(walkInNoteVal) + '</textarea></div>' +
+                '<div class="span2">' +
+                  '<div class="mee3-walkin-owner-box">' +
+                    '<span>Nhân viên phụ trách mặc định: <b>C Mụi</b></span>' +
+                    '<span>Nguồn: <b>Khách ghé tiệm</b> · <b>Ghé lấy</b> · <b>Đã giao</b></span>' +
+                  '</div>' +
+                  '<div class="mee3-field-hint">Người tạo đơn: <b>' + esc((S.user && (S.user.name || S.user.username)) || '') + '</b> (được lưu riêng trong lịch sử; không cấp thêm quyền sửa/xóa ngoài phân quyền hiện hành).</div>' +
+                '</div>' +
+              '</div>' +
+            '</section>' +
+          '</div>';
 
         ov.innerHTML =
           '<div class="drawer-bg mee3-drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()">' +
-            '<form action="javascript:void(0)" class="mee3-order-drawer-form" id="orderForm" novalidate data-mee-v3-layout="1" data-detail-ready="' + (detailReady ? '1' : '0') + '" onsubmit="MEEOPS7.saveOrder(event,\'' + id + '\')">' +
+            '<form action="javascript:void(0)" class="mee3-order-drawer-form" id="orderForm" novalidate data-mee-v3-layout="1" data-walk-in-mode="' + (editingWalkIn ? '1' : '0') + '" data-detail-ready="' + (detailReady ? '1' : '0') + '" onsubmit="MEEOPS7.saveOrder(event,\'' + id + '\')">' +
               '<header class="mee3-drawer-head">' +
                 '<div>' +
-                  '<h3 class="mee3-drawer-title">' + (id ? 'Chỉnh sửa đơn hàng' : 'Tạo đơn hàng mới') + '</h3>' +
-                  '<div class="mee3-drawer-sub">' + (id ? esc(id) + (o.customer ? ' · ' + esc(o.customer) : '') : 'Nhập đầy đủ thông tin đơn hoa và thanh toán') + '</div>' +
+                  '<h3 class="mee3-drawer-title">' + (editingWalkIn ? 'Chỉnh sửa đơn Khách vãng lai' : (id ? 'Chỉnh sửa đơn hàng' : 'Tạo đơn hàng mới')) + '</h3>' +
+                  '<div id="orderFormSub" class="mee3-drawer-sub">' + (id ? esc(id) + (o.customer ? ' · ' + esc(o.customer) : '') : 'Nhập đầy đủ thông tin đơn hoa, nguồn đơn và thanh toán') + '</div>' +
                   (id && !detailReady ? '<div class="page-status" style="margin-top:4px"><span class="mini-spinner"></span>Đang đồng bộ ảnh hiện có…</div>' : '') +
                 '</div>' +
                 '<button type="button" class="close" aria-label="Đóng" onclick="MEEOPS7.closeOverlay()">×</button>' +
               '</header>' +
               '<div class="mee3-drawer-body">' +
-                '<section class="mee3-form-section" data-section="01">' +
-                  '<div class="mee3-form-section-title"><span class="mee3-form-section-num">01</span><span>Khách hàng</span></div>' +
-                  '<div class="mee3-form-grid">' +
-                    field('TÊN KHÁCH HÀNG', 'customer', o.customer, true) +
-                    field('SỐ ĐIỆN THOẠI', 'phone', o.phone) +
-                  '</div>' +
-                '</section>' +
-                '<section class="mee3-form-section" data-section="02">' +
-                  '<div class="mee3-form-section-title"><span class="mee3-form-section-num">02</span><span>Đơn hoa & Ảnh mẫu</span></div>' +
-                  '<div class="mee3-form-grid">' +
-                    '<div class="span2"><label>MẪU HOA ĐẶT</label><textarea name="flower" rows="1" required placeholder="Mô tả chi tiết mẫu hoa, tone màu, kích thước…">' + esc(o.flower || '') + '</textarea></div>' +
-                    '<div class="span2"><label>NOTE</label><textarea name="note" rows="1" placeholder="Ghi chú từ khách hàng hoặc lưu ý bó hoa…">' + esc(o.note || '') + '</textarea></div>' +
-                    '<div class="span2"><label>Tag note free</label><textarea name="tagNoteFree" rows="1" placeholder="Nội dung ghi tag miễn phí (không tính phụ kiện)…">' + esc(o.tagNoteFree || '') + '</textarea><div class="mee3-field-hint">Tùy chọn, miễn phí — hiển thị trong chi tiết đơn, sản xuất và nội dung copy.</div></div>' +
-                    '<div class="span2"><label>ẢNH MẪU HOA</label><input id="imageFiles" type="file" accept="image/*" multiple><div class="sub">Chọn file/camera hoặc paste Ctrl/Cmd + V.</div></div>' +
-                  '</div>' +
-                '</section>' +
-                '<section class="mee3-form-section" data-section="03">' +
-                  '<div class="mee3-form-section-title"><span class="mee3-form-section-num">03</span><span>Giao nhận</span></div>' +
-                  '<div class="mee3-form-grid">' +
-                    field('NGÀY NHẬN', 'date', o.date || '', true, 'date') +
-                    field('GIỜ NHẬN', 'time', o.time, true, 'time') +
-                    selectField('VẬN CHUYỂN', 'shipping', S.options.shipping || SHIPPING_DEFAULT, o.shipping) +
-                    '<div class="span2"><label>ĐỊA CHỈ GIAO HÀNG</label><textarea name="address" rows="1" placeholder="Số nhà, đường, quận/huyện…">' + esc(o.address || '') + '</textarea></div>' +
-                  '</div>' +
-                '</section>' +
-                '<section class="mee3-form-section" data-section="04">' +
-                  '<div class="mee3-form-section-title"><span class="mee3-form-section-num">04</span><span>Thanh toán & phụ trách</span></div>' +
-                  '<div class="mee3-form-grid">' +
-                    '<div class="span2"><label>TIỀN HOA (VNĐ)</label><input name="flowerTotal" inputmode="numeric" value="' + attr(o.flowerTotal ? new Intl.NumberFormat('vi-VN').format(o.flowerTotal) : '') + '" oninput="MEEOPS7.formatMoneyInput(this)" required></div>' +
-                    paymentFields(o.payment, o.fullPaid, o.fullPaidBillUrls) +
-                    saleField +
-                  '</div>' +
-                '</section>' +
-                '<section class="mee3-form-section" data-section="05">' +
-                  '<div class="mee3-form-section-title"><span class="mee3-form-section-num">05</span><span>Phụ kiện</span></div>' +
-                  accessoryEditor(o) +
-                '</section>' +
+                walkInToggleHtml +
+                walkInSectionHtml +
+                '<div id="standardOrderSections" class="' + (editingWalkIn ? 'hidden' : '') + '" style="display:flex;flex-direction:column;gap:14px">' +
+                  '<section class="mee3-form-section mee3-zone-customer" data-section="01">' +
+                    '<div class="mee3-form-section-title"><span class="mee3-form-section-num">01</span><span>Khách hàng</span></div>' +
+                    '<div class="mee3-form-grid">' +
+                      field('TÊN KHÁCH HÀNG *', 'customer', o.customer, true) +
+                      field('SỐ ĐIỆN THOẠI', 'phone', o.phone) +
+                      '<div class="span2"><label>NGUỒN ĐƠN' + (id ? '' : ' *') + '</label><select name="orderSource" id="orderSourceSelect"' + (id ? '' : ' required') + '>' + sourceOptions + '</select>' + (id && !currentSource ? '<div class="mee3-field-hint">Đơn hàng cũ chưa có nguồn — có thể giữ nguyên hoặc bổ sung nguồn đơn.</div>' : '') + '</div>' +
+                    '</div>' +
+                  '</section>' +
+                  '<section class="mee3-form-section mee3-zone-flower" data-section="02">' +
+                    '<div class="mee3-form-section-title"><span class="mee3-form-section-num">02</span><span>Đơn hoa &amp; Ảnh mẫu</span></div>' +
+                    '<div class="mee3-form-grid">' +
+                      '<div class="span2"><label>MẪU HOA ĐẶT *</label><textarea name="flower" rows="1" required placeholder="Mô tả chi tiết mẫu hoa, tone màu, kích thước…">' + esc(o.flower || '') + '</textarea></div>' +
+                      '<div class="span2"><label>LƯU Ý ĐƠN HÀNG</label><textarea name="note" rows="1" placeholder="Lưu ý từ khách hàng hoặc hướng dẫn bó hoa…">' + esc(o.note || '') + '</textarea></div>' +
+                      '<div class="span2"><label>Tag note free</label><textarea name="tagNoteFree" rows="1" placeholder="Nội dung ghi tag miễn phí (không tính phụ kiện)…">' + esc(o.tagNoteFree || '') + '</textarea><div class="mee3-field-hint">Tùy chọn, miễn phí — hiển thị trong chi tiết đơn, sản xuất và nội dung copy.</div></div>' +
+                      '<div class="span2"><label>ẢNH MẪU HOA</label><input id="imageFiles" type="file" accept="image/*" multiple><div class="sub">Chọn file/camera hoặc paste Ctrl/Cmd + V.</div></div>' +
+                    '</div>' +
+                  '</section>' +
+                  '<section class="mee3-form-section mee3-zone-delivery" data-section="03">' +
+                    '<div class="mee3-form-section-title"><span class="mee3-form-section-num">03</span><span>Giao nhận</span></div>' +
+                    '<div class="mee3-form-grid">' +
+                      field('NGÀY NHẬN', 'date', o.date || '', true, 'date') +
+                      field('GIỜ NHẬN', 'time', o.time, true, 'time') +
+                      selectField('VẬN CHUYỂN', 'shipping', S.options.shipping || SHIPPING_DEFAULT, o.shipping) +
+                      '<div class="span2"><label>ĐỊA CHỈ GIAO HÀNG</label><textarea name="address" rows="1" placeholder="Số nhà, đường, quận/huyện…">' + esc(o.address || '') + '</textarea></div>' +
+                    '</div>' +
+                  '</section>' +
+                  '<section class="mee3-form-section mee3-zone-accessory" data-section="05">' +
+                    '<div class="mee3-form-section-title"><span class="mee3-form-section-num">04</span><span>Phụ kiện</span></div>' +
+                    accessoryEditor(o) +
+                  '</section>' +
+                  '<section class="mee3-form-section mee3-zone-payment" data-section="04">' +
+                    '<div class="mee3-form-section-title"><span class="mee3-form-section-num">05</span><span>Thanh toán &amp; phụ trách</span></div>' +
+                    '<div class="mee3-form-grid">' +
+                      '<div class="span2"><label>TIỀN HOA (VNĐ) *</label><input name="flowerTotal" inputmode="numeric" value="' + attr(o.flowerTotal ? new Intl.NumberFormat('vi-VN').format(o.flowerTotal) : '') + '" oninput="MEEOPS7.formatMoneyInput(this)" required></div>' +
+                      paymentFields(o.payment, o.fullPaid, o.fullPaidBillUrls) +
+                      saleField +
+                    '</div>' +
+                  '</section>' +
+                '</div>' +
               '</div>' +
               '<footer class="mee3-form-footer">' +
                 '<div class="mee3-form-footer-actions">' +
                   '<button type="button" class="btn secondary" onclick="MEEOPS7.closeOverlay()">Hủy</button>' +
-                  '<button type="submit" form="orderForm" id="orderSubmit" class="btn primary" ' + ((S.user.role === 'ADMIN' && !sales.length) ? 'disabled' : '') + '>' + (id ? 'Lưu thay đổi' : '＋ Tạo đơn ngay') + '</button>' +
+                  '<button type="submit" form="orderForm" id="orderSubmit" class="btn primary" ' + ((!editingWalkIn && S.user.role === 'ADMIN' && !sales.length) ? 'disabled' : '') + '>' + (editingWalkIn ? 'Lưu đơn vãng lai' : (id ? 'Lưu thay đổi' : '＋ Tạo đơn ngay')) + '</button>' +
                 '</div>' +
               '</footer>' +
             '</form>' +
@@ -1018,6 +1114,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         if (versionForm) {
             watchOrderSubmit(versionForm, id);
             versionForm.dataset.orderVersion = o.updatedAt || '';
+            setSectionInputsDisabled(document.getElementById(editingWalkIn ? 'standardOrderSections' : 'walkInOrderSection'), true);
             if (id && !detailReady) Array.from(versionForm.querySelectorAll('input,select,textarea')).forEach(function(el){ el.disabled = true; });
         }
         bindAccessoryForm();
@@ -1152,17 +1249,33 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         async function saveOrder(e,id){
         e.preventDefault();var f=e.target,btn=document.getElementById('orderSubmit');f._submitSequence=(f._submitSequence||0)+1;if(f.dataset.saving==='1'){orderFormFeedback(f,'Yêu cầu lưu trước vẫn đang xử lý. Vui lòng không bấm liên tục; giữ nguyên biểu mẫu.',false);return;}if(f.dataset.saved==='1'){orderFormFeedback(f,'Đơn đã báo lưu thành công. Vui lòng kiểm tra đơn trong danh sách trước khi thao tác tiếp.',false);return;}var sent=false,saved=false,stage='validate';
         try{var wasPending=!!f._pendingOperation;if(!wasPending&&!validateOrderForm(f))return;if(id&&f.dataset.detailReady!=='1')return orderFormFeedback(f,'Đang đồng bộ ảnh hiện có, vui lòng chờ một chút.',1);
-        stage='serialize';var fd=new FormData(f),order=Object.fromEntries(fd.entries()),oldOrder=id?Object.assign({},orderById(id)):null,paymentType=order.paymentType,files=[...((document.getElementById('imageFiles')||{}).files||[]),...(window._pasted||[])],billFiles=[...((document.getElementById('fullPaidBillFiles')||{}).files||[])],existingSamples=id?((window._editExistingUrls||[]).length):0;
-        stage='payment';if(!wasPending){if(S.user.role==='ADMIN'&&!String(order.sale||'').trim())return orderFormFeedback(f,'Cần chọn Sale phụ trách.',1);order.flowerTotal=moneyDigits(order.flowerTotal);order.shipFee=moneyDigits(order.shipFee||0);order.shipFeeActive=String(order.shipFeeActive||'0');
-        if(paymentType==='full_order'){
-            if(existingSamples+files.length<1)return orderFormFeedback(f,'Full Paid bắt buộc có ảnh mẫu hoa.',1);
-            if((!id||!(oldOrder&&oldOrder.fullPaid))&&!billFiles.length)return orderFormFeedback(f,'Full Paid bắt buộc có ảnh bill thanh toán.',1);
-            if(isShop(order.shipping)&&order.shipFeeActive!=='1')return orderFormFeedback(f,'Full Paid với Shop book ship bắt buộc nhập phí ship.',1);
-            order.payment='Đã thanh toán toàn bộ đơn';order.fullPaidRequested=true;
-        }else if(paymentType==='deposit'){var dep=moneyDigits(order.depositAmount);if(dep<order.flowerTotal*.5)return orderFormFeedback(f,'Tiền cọc phải đạt tối thiểu 50% tiền hoa.',1);order.payment='Đã cọc '+new Intl.NumberFormat('vi-VN').format(dep)+' đ';order.fullPaidRequested=false;
-        }else if(paymentType==='full'){order.payment='Đã thanh toán đủ tiền hoa (Full)';order.fullPaidRequested=false;
-        }else{order.payment='Chưa thanh toán (0 đ)';order.fullPaidRequested=false;}
-        delete order.paymentType;delete order.depositAmount;['card','banner'].forEach(function(k){order[k]=fd.has(k);});}
+        stage='serialize';var fd=new FormData(f),rawForm=Object.fromEntries(fd.entries()),oldOrder=id?Object.assign({},orderById(id)):null,isWalkIn=f.dataset.walkInMode==='1'||Boolean(id&&oldOrder&&(oldOrder.isWalkIn||oldOrder.orderType==='WALK_IN')),order=Object.assign({},rawForm),paymentType=order.paymentType,files=isWalkIn?[]:[...((document.getElementById('imageFiles')||{}).files||[]),...(window._pasted||[])],billFiles=isWalkIn?[]:[...((document.getElementById('fullPaidBillFiles')||{}).files||[])],existingSamples=(id&&!isWalkIn)?((window._editExistingUrls||[]).length):0;
+        stage='payment';if(!wasPending){
+        if(isWalkIn){
+            var wiDate=String(rawForm.walkInDate||'').trim(),wiAmt=moneyDigits(rawForm.walkInAmount),wiPay=String(rawForm.walkInPaymentMethod||'').trim().toUpperCase(),wiNote=String(rawForm.walkInNote||'').trim();
+            if(!/^\d{4}-\d{2}-\d{2}$/.test(wiDate))return orderFormFeedback(f,'Vui lòng chọn Ngày bán hợp lệ.',1,f.querySelector('[name="walkInDate"]'));
+            if(!(wiAmt>0))return orderFormFeedback(f,'Số tiền đơn khách vãng lai phải lớn hơn 0.',1,f.querySelector('[name="walkInAmount"]'));
+            if(wiPay!=='CASH'&&wiPay!=='TRANSFER')return orderFormFeedback(f,'Vui lòng chọn Hình thức thanh toán (Tiền mặt hoặc Chuyển khoản).',1);
+            var wiNowTime=(id&&oldOrder&&oldOrder.time)?oldOrder.time:new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());
+            order={orderType:'WALK_IN',date:wiDate,time:wiNowTime,flowerTotal:wiAmt,walkInPaymentMethod:wiPay,flower:wiNote,note:'',fullPaidRequested:false};
+        }else{
+            var validSources=['Threads','TikTok','Page/IG','Zalo','Google Map','Khách ghé tiệm'];
+            var hasSourceField=Boolean(f.querySelector&&f.querySelector('[name="orderSource"]'));
+            var srcVal=String(order.orderSource||'').trim();
+            if(!id&&hasSourceField&&validSources.indexOf(srcVal)===-1)return orderFormFeedback(f,'Vui lòng chọn Nguồn đơn.',1,f.querySelector('[name="orderSource"]'));
+            if(srcVal&&validSources.indexOf(srcVal)===-1)return orderFormFeedback(f,'Nguồn đơn không hợp lệ.',1,f.querySelector('[name="orderSource"]'));
+            order.orderSource=srcVal;order.orderType='STANDARD';if(!id&&hasSourceField)order.requireOrderSource=true;
+            if(S.user.role==='ADMIN'&&!String(order.sale||'').trim())return orderFormFeedback(f,'Cần chọn Sale phụ trách.',1);order.flowerTotal=moneyDigits(order.flowerTotal);order.shipFee=moneyDigits(order.shipFee||0);order.shipFeeActive=String(order.shipFeeActive||'0');
+            if(paymentType==='full_order'){
+                if(existingSamples+files.length<1)return orderFormFeedback(f,'Full Paid bắt buộc có ảnh mẫu hoa.',1);
+                if((!id||!(oldOrder&&oldOrder.fullPaid))&&!billFiles.length)return orderFormFeedback(f,'Full Paid bắt buộc có ảnh bill thanh toán.',1);
+                if(isShop(order.shipping)&&order.shipFeeActive!=='1')return orderFormFeedback(f,'Full Paid với Shop book ship bắt buộc nhập phí ship.',1);
+                order.payment='Đã thanh toán toàn bộ đơn';order.fullPaidRequested=true;
+            }else if(paymentType==='deposit'){var dep=moneyDigits(order.depositAmount);if(dep<order.flowerTotal*.5)return orderFormFeedback(f,'Tiền cọc phải đạt tối thiểu 50% tiền hoa.',1);order.payment='Đã cọc '+new Intl.NumberFormat('vi-VN').format(dep)+' đ';order.fullPaidRequested=false;
+            }else if(paymentType==='full'){order.payment='Đã thanh toán đủ tiền hoa (Full)';order.fullPaidRequested=false;
+            }else{order.payment='Chưa thanh toán (0 đ)';order.fullPaidRequested=false;}
+            delete order.paymentType;delete order.depositAmount;delete order.isWalkIn;delete order.walkInDate;delete order.walkInAmount;delete order.walkInPaymentMethod;delete order.walkInNote;['card','banner'].forEach(function(k){order[k]=fd.has(k);});
+        }}
         var requestId=id?(f.dataset.mutationRequestId||(f.dataset.mutationRequestId=safeUuid())):(window._orderRequestId||safeUuid());if(!id)window._orderRequestId=requestId;f.dataset.saving='1';orderFormFeedback(f,id?'Đang lưu thay đổi…':'Đang chuẩn bị ảnh và tạo đơn…',false);if(btn){btn.disabled=true;btn.dataset.oldText=btn.textContent;btn.textContent=id?'Đang lưu…':'Đang tạo đơn…';}
         stage='files';if(!f._pendingOperation){var imageStart=perfClock(),prepared=await Promise.all([Promise.all(files.map(function(file){return fileData(file,'sample');})),Promise.all(billFiles.map(function(file){return fileData(file,'bill');}))]);if(!id&&files.length+billFiles.length)recordClientPerf('createOrder:prepareImages',null,perfClock()-imageStart,false,true);order.imageFiles=[];order.fullPaidBillFiles=[];if(id)order.imageUrls=window._editExistingUrls||[];f._pendingOperation={requestId:requestId,expectedUpdatedAt:id?f.dataset.orderVersion:'',orderId:id,sourceSheet:oldOrder&&oldOrder.sourceSheet||'',sourceRow:oldOrder&&oldOrder.sourceRow||0,order:JSON.parse(JSON.stringify(order))};if(prepared[0].length||prepared[1].length)f._directUploads={requestId:requestId,prepared:prepared,complete:{}};}else{order=f._pendingOperation.order;orderFormFeedback(f,'Đang xác minh lần gửi trước. Nội dung vừa sửa chưa được gửi.',false);}if(f._directUploads&&!f._directUploads.done){stage='upload';orderFormFeedback(f,'Đang tải ảnh trực tiếp lên Storage…',false);var uploadStarted=perfClock(),uploaded=await uploadOrderEvidence(f._directUploads);if(!id)recordClientPerf('createOrder:upload',null,perfClock()-uploadStarted,false,true);f._pendingOperation.order.preuploadedSamples=uploaded.samples;f._pendingOperation.order.preuploadedBills=uploaded.bills;f._directUploads.done=true;}stage='request';var r=await actionRun(function(){sent=true;return gas(id?'updateOrder':'createOrder',f._pendingOperation);},id?'Đang lưu thay đổi…':'Đang tạo đơn…');if(!r||!r.ok){sent=!!(r&&r.code==='SERVER_ERROR')||!r;var rejected=new Error(r&&r.message||'Không lưu được đơn.');rejected.code=r&&r.code||'';if(r&&r.code!=='SERVER_ERROR'&&!(wasPending&&['AUTH_REQUIRED','REQUEST_CHANGED'].includes(r.code))){delete f._pendingOperation;delete f._directUploads;f.dataset.mutationRequestId='';if(!id)window._orderRequestId='';}throw rejected;}saved=true;stage='render';f.dataset.saved='1';delete f._directUploads;
             orderMutationDirty();var canonical;if(r.order){applyCanonicalOrder(r.order,oldOrder);canonical=r.order;}else{canonical=Object.assign({},oldOrder||order,{id:r.orderId||id});refreshOrderEntity(r.orderId||id,r.sourceSheet||(oldOrder&&oldOrder.sourceSheet),r.sourceRow||(oldOrder&&oldOrder.sourceRow),oldOrder).catch(function(e){console.warn('Không tải lại được chi tiết đơn:',e);});}if(S.page==='dashboard')S.dirty.delete('getDashboardSummary');if(S.page==='production')S.dirty.delete('getProductionOrders');if(S.page==='orders')S.dirty.delete('getOrders');if(S.page==='debt')S.dirty.delete('getDebtReview');
@@ -1912,23 +2025,27 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
     var paySubHtml = (hasDebt && Number(o.paid) > 0 && payLabel) ? '<span class="mee3-card-pay-sub">' + esc(payLabel) + ' ·</span>' : '';
     var accPills = orderAccessoryPills(o);
     var hasTagFree = Boolean(String(o.tagNoteFree || '').trim());
+    var hasNote = Boolean(String(o.note || '').trim());
+    var isWalkIn = Boolean(o.isWalkIn || o.orderType === 'WALK_IN');
 
-    return '<article tabindex="0" role="button" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}" class="mee3-card order-card-mobile mee-orders-card' + (o.hasAccessories ? ' has-accessories' : '') + '" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'orders\')">' +
+    return '<article tabindex="0" role="button" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}" class="mee3-card order-card-mobile mee-orders-card' + (o.hasAccessories ? ' has-accessories' : '') + (isWalkIn ? ' is-walkin' : '') + '" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'orders\')">' +
       '<div class="mee3-card-head order-card-mobile-top">' +
         '<span class="mee3-card-time mee3-num">' + v3Icon('clock', 'mee3-ico-sm') + ' <b>' + esc(timeVN(o.time)) + '</b> · ' + dateVN(o.date) + '</span>' +
-        '<span class="mee3-badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' +
+        '<span style="display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap">' +
+          (isWalkIn ? '<span class="mee3-badge mee3-badge-walkin">Khách vãng lai</span>' : '') +
+          '<span class="mee3-badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' +
+        '</span>' +
       '</div>' +
       '<div class="mee3-card-body">' +
         thumbHtml +
         '<div class="mee3-card-info">' +
           '<div class="mee3-card-customer">' + esc(o.customer || 'Khách vãng lai') + '</div>' +
-          '<div class="mee3-card-meta-line">' + v3Icon('phone', 'mee3-ico-sm') + '<span>' + (esc(o.phone) || 'Chưa có SĐT') + (o.sale ? ' · ' + esc(o.sale) : '') + '</span></div>' +
           '<div class="mee3-card-flower" title="' + attr(o.flower || '') + '">' + esc(o.flower || 'Mẫu hoa chuẩn') + '</div>' +
-          (o.note ? '<div class="mee3-card-note">' + esc(o.note) + '</div>' : '') +
-          (o.shipping ? '<div class="mee3-card-ship">' + v3ShipIcon(o.shipping) + '<span>' + esc(o.shipping) + (o.address ? ' — ' + esc(o.address) : '') + '</span></div>' : '') +
-          ((accPills.length || hasTagFree) ? '<div class="mee3-card-pills">' +
+          '<div class="mee3-card-meta-line">' + v3ShipIcon(o.shipping) + '<span>' + esc(o.shipping || '—') + (o.sale ? ' · ' + esc(o.sale) : '') + '</span></div>' +
+          ((accPills.length || hasTagFree || hasNote) ? '<div class="mee3-card-pills">' +
             accPills.map(function(p){ return '<span class="mee3-badge mee3-badge-acc">' + esc(p) + '</span>'; }).join('') +
             (hasTagFree ? '<span class="mee3-badge mee3-badge-tag">' + v3Icon('tag', 'mee3-ico-sm') + ' Tag note free</span>' : '') +
+            (hasNote ? '<span class="mee3-badge mee3-badge-note">' + v3Icon('note', 'mee3-ico-sm') + ' Có lưu ý</span>' : '') +
           '</div>' : '') +
         '</div>' +
       '</div>' +
@@ -2102,15 +2219,21 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
   var quickBar = '<div class="mee3-quickbar">' +
     (!isDebt ? '<button type="button" class="mee3-quickbtn" data-mee-copy-order-id="' + attr(o.id) + '" data-mee-order-action="copy" onclick="MEEOPS7.copyOrderById(\'' + o.id + '\')">' + v3Icon('copy', 'mee3-ico-sm') + ' Copy đơn</button>' : '') +
     (o.phone ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')">' + v3Icon('phone', 'mee3-ico-sm') + ' Copy SĐT</button>' : '') +
+    (String(o.address || '').trim() ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'address\',\'địa chỉ giao hàng\')">' + v3Icon('pin', 'mee3-ico-sm') + ' Copy địa chỉ</button>' : '') +
     (String(o.tagNoteFree||'').trim() ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'tagNoteFree\',\'Tag note free\')">' + v3Icon('tag', 'mee3-ico-sm') + ' Copy Tag</button>' : '') +
   '</div>';
+
+  var isWalkIn = Boolean(o.isWalkIn || o.orderType === 'WALK_IN');
+  var thumbBlock = loadingDetail
+    ? '<div class="order-detail-loading" style="padding:8px 0"><span class="mini-spinner"></span> Đang tải ảnh và chi tiết…</div>'
+    : (imgs ? '<div class="mee3-thumb-strip thumbs">' + imgs + '</div>' + (prevImgs.length > 1 ? '<div class="mee3-thumb-count">' + prevImgs.length + ' ảnh mẫu · Chạm ảnh để xem bản gốc</div>' : '') : '');
 
   ov.innerHTML = '<div class="drawer-bg mee3-drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()">' +
     '<aside class="drawer mee3-drawer mee-order-drawer-v2" data-mee-order-id="' + attr(o.id) + '" aria-label="Chi tiết đơn hàng">' +
       '<header class="drawer-head mee3-drawer-head mee-order-drawer-head">' +
         '<div>' +
           '<h3 class="mee3-drawer-title">' + esc(o.customer) + '</h3>' +
-          '<div class="mee3-drawer-sub"><span class="mee3-num">' + esc(o.id) + '</span><span>·</span><span class="mee3-badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' + (o.hasAccessories ? '<span class="mee3-badge mee3-badge-acc">Có phụ kiện</span>' : '') + (isDeleted ? '<span class="mee3-badge mee3-badge-danger">Trong Thùng rác</span>' : '') + '</div>' +
+          '<div class="mee3-drawer-sub"><span class="mee3-num">' + esc(o.id) + '</span><span>·</span><span class="mee3-num">' + dateVN(o.date) + ' ' + esc(timeVN(o.time)) + '</span><span class="mee3-badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' + (isWalkIn ? '<span class="mee3-badge mee3-badge-walkin">Khách vãng lai</span>' : '') + (o.orderSource ? '<span class="mee3-badge mee3-badge-source">' + esc(o.orderSource) + '</span>' : '') + (o.hasAccessories ? '<span class="mee3-badge mee3-badge-acc">Có phụ kiện</span>' : '') + (isDeleted ? '<span class="mee3-badge mee3-badge-danger">Trong Thùng rác</span>' : '') + '</div>' +
         '</div>' +
         '<button type="button" class="close" aria-label="Đóng" onclick="MEEOPS7.closeOverlay()">×</button>' +
       '</header>' +
@@ -2118,9 +2241,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
       '<div class="mee3-drawer-body mee-order-drawer-body">' +
         (isDeleted ? '<div class="mee3-trash-reason-box"><b>Đơn đã bị xóa mềm</b> · Lý do: ' + esc(o.deletedReason || '—') + ' · Bởi: ' + esc(o.deletedBy || '—') + '</div>' : '') +
         settlementStateHtml(o) +
-        (loadingDetail ? '<div class="order-detail-loading" style="padding:12px 0"><span class="mini-spinner"></span> Đang tải ảnh và chi tiết…</div>' :
-          (imgs ? '<div class="mee3-thumb-strip thumbs">' + imgs + '</div>' + (prevImgs.length > 1 ? '<div class="mee3-thumb-count">' + prevImgs.length + ' ảnh mẫu · Chạm ảnh để xem bản gốc</div>' : '') : '')) +
-        detail(o, !isDebt) +
+        detail(o, !isDebt, thumbBlock) +
       '</div>' +
       '<footer class="order-actions mee3-drawer-foot mee-order-drawer-footer">' + actions + '</footer>' +
     '</aside>' +
@@ -2129,20 +2250,89 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
   if(window.MEE_COPY_ACTIONS_SYNC)window.MEE_COPY_ACTIONS_SYNC();
   if(window.MEE_ORDER_ACTIONS_OVERLAY_SYNC)window.MEE_ORDER_ACTIONS_OVERLAY_SYNC();
 }
-    function detail(o, allowFullCopy) {
+    function detail(o, allowFullCopy, thumbBlock) {
   if (allowFullCopy === void 0) allowFullCopy = true;
+  if (thumbBlock === void 0) thumbBlock = '';
   var shipIco = typeof v3ShipIcon === 'function' ? v3ShipIcon(o.shipping) : '';
-  var cardQty=Math.max(1,Number(o.cardQty||1)),cardFee=Number(o.cardFee)||cardQty*10000,accessoryRows=[],noteBlocks=[];
-  if(String(o.note||'').trim())noteBlocks.push('<div class="mee3-note-block mee-detail-note"><div class="mee3-note-block-head"><span>GHI CHÚ KHÁCH</span><button type="button" class="mee3-note-copy" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'note\',\'ghi chú khách\')">Copy</button></div><div class="mee3-note-text">'+multiline(o.note)+'</div></div>');
-  if(o.card){accessoryRows.push('<div class="mee3-fin-row"><span>Thiệp × '+cardQty+'</span><b class="mee3-fin-val">'+vnd(cardFee)+'</b></div>');if(String(o.cardText||'').trim())noteBlocks.push('<div class="mee3-note-block mee-detail-card"><div class="mee3-note-block-head"><span>NỘI DUNG THIỆP</span><button type="button" class="mee3-note-copy" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'cardText\',\'nội dung thiệp\')">Copy</button></div><div class="mee3-note-text">'+multiline(o.cardText)+'</div></div>');}
-  if(String(o.tagNoteFree||'').trim())noteBlocks.push('<div class="mee3-note-block is-tag-free"><div class="mee3-note-block-head"><span>Tag note free</span><button type="button" class="mee3-note-copy" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'tagNoteFree\',\'Tag note free\')">Copy</button></div><div class="mee3-note-text">'+multiline(o.tagNoteFree)+'</div></div>');
-  if(o.banner){accessoryRows.push('<div class="mee3-fin-row"><span>Banner ×'+Math.max(1,Number(o.bannerQty||1))+'</span><b class="mee3-fin-val">'+vnd(Math.max(1,Number(o.bannerQty||1))*35000)+'</b></div>');if(String(o.bannerText||'').trim())noteBlocks.push('<div class="mee3-note-block"><div class="mee3-note-block-head"><span>NỘI DUNG BANNER</span></div><div class="mee3-note-text">'+multiline(o.bannerText)+'</div></div>');}
-  if(Number(o.charmFee)){accessoryRows.push('<div class="mee3-fin-row"><span>Đính charm</span><b class="mee3-fin-val">'+vnd(o.charmFee)+'</b></div>');if(String(o.charmText||'').trim())noteBlocks.push('<div class="mee3-note-block"><div class="mee3-note-block-head"><span>GHI CHÚ CHARM</span></div><div class="mee3-note-text">'+multiline(o.charmText)+'</div></div>');}
-  if(Number(o.paperFee)){accessoryRows.push('<div class="mee3-fin-row"><span>Thay giấy</span><b class="mee3-fin-val">'+vnd(o.paperFee)+'</b></div>');if(String(o.paperText||'').trim())noteBlocks.push('<div class="mee3-note-block"><div class="mee3-note-block-head"><span>GHI CHÚ THAY GIẤY</span></div><div class="mee3-note-text">'+multiline(o.paperText)+'</div></div>');}
+  var cardQty=Math.max(1,Number(o.cardQty||1)),cardFee=Number(o.cardFee)||cardQty*10000,bannerQtyVal=Math.max(1,Number(o.bannerQty||1));
+  var accessoryRows=[],accessoryBlocks=[];
+  if(o.card){
+    accessoryRows.push('<div class="mee3-fin-row"><span>Thiệp × '+cardQty+'</span><b class="mee3-fin-val">'+vnd(cardFee)+'</b></div>');
+    accessoryBlocks.push('<div class="mee3-note-block mee-detail-card"><div class="mee3-note-block-head"><span>NỘI DUNG THIỆP (×'+cardQty+')</span>'+(String(o.cardText||'').trim()?'<button type="button" class="mee3-note-copy" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'cardText\',\'nội dung thiệp\')">Copy</button>':'')+'</div><div class="mee3-note-text">'+(String(o.cardText||'').trim()?multiline(o.cardText):'Không ghi nội dung')+'</div></div>');
+  }
+  if(o.banner){
+    accessoryRows.push('<div class="mee3-fin-row"><span>Banner ×'+bannerQtyVal+'</span><b class="mee3-fin-val">'+vnd(bannerQtyVal*35000)+'</b></div>');
+    accessoryBlocks.push('<div class="mee3-note-block"><div class="mee3-note-block-head"><span>NỘI DUNG BANNER (×'+bannerQtyVal+')</span></div><div class="mee3-note-text">'+(String(o.bannerText||'').trim()?multiline(o.bannerText):'Không ghi nội dung')+'</div></div>');
+  }
+  if(Number(o.charmFee)){
+    accessoryRows.push('<div class="mee3-fin-row"><span>Đính charm</span><b class="mee3-fin-val">'+vnd(o.charmFee)+'</b></div>');
+    accessoryBlocks.push('<div class="mee3-note-block"><div class="mee3-note-block-head"><span>ĐÍNH CHARM</span></div><div class="mee3-note-text">'+(String(o.charmText||'').trim()?multiline(o.charmText):'Có đính charm')+'</div></div>');
+  }
+  if(Number(o.paperFee)){
+    accessoryRows.push('<div class="mee3-fin-row"><span>Thay giấy</span><b class="mee3-fin-val">'+vnd(o.paperFee)+'</b></div>');
+    accessoryBlocks.push('<div class="mee3-note-block"><div class="mee3-note-block-head"><span>THAY GIẤY GÓI</span></div><div class="mee3-note-text">'+(String(o.paperText||'').trim()?multiline(o.paperText):'Có thay giấy')+'</div></div>');
+  }
   if(Number(o.vat))accessoryRows.push('<div class="mee3-fin-row"><span>VAT</span><b class="mee3-fin-val">'+vnd(o.vat)+'</b></div>');
 
+  var noteBlock = String(o.note||'').trim()
+    ? '<div class="mee3-note-block mee-detail-note"><div class="mee3-note-block-head"><span>LƯU Ý ĐƠN HÀNG</span><button type="button" class="mee3-note-copy" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'note\',\'lưu ý đơn hàng\')">Copy</button></div><div class="mee3-note-text">'+multiline(o.note)+'</div></div>'
+    : '';
+  var tagBlock = String(o.tagNoteFree||'').trim()
+    ? '<div class="mee3-note-block is-tag-free"><div class="mee3-note-block-head"><span>Tag note free</span><button type="button" class="mee3-note-copy" onclick="MEEOPS7.copyOrderField(\''+o.id+'\',\'tagNoteFree\',\'Tag note free\')">Copy</button></div><div class="mee3-note-text">'+multiline(o.tagNoteFree)+'</div></div>'
+    : '';
+
+  var hasAddr = Boolean(String(o.address || '').trim());
+  var addrBlock = hasAddr
+    ? '<div class="mee3-span2 mee3-copyable-block copyable" role="button" tabindex="0" data-mee-copy-address="1" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'address\',\'địa chỉ giao hàng\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
+        '<span class="mee3-kv-label">Địa chỉ giao hàng <span class="mee3-copy-hint">Chạm để copy</span></span>' +
+        '<span class="mee3-kv-val">' + esc(o.address) + '</span>' +
+      '</div>'
+    : '<div class="mee3-span2"><span class="mee3-kv-label">Địa chỉ giao hàng</span><span class="mee3-kv-val">Nhận tại cửa hàng</span></div>';
+
+  var phoneBlock = String(o.phone || '').trim()
+    ? '<div class="mee3-copyable-block copyable" role="button" tabindex="0" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
+        '<span class="mee3-kv-label">Số điện thoại <span class="mee3-copy-hint">Chạm để copy</span></span>' +
+        '<span class="mee3-kv-val mee3-num">' + esc(o.phone) + '</span>' +
+      '</div>'
+    : '<div><span class="mee3-kv-label">Số điện thoại</span><span class="mee3-kv-val">—</span></div>';
+
+  var createdByLine = (o.createdBy && (!o.saleUsername || norm(o.createdBy) !== norm(o.saleUsername)))
+    ? '<div><span class="mee3-kv-label">Người tạo đơn</span><span class="mee3-kv-val">' + esc(o.createdByName || o.createdBy) + '</span></div>'
+    : '';
+
   return '<div class="mee-detail-stack" style="display:flex;flex-direction:column;gap:12px">' +
-    '<div class="mee3-detail-card mee3-detail-finance">' +
+    /* UX-02 Step 2-4: Đơn hoa & Ảnh mẫu + Lưu ý đơn hàng + Tag note free (ƯU TIÊN ĐẦU TIÊN) */
+    '<section class="mee3-detail-card mee3-zone-flower" data-drawer-zone="flower">' +
+      '<div class="mee3-detail-card-head"><span>ĐƠN HOA &amp; SẢN XUẤT</span><span class="mee3-num">' + dateVN(o.date) + ' · ' + esc(timeVN(o.time)) + '</span></div>' +
+      thumbBlock +
+      '<div class="mee3-flower-lead">' + multiline(o.flower || '—') + '</div>' +
+      noteBlock +
+      tagBlock +
+    '</section>' +
+    /* UX-02 Step 5: Phụ kiện */
+    (accessoryBlocks.length ? '<section class="mee3-detail-card mee3-zone-accessory" data-drawer-zone="accessory"><div class="mee3-detail-card-head"><span>PHỤ KIỆN &amp; NỘI DUNG KÈM THEO</span></div>' + accessoryBlocks.join('') + '</section>' : '') +
+    /* UX-02 Step 6: Giao nhận (kèm UX-01 Chạm để copy địa chỉ) */
+    '<section class="mee3-detail-card mee3-zone-delivery" data-drawer-zone="delivery">' +
+      '<div class="mee3-detail-card-head"><span>GIAO NHẬN</span></div>' +
+      '<div class="mee3-detail-kv">' +
+        '<div><span class="mee3-kv-label">Thời gian nhận</span><span class="mee3-kv-val mee3-num">' + dateVN(o.date) + ' · ' + esc(timeVN(o.time)) + '</span></div>' +
+        '<div><span class="mee3-kv-label">Hình thức giao</span><span class="mee3-kv-val">' + shipIco + ' ' + esc(o.shipping || '—') + '</span></div>' +
+        addrBlock +
+      '</div>' +
+    '</section>' +
+    /* Khách hàng & Nguồn đơn (TC-19 / TC-20) */
+    '<section class="mee3-detail-card mee3-zone-customer" data-drawer-zone="customer">' +
+      '<div class="mee3-detail-card-head"><span>KHÁCH HÀNG &amp; PHỤ TRÁCH</span></div>' +
+      '<div class="mee3-detail-kv">' +
+        '<div><span class="mee3-kv-label">Khách hàng</span><span class="mee3-kv-val">' + esc(o.customer || '—') + '</span></div>' +
+        phoneBlock +
+        '<div><span class="mee3-kv-label">Nguồn đơn</span><span class="mee3-kv-val">' + esc(o.orderSource || 'Chưa ghi nhận') + '</span></div>' +
+        '<div><span class="mee3-kv-label">Nhân viên phụ trách</span><span class="mee3-kv-val">' + esc(o.sale || '—') + '</span></div>' +
+        createdByLine +
+      '</div>' +
+    '</section>' +
+    /* UX-03: Tài chính & Thanh toán NẰM CUỐI DRAWER */
+    '<section class="mee3-detail-card mee3-detail-finance mee3-zone-payment" data-drawer-zone="payment">' +
       '<div class="mee3-detail-card-head"><span>TÀI CHÍNH & THANH TOÁN</span><span class="mee3-badge ' + (o.debt ? 'mee3-badge-danger' : 'mee3-badge-success') + '">' + (o.debt ? 'Còn nợ ' + vnd(o.debt) : 'Công nợ 0 ₫') + '</span></div>' +
       '<div>' +
         '<div class="mee3-fin-row"><span>Giá hoa</span><b class="mee3-fin-val">' + vnd(o.flowerTotal) + '</b></div>' +
@@ -2152,19 +2342,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
         (o.fullPaid ? '<div class="mee-full-paid-proof" style="margin-top:8px"><div><b>✓ FULL PAID · TỰ XÁC NHẬN</b><small>Không vào Payment Check · Công nợ 0 ₫</small></div>' + (o.fullPaidBillUrls && o.fullPaidBillUrls.length ? '<div class="mee3-bill-links">' + o.fullPaidBillUrls.map(function(u, i){ return '<a class="mee3-bill-link" href="' + attr(u) + '" data-lightbox-src="' + attr(u) + '" target="_blank" rel="noopener">Xem Bill ' + (i + 1) + '</a>'; }).join('') + '</div>' : '') + '</div>' : '') +
         '<div class="mee3-fin-total"><span>Công nợ hiện tại</span><b class="mee3-fin-val" style="color:' + (o.debt ? 'var(--v3-danger)' : 'var(--v3-success)') + '">' + vnd(o.debt) + '</b></div>' +
       '</div>' +
-    '</div>' +
-    '<div class="mee3-detail-card">' +
-      '<div class="mee3-detail-card-head"><span>THÔNG TIN ĐƠN HÀNG</span></div>' +
-      '<div class="mee3-detail-kv">' +
-        '<div><span class="mee3-kv-label">Thời gian nhận</span><span class="mee3-kv-val mee3-num">' + dateVN(o.date) + ' · ' + esc(timeVN(o.time)) + '</span></div>' +
-        '<div><span class="mee3-kv-label">Sale phụ trách</span><span class="mee3-kv-val">' + esc(o.sale || '—') + '</span></div>' +
-        '<div class="copyable" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')"><span class="mee3-kv-label">Số điện thoại (chạm để copy)</span><span class="mee3-kv-val mee3-num">' + (esc(o.phone) || '—') + '</span></div>' +
-        '<div><span class="mee3-kv-label">Hình thức giao</span><span class="mee3-kv-val">' + shipIco + ' ' + esc(o.shipping || '—') + '</span></div>' +
-        '<div class="mee3-span2"><span class="mee3-kv-label">Địa chỉ giao nhận</span><span class="mee3-kv-val">' + (esc(o.address) || 'Nhận tại cửa hàng') + '</span></div>' +
-        '<div class="mee3-span2"><span class="mee3-kv-label">Mẫu hoa</span><span class="mee3-kv-val multiline">' + multiline(o.flower) + '</span></div>' +
-      '</div>' +
-    '</div>' +
-    (noteBlocks.length ? '<div class="mee3-detail-card mee3-detail-notes-card"><div class="mee3-detail-card-head"><span>GHI CHÚ, THIỆP & TAG</span></div>' + noteBlocks.join('') + '</div>' : '') +
+    '</section>' +
   '</div>';
 }
     function openShipFeeForm(id){var o=orderById(id);if(!o||!o.canShip||!isShop(o.shipping))return toast('Đơn này không thể nhập phí ship.',1);var ov=document.getElementById('overlay');if(!ov)return;var val=o.shipConfirmed?new Intl.NumberFormat('vi-VN').format(o.shipFee):'';ov.innerHTML='<div class="modal-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><form action="javascript:void(0)" class="modal" style="max-width:460px" onsubmit="MEEOPS7.submitShipFee(event,\''+o.id+'\')"><div class="modal-head"><div><h3 style="margin:0">'+(o.shipConfirmed?'Cập nhật phí ship':'Nhập phí ship')+'</h3><div class="sub">'+esc(o.customer)+' · '+esc(o.shipping)+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><label>PHÍ SHIP THỰC TẾ</label><input name="shipFee" inputmode="numeric" value="'+attr(val)+'" oninput="MEEOPS7.formatMoneyInput(this)" required autofocus><button class="btn primary full" style="margin-top:16px">Lưu phí ship</button></form></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();}
@@ -2291,6 +2469,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
         submitSettlement: submitSettlement,
         toggleNewEmployee: toggleNewEmployee,
         togglePaymentFields: togglePaymentFields,
+        toggleWalkInMode: toggleWalkInMode,
         toggleAccessoryPanel: toggleAccessoryPanel,
         toggleAccessoryMenu: toggleAccessoryMenu,
         toggleAccessoryItem: toggleAccessoryItem,

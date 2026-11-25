@@ -8,7 +8,7 @@ const entry=fs.readFileSync('index.html','utf8');
 
 test('customer note, card text and Tag note free remain semantic, conditional attention blocks',()=>{
   assert.match(html,/mee3-note-block mee-detail-note/);
-  assert.match(html,/GHI CHÚ KHÁCH/);
+  assert.match(html,/LƯU Ý ĐƠN HÀNG/);
   assert.match(html,/mee3-note-block mee-detail-card/);
   assert.match(html,/NỘI DUNG THIỆP/);
   assert.match(html,/Tag note free/);

@@ -57,7 +57,7 @@ test('drawer separates customer note and card content from finance rows',()=>{
     shipping:'Ghé lấy',address:'',flowerTotal:1500000,card:true,cardQty:2,cardFee:20000,cardText,
     banner:false,charmFee:0,paperFee:0,vat:0,accessoryTotal:20000,shipFeePending:false,shipFee:0,paid:750000,debt:770000
   },true);
-  assert.match(html,/GHI CHÚ KHÁCH/);
+  assert.match(html,/LƯU Ý ĐƠN HÀNG/);
   assert.match(html,/NỘI DUNG THIỆP/);
   assert.match(html,/Mặt ngửa<br>Mặt úp/);
   assert.match(html,/Dòng 1<br>Dòng 2/);
