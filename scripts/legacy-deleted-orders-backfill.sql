@@ -1,6 +1,9 @@
--- TC-14 Legacy [ĐÃ XÓA] / delete_after_sheet_sync Reversible Backfill Script
+-- TC-14 / POLICY-04 Legacy Deleted Orders Reversible Backfill Script
 -- DO NOT RUN ON PRODUCTION WITHOUT EXPLICIT OWNER APPROVAL & DRY-RUN REVIEW.
--- Idempotent & reversible via scripts/legacy-deleted-orders-rollback.sql.
+-- STRICT GUARD (POLICY-04):
+--   1. NEVER auto-converts orders matching only the [ĐÃ XÓA] text keyword without system deletion evidence.
+--   2. NEVER auto-converts orders with settled=true, full_paid=true, locked settlement requests, or recorded payment > 0.
+--   3. Idempotent & reversible via scripts/legacy-deleted-orders-rollback.sql.
 
 begin;
 
@@ -26,12 +29,22 @@ with eligible as (
   where o.is_deleted = false
     and (
       o.delete_after_sheet_sync = true
-      or o.customer like '[ĐÃ XÓA]%'
-      or o.flower like '[ĐÃ XÓA]%'
+      or o.delete_requested_at is not null
+      or nullif(trim(coalesce(o.delete_requested_by, '')), '') is not null
       or o.note like '%[ĐÃ XÓA TRÊN OPS]%'
+      or exists (
+        select 1
+        from public.activity_log al
+        where al.order_id = o.id
+          and (
+            lower(coalesce(al.action, '')) like '%delete%'
+            or coalesce(al.after_data->>'delete_after_sheet_sync', '') = 'true'
+          )
+      )
     )
     and o.settled = false
     and o.full_paid = false
+    and public.mee_ops_paid(o) <= 0
     and not exists (
       select 1
       from public.settlement_requests sr
@@ -64,7 +77,7 @@ updated as (
     deleted_by = coalesce(nullif(trim(o.delete_requested_by), ''), 'legacy-system'),
     deleted_by_role = 'ADMIN',
     deleted_reason_code = 'LEGACY_MIGRATION',
-    deleted_reason = 'Chuyển đổi từ đơn xóa cũ (legacy [ĐÃ XÓA])',
+    deleted_reason = 'Chuyển đổi từ đơn xóa cũ đã xác minh lịch sử xóa (POLICY-04)',
     updated_at = now()
   from eligible e
   where o.id = e.id
@@ -80,7 +93,7 @@ select
   u.deleted_by,
   'ADMIN',
   'LEGACY_MIGRATION',
-  'Chuyển đổi từ đơn xóa cũ (legacy [ĐÃ XÓA])',
+  'Chuyển đổi từ đơn xóa cũ đã xác minh lịch sử xóa (POLICY-04)',
   u.deleted_at
 from updated u;
 

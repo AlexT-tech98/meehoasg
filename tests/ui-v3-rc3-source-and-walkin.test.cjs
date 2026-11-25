@@ -317,5 +317,9 @@ test('TC-20 Edge API: Walk-in included in Dashboard daily revenue, excluded from
   assert.equal(inv.totalOrders, 1, 'Walk-in excluded from Flower Inventory demand');
 
   const kpi = await c.fastKpi({ month: '2026-11' });
-  assert.equal(kpi.items.length, 0, 'Unverified walk-in does not prematurely inflate C Mụi KPI');
+  assert.equal(kpi.items.length, 1, 'POLICY-02: Walk-in CASH counts in C Mụi personal KPI without faking Full Paid/settled');
+  assert.equal(kpi.items[0].username, 'cmui');
+  assert.equal(kpi.items[0].revenue, 300000);
+  assert.equal(kpi.items[0].orders, 1);
+  assert.equal(kpi.items.some(x => x.username === 'sale1'), false, 'POLICY-02: Helper who created walk-in does not receive KPI');
 });

@@ -2106,7 +2106,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
   if(window.MEE_V364_CONTENT_SYNC)window.MEE_V364_CONTENT_SYNC();
 }
     async function loadDebt(force){if(force===void 0)force=false;var f=S.filters.debt,args={start:f.start,end:f.end};if(S.user.role==='ADMIN'&&f.sale)args.sale=f.sale;try{var r=await requestPage('getDebtReview',args,12000,force,'Đang tải công nợ…');if(!r)return;S.data.debt=r;rememberOrders(r.items);if(S.page==='debt')renderDebt();if(S.user.role==='ADMIN')ensureOptions().then(function(){if(S.page==='debt')renderDebt();}).catch(function(){});}catch(e){toast(e.message,1);renderError(e);}}
-    function debtSettlementNote(o){var note=o.status!=='Đã giao'?'Chưa giao · Chưa thể gửi tất toán':o.shipFeePending?'Chưa có phí ship · Cần bổ sung trước khi gửi':Number(o.debt)===0?'Dư nợ 0đ · Vẫn cần tất toán':'';return note?'<div class="sub">'+esc(note)+'</div>':'';}
+    function debtSettlementNote(o){var isWiTr=(o.isWalkIn||o.orderType==='WALK_IN')&&String(o.walkInPaymentMethod||'').toUpperCase()==='TRANSFER';var note=o.status!=='Đã giao'?'Chưa giao · Chưa thể gửi tất toán':o.shipFeePending?'Chưa có phí ship · Cần bổ sung trước khi gửi':isWiTr&&!o.paymentVerified?'Chuyển khoản khách vãng lai · Chưa xác minh bill (gửi bill qua Payment Check)':Number(o.debt)===0?'Dư nợ 0đ · Vẫn cần tất toán':'';return note?'<div class="sub">'+esc(note)+'</div>':'';}
     function renderDebt() {
   var f = S.filters.debt, r = S.data.debt || {}, list = r.items || [], sum = r.summary || {}, el = document.getElementById('content');
   if (!el) return;
@@ -2340,6 +2340,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
         '<div class="mee3-fin-row"><span>Phí ship</span><b class="mee3-fin-val">' + (o.shipFeePending ? '<span class="mee3-badge mee3-badge-danger">Chưa nhập</span>' : vnd(o.shipFee)) + '</b></div>' +
         '<div class="mee3-fin-row"><span>' + esc(paymentLabel(o)) + '</span><b class="mee3-fin-val">' + vnd(o.paid) + '</b></div>' +
         (o.fullPaid ? '<div class="mee-full-paid-proof" style="margin-top:8px"><div><b>✓ FULL PAID · TỰ XÁC NHẬN</b><small>Không vào Payment Check · Công nợ 0 ₫</small></div>' + (o.fullPaidBillUrls && o.fullPaidBillUrls.length ? '<div class="mee3-bill-links">' + o.fullPaidBillUrls.map(function(u, i){ return '<a class="mee3-bill-link" href="' + attr(u) + '" data-lightbox-src="' + attr(u) + '" target="_blank" rel="noopener">Xem Bill ' + (i + 1) + '</a>'; }).join('') + '</div>' : '') + '</div>' : '') +
+        ((o.isWalkIn || o.orderType === 'WALK_IN') ? '<div class="sub" style="margin-top:8px">' + (String(o.walkInPaymentMethod || '').toUpperCase() === 'TRANSFER' ? (o.paymentVerified ? '✓ Chuyển khoản khách vãng lai · Đã xác minh qua Payment Check · Tính KPI C Mụi.' : 'Chuyển khoản khách vãng lai · Chưa xác minh bill (có thể gửi bill đối chiếu tại Công nợ / Payment Check).') : 'Tiền mặt tại tiệm · Ghi nhận doanh thu cửa hàng & KPI cá nhân C Mụi.') + '</div>' : '') +
         '<div class="mee3-fin-total"><span>Công nợ hiện tại</span><b class="mee3-fin-val" style="color:' + (o.debt ? 'var(--v3-danger)' : 'var(--v3-success)') + '">' + vnd(o.debt) + '</b></div>' +
       '</div>' +
     '</section>' +

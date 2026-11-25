@@ -142,7 +142,7 @@ function decorate(row, user, settlement) {
     id: row.id, updatedAt: row.updated_at, sourceSheet: row.source_sheet || '', sourceRow: row.source_row || 0,
     customer: row.customer, phone: contact.phone, date: row.order_date, time: cleanTime(row.order_time),
     flower: row.flower, imageUrls: row.image_urls || [], driveUrls: row.image_urls || [],
-    note: row.note, shipping: row.shipping, address: contact.address,
+    note: row.note, orderType: clean(row.order_type) || 'STANDARD', shipping: row.shipping, address: contact.address,
     flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
     fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),paymentVerified:verified,settled: row.settled, status: fulfillmentStatus(row), shipFee: num(row.ship_fee),
     shipConfirmed: row.ship_confirmed, shipFeePending: norm(row.shipping).includes('shop') && !row.ship_confirmed,
@@ -170,7 +170,8 @@ async function settlementMap(ids) {
   return map;
 }
 async function orderRows(start, end) {
-  return all('orders', { and: '(order_date.gte.' + start + ',order_date.lte.' + end + ')', order: 'order_date.asc,order_time.asc' });
+  const rows = await all('orders', { and: '(order_date.gte.' + start + ',order_date.lte.' + end + ')', is_deleted: 'is.false', delete_after_sheet_sync: 'is.false', order: 'order_date.asc,order_time.asc' });
+  return rows.filter(r => !r.is_deleted && !r.delete_after_sheet_sync);
 }
 async function decoratedRange(start, end, user) {
   const rows = await orderRows(start, end), settlements = await settlementMap(rows.map(r => r.id));
@@ -209,7 +210,8 @@ async function getOrders(payload, user) {
 }
 async function getProduction(payload, user) {
   const date = clean(payload.date) || dateToday();
-  return { ok: true, date, orders: await decoratedRange(date, date, user) };
+  const orders = (await decoratedRange(date, date, user)).filter(o => (clean(o.orderType) || 'STANDARD') !== 'WALK_IN');
+  return { ok: true, date, orders };
 }
 async function getDebt(payload, user) {
   const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
@@ -270,6 +272,7 @@ async function visibleOrder(row) {
 async function getOrder(payload, user) {
   const row = await one('orders', { id: 'eq.' + clean(payload.orderId) });
   if (!row) return fail('Không tìm thấy đơn.');
+  if ((row.is_deleted || row.delete_after_sheet_sync) && user.role !== 'ADMIN') return fail('Đơn hàng đã bị xóa.', 'ORDER_DELETED');
   const settlement = (await settlementMap([row.id]))[row.id];
   return { ok: true, order: decorate(await visibleOrder(row), user, settlement) };
 }
@@ -454,7 +457,7 @@ async function classifyFlowers(items) {
   return null;
 }
 async function flowers(payload, user) {
-  const date = clean(payload.date) || dateToday(), orders = await decoratedRange(date, date, user);
+  const date = clean(payload.date) || dateToday(), orders = (await decoratedRange(date, date, user)).filter(o => (clean(o.orderType) || 'STANDARD') !== 'WALK_IN');
   if (!orders.length) return { ok: true, status: 'empty', totalOrders: 0, analyzedOrders: 0, reviewCount: 0, items: [], reviewOrders: [] };
   const cacheRows = await all('flower_cache', { select: 'content,flowers,needs_review,updated_at', order: 'updated_at.asc' });
   const cache = new Map(cacheRows.map(row => [flowerKey(row.content), row]));
