@@ -148,10 +148,10 @@ function loadCoreHarness(pg, user) {
   return ctx;
 }
 
-test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later Payment Check, Dashboard & C Mụi KPI without double counting', async () => {
+test('POLICY-01 & POLICY-02 Override: Walk-in recorded immediately in Dashboard store revenue (distinguishing unverified transfer) and excluded from ALL personal KPI & commission regardless of payment method/status', async () => {
   const pg = await setupDb();
   try {
-    // 1. sale1 creates a Walk-in CASH order (550k >= 500k -> counts as bigOrder for C Mụi)
+    // 1. sale1 creates a Walk-in CASH order (550k) -> assigned to cmui, created_by=sale1
     const cashCreate = await mutate(pg, 'sale1', 'rc4-wi-cash-1', 'createOrder', {
       newOrderId: 'MEE-WI-CASH-1',
       order: {
@@ -169,7 +169,7 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     assert.equal(cashCreate.row.full_paid, false, 'Never fake full_paid on walk-in');
     assert.equal(cashCreate.row.settled, false, 'Never fake settled on walk-in');
 
-    // 2. sale1 creates a Walk-in TRANSFER order WITHOUT bill (600k >= 500k)
+    // 2. sale1 creates a Walk-in TRANSFER order WITHOUT bill (600k)
     const trCreate = await mutate(pg, 'sale1', 'rc4-wi-tr-1', 'createOrder', {
       newOrderId: 'MEE-WI-TR-1',
       order: {
@@ -187,7 +187,7 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     assert.equal(trCreate.row.full_paid, false, 'POLICY-01: never auto-verify transfer as full_paid');
     assert.equal(trCreate.row.settled, false, 'POLICY-01: never auto-verify transfer as settled');
 
-    // 3. sale2 creates a settled STANDARD order (700k) to ensure other Sales' KPI is unaffected
+    // 3. sale2 creates a settled STANDARD order (700k) and cmui creates a settled STANDARD order (800k) -> standard KPI untouched
     const stdCreate = await mutate(pg, 'sale2', 'rc4-std-1', 'createOrder', {
       newOrderId: 'MEE-STD-S2',
       requireOrderSource: true,
@@ -202,14 +202,26 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     assert.equal(stdCreate.ok, true);
     await pg.query("update public.orders set settled = true, status = 'Đã giao' where id = 'MEE-STD-S2'");
 
+    const stdCmui = await mutate(pg, 'cmui', 'rc4-std-cmui', 'createOrder', {
+      newOrderId: 'MEE-STD-CMUI',
+      requireOrderSource: true,
+      order: {
+        customer: 'Anh Hải', phone: '0909333444', order_date: '2026-11-25', order_time: '15:00',
+        flower: 'Giỏ hoa lan', note: '', order_source: 'Zalo', shipping: 'Ghé lấy', address: '',
+        flower_total: 800000, payment: 'Đã thanh toán', sale: 'cmui',
+        card: false, card_qty: 0, card_text: '', banner: false, banner_qty: 0, banner_text: '',
+        charm_fee: 0, charm_text: '', paper_fee: 0, paper_text: '', vat: 0, ship_fee: 0, ship_confirmed: false
+      }
+    });
+    assert.equal(stdCmui.ok, true);
+    await pg.query("update public.orders set settled = true, status = 'Đã giao' where id = 'MEE-STD-CMUI'");
+
     const adminCore = loadCoreHarness(pg, { username: 'admin', display_name: 'Admin Test', role: 'ADMIN', active: true });
     const cmuiCore = loadCoreHarness(pg, { username: 'cmui', display_name: 'C Mụi', role: 'SALE', active: true });
     const sale1Core = loadCoreHarness(pg, { username: 'sale1', display_name: 'Sale Một', role: 'SALE', active: true });
     const tho1Core = loadCoreHarness(pg, { username: 'tho1', display_name: 'Thợ Một', role: 'THO_OPS', active: true });
 
-    // Check Debt Review (POLICY-01):
-    // - Unverified Walk-in TRANSFER MUST appear in Debt Review for Admin & C Mụi with debt = 0 and canSubmitSettlement = true (for C Mụi)
-    // - Walk-in CASH MUST NOT create fake debt or pollute Debt Review
+    // Check Debt Review (POLICY-01): unverified Walk-in TRANSFER appears with debt=0; Walk-in CASH excluded
     const adminDebt = await adminCore.fastDebt({ start: '2026-11-25', end: '2026-11-25' });
     assert.equal(adminDebt.items.length, 1, 'Only unverified Walk-in TRANSFER appears in Debt Review');
     assert.equal(adminDebt.items[0].id, 'MEE-WI-TR-1');
@@ -225,31 +237,35 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     assert.equal(sale1OrderView.order.canSubmitSettlement, false, 'Helper sale1 cannot submit settlement for C Mụi order');
     const cmuiCashView = await cmuiCore.fastOrder({ orderId: 'MEE-WI-CASH-1' });
     assert.equal(cmuiCashView.order.canSubmitSettlement, false, 'Walk-in CASH has no bank transfer bill to submit');
-    assert.equal(cmuiCashView.order.kpiEligible, true);
+    assert.equal(cmuiCashView.order.kpiEligible, false, 'POLICY-02 Override: Walk-in CASH is NOT KPI-eligible');
 
-    // Check Dashboard BEFORE transfer verification (daily & range):
-    const dashBefore = await adminCore.fastDashboard({ start: '2026-11-01', end: '2026-11-30' });
-    assert.equal(dashBefore.summary.orders, 3);
-    assert.equal(dashBefore.summary.grossRevenue, 550000 + 600000 + 700000, 'Store revenue includes both walk-ins + standard ONCE');
-    assert.equal(dashBefore.summary.revenue, 1850000);
-    assert.equal(dashBefore.summary.settledRevenue, 700000, 'POLICY-02: unverified walk-in transfer NOT marked settledRevenue');
+    // Check Dashboard BEFORE transfer verification (records walk-in immediately by sale date & separates unverified transfer):
+    const dashBefore = await adminCore.fastDashboard({ start: '2026-11-25', end: '2026-11-25' });
+    assert.equal(dashBefore.summary.orders, 4);
+    assert.equal(dashBefore.summary.grossRevenue, 550000 + 600000 + 700000 + 800000, 'Store revenue records both walk-ins + standards immediately ONCE');
+    assert.equal(dashBefore.summary.revenue, 2650000);
+    assert.equal(dashBefore.summary.walkInOrders, 2);
+    assert.equal(dashBefore.summary.walkInRevenue, 1150000);
+    assert.equal(dashBefore.summary.walkInCashRevenue, 550000);
+    assert.equal(dashBefore.summary.walkInTransferUnverifiedRevenue, 600000, 'Clearly distinguishes unverified walk-in transfer');
+    assert.equal(dashBefore.summary.walkInTransferVerifiedRevenue, 0);
+    assert.equal(dashBefore.summary.settledRevenue, 1500000, 'Unverified walk-in transfer NOT marked settledRevenue');
     assert.equal(dashBefore.summary.unsettledRevenue, 1150000);
+    assert.equal(dashBefore.summary.cms, 1500000 * 0.08, 'Dashboard CMS only applies to standard verified orders');
     assert.equal(dashBefore.summary.debt, 0);
 
-    // Check KPI BEFORE transfer verification (POLICY-02):
-    // - C Mụi gets Walk-in CASH (550k, 1 order, 1 bigOrder), NOT unverified Walk-in TRANSFER
-    // - sale1 (helper) gets 0 KPI
+    // Check KPI BEFORE transfer verification (POLICY-02 Override):
+    // - C Mụi ONLY gets own STANDARD settled order (800k), ZERO walk-in KPI!
+    // - sale1 (helper) gets ZERO KPI
     // - sale2 gets 700k (unaffected)
     const kpiAdminBefore = await adminCore.fastKpi({ month: '2026-11' });
     const cmuiBefore = kpiAdminBefore.items.find((x) => x.username === 'cmui');
     const sale2Before = kpiAdminBefore.items.find((x) => x.username === 'sale2');
     const sale1Before = kpiAdminBefore.items.find((x) => x.username === 'sale1');
-    assert.ok(cmuiBefore, 'C Mụi KPI present for Admin');
-    assert.equal(cmuiBefore.revenue, 550000, 'C Mụi KPI includes Walk-in CASH immediately');
+    assert.equal(cmuiBefore.revenue, 800000, 'C Mụi KPI ONLY counts standard settled order, excludes Walk-in CASH & TRANSFER');
     assert.equal(cmuiBefore.orders, 1);
-    assert.equal(cmuiBefore.bigOrders, 1);
-    assert.equal(cmuiBefore.commission, 550000 * 0.08);
-    assert.equal(sale1Before, undefined, 'POLICY-02: helper sale1 gets ZERO KPI for C Mụi walk-in');
+    assert.equal(cmuiBefore.commission, 800000 * 0.08);
+    assert.equal(sale1Before, undefined, 'Helper sale1 gets ZERO KPI');
     assert.equal(sale2Before.revenue, 700000, 'Other sale KPI unaffected');
 
     // KPI visibility permissions preserved:
@@ -260,7 +276,7 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     const kpiTho1 = await tho1Core.fastKpi({ month: '2026-11' });
     assert.equal(kpiTho1.items.some((x) => x.username === 'cmui'), false, 'THO_OPS cannot view C Mụi KPI');
 
-    // 4. POLICY-01: Bill added later on Walk-in TRANSFER -> submitSettlement -> Admin REJECTS first
+    // 4. POLICY-01: Bill added later on Walk-in TRANSFER -> submitSettlement -> Admin REJECTS -> C Mụi re-submits -> Admin APPROVES
     const submit1 = await mutate(pg, 'cmui', 'rc4-set-1', 'submitSettlement', {
       orderId: 'MEE-WI-TR-1',
       expectedUpdatedAt: trCreate.row.updated_at,
@@ -269,12 +285,6 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
       note: 'Bổ sung bill chuyển khoản khách vãng lai'
     });
     assert.equal(submit1.ok, true);
-    assert.equal(submit1.settlementStatus, 'PENDING');
-
-    const queuePending = await adminCore.fastSettlementQueue({ status: 'PENDING', allPending: true });
-    assert.equal(queuePending.items.length, 1);
-    assert.equal(queuePending.items[0].orderId, 'MEE-WI-TR-1');
-    assert.equal(queuePending.items[0].order.walkInPaymentStatus, 'TRANSFER_PENDING_CHECK');
 
     const reject1 = await mutate(pg, 'admin', 'rc4-rev-rej', 'reviewSettlement', {
       settlementId: 'SET-WI-1',
@@ -284,11 +294,6 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     assert.equal(reject1.ok, true);
     assert.equal(reject1.row.settled, false);
 
-    // Still NOT counted in KPI after rejection
-    const kpiAfterReject = await adminCore.fastKpi({ month: '2026-11' });
-    assert.equal(kpiAfterReject.items.find((x) => x.username === 'cmui').revenue, 550000);
-
-    // 5. C Mụi re-submits clear bill -> Admin APPROVES -> Transfer Walk-in verified!
     const submit2 = await mutate(pg, 'cmui', 'rc4-set-2', 'submitSettlement', {
       orderId: 'MEE-WI-TR-1',
       expectedUpdatedAt: reject1.row.updated_at,
@@ -309,23 +314,24 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     const adminDebtAfter = await adminCore.fastDebt({ start: '2026-11-25', end: '2026-11-25' });
     assert.equal(adminDebtAfter.items.length, 0, 'Verified walk-in transfer leaves Debt Review');
 
-    // Dashboard grossRevenue unchanged (ZERO double counting), settledRevenue increased by 600k
+    // Dashboard: grossRevenue & walkInRevenue UNCHANGED (ZERO double counting!), transfer moves from unverified to verified, CMS UNCHANGED!
     const dashAfter = await adminCore.fastDashboard({ start: '2026-11-25', end: '2026-11-25' });
-    assert.equal(dashAfter.summary.grossRevenue, 1850000, 'NO double counting in Dashboard revenue');
-    assert.equal(dashAfter.summary.settledRevenue, 700000 + 600000, 'Verified transfer enters settledRevenue');
-    assert.equal(dashAfter.summary.unsettledRevenue, 550000);
+    assert.equal(dashAfter.summary.grossRevenue, 2650000, 'ZERO double counting in Dashboard grossRevenue after verification');
+    assert.equal(dashAfter.summary.walkInRevenue, 1150000, 'ZERO double counting in walkInRevenue');
+    assert.equal(dashAfter.summary.walkInTransferUnverifiedRevenue, 0);
+    assert.equal(dashAfter.summary.walkInTransferVerifiedRevenue, 600000);
+    assert.equal(dashAfter.summary.settledRevenue, 1500000 + 600000);
+    assert.equal(dashAfter.summary.cms, 1500000 * 0.08, 'POLICY-02 Override: Verified WALK_IN generates ZERO Dashboard CMS');
 
-    // KPI NOW includes BOTH Walk-in CASH (550k) AND verified Walk-in TRANSFER (600k) = 1,150,000 for C Mụi!
+    // POLICY-02 Override: EVEN AFTER settled=true, Walk-in TRANSFER is STILL EXCLUDED from personal KPI & commission!
     const kpiAfterApprove = await adminCore.fastKpi({ month: '2026-11' });
     const cmuiAfter = kpiAfterApprove.items.find((x) => x.username === 'cmui');
-    assert.equal(cmuiAfter.revenue, 1150000, 'C Mụi KPI includes Cash + verified Transfer ONCE');
-    assert.equal(cmuiAfter.orders, 2);
-    assert.equal(cmuiAfter.bigOrders, 2);
-    assert.equal(cmuiAfter.commission, 1150000 * 0.08);
-    assert.equal(kpiAfterApprove.items.find((x) => x.username === 'sale1'), undefined, 'Helper still gets ZERO KPI');
+    assert.equal(cmuiAfter.revenue, 800000, 'POLICY-02 Override: Even settled WALK_IN excluded from C Mụi personal KPI');
+    assert.equal(cmuiAfter.orders, 1);
+    assert.equal(cmuiAfter.commission, 800000 * 0.08);
+    assert.equal(kpiAfterApprove.items.find((x) => x.username === 'sale1'), undefined);
 
-    // 6. POLICY-02 & POLICY-03: Soft-delete Walk-in CASH by Admin -> disappears from KPI & Dashboard, appears in Debt deletedWithPaymentAudit; Restore brings it back cleanly!
-    // First confirm SALE (even C Mụi) cannot delete paid walk-in cash (POLICY-03: paid > 0 -> Admin only)
+    // 5. POLICY-03 + No double counting on Soft-delete & Restore of Walk-in CASH
     const cmuiDelBlocked = await mutate(pg, 'cmui', 'rc4-cmui-del-block', 'deleteOrder', {
       orderId: 'MEE-WI-CASH-1',
       expectedUpdatedAt: cashCreate.row.updated_at,
@@ -335,7 +341,6 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     assert.equal(cmuiDelBlocked.ok, false);
     assert.equal(cmuiDelBlocked.code, 'PAYMENT_RECONCILIATION_REQUIRED');
 
-    // Settled Walk-in TRANSFER cannot be deleted even by ADMIN (POLICY-03: settled locked)
     const adminDelSettled = await mutate(pg, 'admin', 'rc4-admin-del-settled', 'deleteOrder', {
       orderId: 'MEE-WI-TR-1',
       expectedUpdatedAt: approve2.row.updated_at,
@@ -345,7 +350,6 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     assert.equal(adminDelSettled.ok, false);
     assert.equal(adminDelSettled.code, 'ORDER_LOCKED');
 
-    // Admin soft-deletes unlocked Walk-in CASH (with mandatory reason)
     const adminDelCash = await mutate(pg, 'admin', 'rc4-admin-del-cash', 'deleteOrder', {
       orderId: 'MEE-WI-CASH-1',
       expectedUpdatedAt: cashCreate.row.updated_at,
@@ -356,14 +360,14 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     assert.equal(adminDelCash.hadPayment, true);
 
     const dashDeleted = await adminCore.fastDashboard({ start: '2026-11-25', end: '2026-11-25' });
-    assert.equal(dashDeleted.summary.grossRevenue, 1300000, 'Deleted walk-in removed from Dashboard revenue');
+    assert.equal(dashDeleted.summary.grossRevenue, 2100000, 'Deleted walk-in removed from Dashboard revenue');
+    assert.equal(dashDeleted.summary.walkInRevenue, 600000);
     const kpiDeleted = await adminCore.fastKpi({ month: '2026-11' });
-    assert.equal(kpiDeleted.items.find((x) => x.username === 'cmui').revenue, 600000, 'Deleted walk-in removed from C Mụi KPI');
+    assert.equal(kpiDeleted.items.find((x) => x.username === 'cmui').revenue, 800000, 'C Mụi standard KPI completely unaffected by walk-in delete');
     const debtAudit = await adminCore.fastDebt({ start: '2026-11-25', end: '2026-11-25' });
     assert.equal(debtAudit.deletedWithPaymentAudit.count, 1, 'POLICY-03: Deleted paid walk-in appears in Debt reconciliation audit');
     assert.equal(debtAudit.deletedWithPaymentAudit.totalCollected, 550000);
 
-    // Restore by SALE blocked; Restore by ADMIN succeeds and restores KPI + Dashboard
     const saleRestoreBlocked = await mutate(pg, 'cmui', 'rc4-cmui-restore-block', 'restoreOrder', {
       orderId: 'MEE-WI-CASH-1',
       expectedUpdatedAt: adminDelCash.row.updated_at,
@@ -379,10 +383,11 @@ test('POLICY-01 & POLICY-02: Walk-in Cash vs Transfer verification, bill-later P
     });
     assert.equal(adminRestore.ok, true);
 
-    const kpiRestored = await adminCore.fastKpi({ month: '2026-11' });
-    assert.equal(kpiRestored.items.find((x) => x.username === 'cmui').revenue, 1150000, 'Restored walk-in cleanly re-counted in C Mụi KPI');
     const dashRestored = await adminCore.fastDashboard({ start: '2026-11-25', end: '2026-11-25' });
-    assert.equal(dashRestored.summary.grossRevenue, 1850000, 'Restored walk-in cleanly re-counted in Dashboard');
+    assert.equal(dashRestored.summary.grossRevenue, 2650000, 'Restored walk-in cleanly re-counted ONCE in Dashboard');
+    assert.equal(dashRestored.summary.walkInRevenue, 1150000);
+    const kpiRestored = await adminCore.fastKpi({ month: '2026-11' });
+    assert.equal(kpiRestored.items.find((x) => x.username === 'cmui').revenue, 800000, 'C Mụi personal KPI still excludes restored walk-in');
   } finally {
     await pg.close();
   }

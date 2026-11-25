@@ -390,6 +390,7 @@ async function getKpi(payload, user) {
 
   const grouped = {};
   for (const o of orders) {
+    if ((clean(o.orderType) || 'STANDARD').toUpperCase() === 'WALK_IN') continue;
     const u = resolveUser(o.sale);
     const isCmui = (u && norm(u.username) === 'cmui') || norm(o.sale) === 'c mui' || norm(o.sale) === 'cmui';
     if (isCmui && user.role !== 'ADMIN' && norm(user.username) !== 'cmui') continue;
