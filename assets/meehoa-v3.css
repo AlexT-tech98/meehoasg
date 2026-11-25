@@ -713,9 +713,9 @@ tbody tr:hover {
   background: #F8F7F2;
 }
 tbody tr:last-child td { border-bottom: 0; }
-.control-table { min-width: 1080px; }
+.control-table:not(.mee3-table) { min-width: 1080px; }
 .control-table tbody tr.row-alert { box-shadow: inset 3px 0 var(--rose-petal); }
-.sheet-table { min-width: 1180px; }
+.sheet-table:not(.mee3-table) { min-width: 1180px; }
 .nowrap { white-space: nowrap; }
 .multiline { white-space: pre-line; }
 
@@ -1117,9 +1117,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .dashboard-grid { grid-template-columns: 1fr; }
   .attention-columns { grid-template-columns: 1fr; }
 
-  /* Mobile card view instead of cut-off table */
-  .sheet-table-desktop { display: none !important; }
-  .orders-mobile-list { display: block !important; }
+  /* Mobile card view for non-UI-V3 legacy tables only (UI V3 owns Orders grid/table breakpoint cleanly) */
+  .sheet-table-desktop:not(.mee3-table-wrap) { display: none; }
+  .orders-mobile-list:not(.mee3-grid) { display: block; }
 
   .mobile-nav {
     display:grid;
@@ -1162,7 +1162,7 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 480px) {
   .stat-grid-5 { grid-template-columns: 1fr 1fr; }
   .stat strong { font-size: 21px; }
-  .topbar-search input { font-size: 13px; }
+  .topbar-search input { font-size: 16px; }
 }
 
 /* MEEHOA responsive source owner */

@@ -718,9 +718,9 @@ tbody tr:hover {
   background: #F8F7F2;
 }
 tbody tr:last-child td { border-bottom: 0; }
-.control-table { min-width: 1080px; }
+.control-table:not(.mee3-table) { min-width: 1080px; }
 .control-table tbody tr.row-alert { box-shadow: inset 3px 0 var(--rose-petal); }
-.sheet-table { min-width: 1180px; }
+.sheet-table:not(.mee3-table) { min-width: 1180px; }
 .nowrap { white-space: nowrap; }
 .multiline { white-space: pre-line; }
 
@@ -1122,9 +1122,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .dashboard-grid { grid-template-columns: 1fr; }
   .attention-columns { grid-template-columns: 1fr; }
 
-  /* Mobile card view instead of cut-off table */
-  .sheet-table-desktop { display: none !important; }
-  .orders-mobile-list { display: block !important; }
+  /* Mobile card view for non-UI-V3 legacy tables only (UI V3 owns Orders grid/table breakpoint cleanly) */
+  .sheet-table-desktop:not(.mee3-table-wrap) { display: none; }
+  .orders-mobile-list:not(.mee3-grid) { display: block; }
 
   .mobile-nav {
     display:grid;
@@ -1167,7 +1167,7 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 480px) {
   .stat-grid-5 { grid-template-columns: 1fr 1fr; }
   .stat strong { font-size: 21px; }
-  .topbar-search input { font-size: 13px; }
+  .topbar-search input { font-size: 16px; }
 }
 
 /* MEEHOA responsive source owner */
@@ -1920,7 +1920,7 @@ body.mee-overlay-open-v364,body.mee-menu-open{overflow:hidden!important;overscro
 html,body,.app,.main,#content{max-width:100%!important}#content>*{min-width:0!important}img,video,canvas{max-width:100%}.form-grid,.dashboard-grid,.stats,.stat-grid-5,.order-grid,.production-grid,.sales-kpi-grid{min-width:0!important}
 @media(max-width:1200px){.stat-grid-5{grid-template-columns:repeat(3,minmax(0,1fr))!important}.dashboard-grid{grid-template-columns:1fr!important}}
 @media(max-width:620px){.stat-grid-5,.stats{grid-template-columns:1fr}.section-head{align-items:flex-start;gap:10px}.section-head>div{min-width:0}.section-head .btn,.section-head .date-filter-btn{max-width:100%}#bootSplash .mee-splash-card{width:min(350px,calc(100vw - 32px));padding:27px 22px 25px;border-radius:16px}}
-@media(max-width:480px){#content>.stats{grid-template-columns:minmax(0,1fr)!important}.kpi-meta{align-items:flex-start;flex-wrap:wrap}.kpi-meta b{width:100%;text-align:left}.topbar{gap:6px!important}.topbar-search input{font-size:13px!important;padding-right:62px!important}}
+@media(max-width:480px){#content>.stats{grid-template-columns:minmax(0,1fr)!important}.kpi-meta{align-items:flex-start;flex-wrap:wrap}.kpi-meta b{width:100%;text-align:left}.topbar{gap:6px!important}.topbar-search input{font-size:16px;padding-right:62px!important}}
 @media(max-width:900px){html{scroll-behavior:auto}body:not(.mee-overlay-open-v364):not(.mee-menu-open){touch-action:pan-y pinch-zoom}}
 @media(prefers-reduced-motion:reduce){#bootSplash .mee-splash-progress i{animation:none!important}}
 
@@ -2150,32 +2150,36 @@ body #toast.toast {
   pointer-events: none;
   text-align: center;
 }
+body #toast.toast.err,
 body #toast.toast.bad {
   background: #991B1B;
   border-color: rgba(254, 202, 202, 0.35);
 }
 
-/* Single Create Order CTA Rule (TC-03):
- * Desktop: Topbar only (no .fab, no Orders toolbar create button)
- * Mobile (<=760px): Bottom Nav "+ Tạo" only (hide Topbar create button & .fab)
+/* Single Create Order CTA Rule (TC-03 / RC5-01):
+ * Desktop (>=901px): Topbar only (no .fab, no Orders toolbar create button, .mobile-nav hidden)
+ * Tablet & Mobile (<=900px): Synchronized with .mobile-nav — Bottom Nav "+ Tạo" only (hide Topbar create button & .fab)
  */
 body .fab {
   display: none;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
+  body.mee-ui-v3 .topbar .mee3-topbar-create,
   .topbar .mee3-topbar-create {
     display: none;
   }
+  body.mee-ui-v3 .topbar .topbar-search,
   .topbar .topbar-search {
     flex: 1 1 auto;
     min-width: 185px;
     max-width: none;
   }
+  body.mee-ui-v3 .topbar #globalSearchInput,
   .topbar #globalSearchInput {
     min-width: 150px;
     width: 100%;
-    font-size: 14px;
+    font-size: 16px;
   }
 }
 
@@ -2632,18 +2636,19 @@ body .fab {
   color: var(--v3-success);
 }
 
-/* Orders Table View (9 Columns — DC-02, TC-11) */
+/* Orders Table View (9 Columns — DC-02, TC-11, RC5-02) */
 .mee3-table-wrap {
   background: var(--v3-surface);
   border: 1px solid var(--v3-border);
   border-radius: var(--v3-radius-lg);
+  max-width: 100%;
   overflow-x: auto;
   box-shadow: var(--v3-shadow-sm);
 }
 
 .mee3-table {
   width: 100%;
-  min-width: 960px;
+  min-width: 900px;
   border-collapse: collapse;
   font-size: 12.5px;
 }
@@ -2658,7 +2663,7 @@ body .fab {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   text-align: left;
-  padding: 10px 9px;
+  padding: 9px 7px;
   border-bottom: 1px solid var(--v3-border);
   white-space: nowrap;
 }
@@ -2669,11 +2674,45 @@ body .fab {
   white-space: nowrap;
 }
 
+.mee3-table td.mee3-col-pay {
+  white-space: normal;
+  min-width: 104px;
+  max-width: 148px;
+  line-height: 1.35;
+}
+
 .mee3-table td {
-  padding: 9px 9px;
+  padding: 8px 7px;
   border-bottom: 1px solid var(--v3-border);
   vertical-align: top;
   color: var(--v3-text);
+}
+
+.mee3-table .note-cell {
+  min-width: 190px;
+  max-width: 250px;
+}
+
+.mee3-table .address-cell {
+  min-width: 135px;
+  max-width: 185px;
+}
+
+.mee3-table .sample-with-thumb {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.mee3-table .sample-with-thumb .table-thumb {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .mee3-table tbody tr {
@@ -2694,7 +2733,7 @@ body .fab {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  max-width: 280px;
+  max-width: 260px;
   line-height: 1.38;
 }
 
@@ -3870,13 +3909,20 @@ body .fab {
   line-height: 1.3;
 }
 
-/* ===== RESPONSIVE MOBILE OPTIMIZATION (DC-04, TC-03, TC-11) ===== */
+/* ===== RESPONSIVE TABLET & MOBILE OPTIMIZATION (DC-04, TC-03, TC-11, RC5-01, RC5-04) ===== */
 @media (max-width: 900px) {
   .mee3-orders-header {
     padding: 10px 12px;
   }
-  .mee3-grid {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  .mee3-orders.mee3-view-grid .mee3-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mee3-orders.mee3-view-table .mee3-table-wrap {
+    display: block;
+  }
+  .mee3-orders.mee3-view-table .mee3-grid {
+    display: none;
   }
 }
 
@@ -3893,13 +3939,8 @@ body .fab {
     border-radius: 8px;
   }
   body.mee-ui-v3 .topbar #globalSearchInput {
-    height: 34px;
-    font-size: 13px;
-  }
-  body.mee-ui-v3 .topbar .mee3-topbar-create {
-    height: 34px;
-    padding: 0 10px;
-    font-size: 12.5px;
+    height: 36px;
+    font-size: 16px;
   }
   body.mee-ui-v3 .content {
     padding: 6px 10px calc(84px + env(safe-area-inset-bottom));
@@ -3967,10 +4008,9 @@ body .fab {
   .mee3-orders.mee3-view-table .mee3-table-wrap {
     display: none;
   }
-  .mee3-orders.mee3-view-table .mee3-grid {
+  .mee3-orders.mee3-view-table .mee3-grid,
+  .mee3-orders.mee3-view-grid .mee3-grid {
     display: grid;
-  }
-  .mee3-grid {
     grid-template-columns: 1fr;
     gap: 8px;
   }
@@ -4027,6 +4067,13 @@ body .fab {
 }
 
 @media (max-width: 380px) {
+  body.mee-ui-v3 .topbar .topbar-search {
+    min-width: 160px;
+  }
+  body.mee-ui-v3 .topbar #globalSearchInput {
+    min-width: 110px;
+    font-size: 16px;
+  }
   .mee3-orders-header {
     padding: 9px 10px;
   }

@@ -1659,9 +1659,9 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
   var u = firstImage(o, 180),
       thumb = u ? '<img class="table-thumb" src="' + attr(u) + '" loading="lazy" decoding="async" onerror="MEEOPS7.imageFallback(this)">'
                 : '<span class="table-thumb table-thumb-empty">✿</span>';
-  return '<div class="sample-with-thumb">' + thumb + '<div style="min-width:0">' +
-    '<div class="multiline" style="font-weight:600;color:var(--text-primary)">' + multiline(o.flower) + '</div>' +
-    (o.note ? '<div class="sub multiline" style="font-size:12px;color:var(--text-muted);margin-top:2px">' + multiline(o.note) + '</div>' : '') +
+  return '<div class="sample-with-thumb">' + thumb + '<div class="mee3-sample-text" style="min-width:0">' +
+    '<div class="multiline mee3-clamp-2" style="font-weight:600;color:var(--text-primary)">' + multiline(o.flower) + '</div>' +
+    (o.note ? '<div class="sub multiline mee3-clamp-2" style="font-size:12px;color:var(--text-muted);margin-top:2px">' + multiline(o.note) + '</div>' : '') +
     (o.hasAccessories ? '<span class="badge gold" style="font-size:10px;margin-top:4px">CÓ PHỤ KIỆN</span>' : '') +
   '</div></div>';
 }
@@ -2002,12 +2002,12 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
     return '<tr class="' + (o.hasAccessories ? 'has-accessories' : '') + '" onclick="MEEOPS7.openDrawer(\'' + o.id + '\',\'orders\')">' +
       '<td class="nowrap">' + dateVN(o.date) + '<br><b class="mee3-num">' + esc(timeVN(o.time)) + '</b></td>' +
       '<td><b>' + esc(o.customer) + '</b><br><span class="sub">' + (esc(o.phone) || '—') + '</span></td>' +
-      '<td class="note-cell"><div class="mee3-clamp-2">' + tableSample(o) + '</div>' + (String(o.tagNoteFree||'').trim() ? '<div class="mee3-card-pills"><span class="mee3-badge mee3-badge-tag">Tag note free</span></div>' : '') + '</td>' +
+      '<td class="note-cell">' + tableSample(o) + (String(o.tagNoteFree||'').trim() ? '<div class="mee3-card-pills" style="margin-top:4px"><span class="mee3-badge mee3-badge-tag">Tag note free</span></div>' : '') + '</td>' +
       '<td class="address-cell"><div class="mee3-clamp-2">' + v3ShipIcon(o.shipping) + ' ' + esc(o.shipping) + (o.address ? '<br><span class="sub">' + esc(o.address) + '</span>' : '') + '</div></td>' +
       '<td>' + esc(o.sale || '—') + '</td>' +
       '<td><span class="mee3-badge ' + statusClass(o.status) + '">' + esc(o.status) + '</span>' + (accPills.length ? '<div class="mee3-card-pills" style="margin-top:4px">' + accPills.slice(0,2).map(function(p){ return '<span class="mee3-badge mee3-badge-acc">' + esc(p) + '</span>'; }).join('') + '</div>' : '') + '</td>' +
       '<td class="mee3-col-num"><b>' + vnd(o.flowerTotal) + '</b></td>' +
-      '<td class="mee3-col-num">' + esc(paymentLabel(o)) + '<br><span class="sub">Đã thu ' + vnd(o.paid) + '</span></td>' +
+      '<td class="mee3-col-num mee3-col-pay">' + esc(paymentLabel(o)) + '<br><span class="sub">Đã thu ' + vnd(o.paid) + '</span></td>' +
       '<td class="mee3-col-num"><b style="color:' + (o.debt ? 'var(--v3-danger)' : 'var(--v3-success)') + '">' + vnd(o.debt) + '</b>' + ordersDebtNotes(o) + '</td>' +
     '</tr>';
   }).join('');
@@ -2093,8 +2093,8 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
       (trashOpen ? window.MEE_UI_V3.renderTrashMarkup() :
         tabsHtml +
         '<div class="mee3-table-wrap table-wrap sheet-table-desktop mee-orders-table" role="region" aria-label="Bảng đơn hàng, cuộn ngang để xem đầy đủ" tabindex="0">' +
-          '<table class="mee3-table control-table sheet-table">' +
-            '<thead><tr><th>Ngày / Giờ</th><th>Khách / SĐT</th><th>Mẫu / Note</th><th>Vận chuyển / Địa chỉ</th><th>Sale</th><th>Trạng thái</th><th class="mee3-col-num">Tiền hoa</th><th class="mee3-col-num">Thanh toán</th><th class="mee3-col-num">Công nợ</th></tr></thead>' +
+          '<table class="mee3-table control-table">' +
+            '<thead><tr><th>Ngày / Giờ</th><th>Khách / SĐT</th><th>Mẫu / Lưu ý</th><th>Vận chuyển / Địa chỉ</th><th>Sale</th><th>Trạng thái</th><th class="mee3-col-num">Tiền hoa</th><th class="mee3-col-num">Thanh toán</th><th class="mee3-col-num">Công nợ</th></tr></thead>' +
             '<tbody>' + (rows || '<tr><td colspan="9" class="empty">Không có đơn phù hợp với bộ lọc.</td></tr>') + '</tbody>' +
           '</table>' +
         '</div>' +

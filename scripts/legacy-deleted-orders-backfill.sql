@@ -45,6 +45,11 @@ with eligible as (
     and o.settled = false
     and o.full_paid = false
     and public.mee_ops_paid(o) <= 0
+    and not (
+      public.mee_search_key(coalesce(o.payment, '')) <> ''
+      and public.mee_search_key(coalesce(o.payment, '')) !~ 'chua'
+      and public.mee_search_key(coalesce(o.payment, '')) ~ '(coc|ck|chuyen khoan|da thanh toan|da tt|full|thu)'
+    )
     and not exists (
       select 1
       from public.settlement_requests sr

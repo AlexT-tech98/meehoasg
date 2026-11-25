@@ -408,7 +408,10 @@ test('POLICY-04: Dry-run SQL is strictly READ ONLY, works on Production baseline
       insert into public.orders(id, customer, order_date, order_time, flower, note, shipping, flower_total, payment, sale, status, settled, full_paid, full_paid_total, full_paid_bill_urls, image_urls, delete_after_sheet_sync, delete_requested_by, delete_requested_at) values
         ('LEG-KW-ONLY', '[ĐÃ XÓA] Khách tự ghi chú', '2026-10-01', '09:00', 'Bó hồng', 'Khách tự ghi', 'Ghé lấy', 400000, 'Chưa thanh toán', 'sale1', 'Chờ bó', false, false, 0, '[]'::jsonb, '[]'::jsonb, false, null, null),
         ('LEG-UNPAID-OK', '[ĐÃ XÓA] Chị Lan', '2026-10-02', '10:00', 'Bó tulip', '[ĐÃ XÓA TRÊN OPS]', 'Ghé lấy', 500000, 'Chưa thanh toán', 'sale1', 'Chờ bó', false, false, 0, '[]'::jsonb, '[]'::jsonb, true, 'admin', '2026-10-02T04:00:00Z'),
-        ('LEG-DEPOSIT', 'Anh Minh', '2026-10-03', '11:00', 'Giỏ hoa', 'Hủy đơn', 'Ghé lấy', 800000, 'Đã cọc 300k', 'sale1', 'Chờ bó', false, false, 0, '[]'::jsonb, '[]'::jsonb, false, 'admin', '2026-10-03T05:00:00Z'),
+        ('LEG-DEPOSIT', 'Anh Minh', '2026-10-03', '11:00', 'Giỏ hoa', 'Hủy đơn', 'Ghé lấy', 800000, 'Đã cọc 300', 'sale1', 'Chờ bó', false, false, 0, '[]'::jsonb, '[]'::jsonb, false, 'admin', '2026-10-03T05:00:00Z'),
+        ('LEG-DEP-MULTI-NUM', 'Chị Thảo', '2026-10-03', '12:00', 'Bó baby', '[ĐÃ XÓA TRÊN OPS]', 'Ghé lấy', 700000, 'CK 500.000đ ngày 25/11', 'sale1', 'Chờ bó', false, false, 0, '[]'::jsonb, '[]'::jsonb, true, 'admin', '2026-10-03T06:00:00Z'),
+        ('LEG-DEP-DECIMAL', 'Anh Khoa', '2026-10-03', '13:00', 'Bó tulip', '[ĐÃ XÓA TRÊN OPS]', 'Ghé lấy', 2000000, 'Đã cọc 1,5tr', 'sale1', 'Chờ bó', false, false, 0, '[]'::jsonb, '[]'::jsonb, true, 'admin', '2026-10-03T07:00:00Z'),
+        ('LEG-DEP-NO-NUM', 'Chị Vy', '2026-10-03', '14:00', 'Bó ly', '[ĐÃ XÓA TRÊN OPS]', 'Ghé lấy', 600000, 'Đã cọc', 'sale1', 'Chờ bó', false, false, 0, '[]'::jsonb, '[]'::jsonb, true, 'admin', '2026-10-03T08:00:00Z'),
         ('LEG-FULLPAID', 'Chị Hoa', '2026-10-04', '12:00', 'Bó ly', '[ĐÃ XÓA TRÊN OPS]', 'Ghé lấy', 1000000, 'Đã thanh toán toàn bộ đơn', 'sale2', 'Đã giao', false, true, 1000000, '["supabase://settlement-bills/leg.jpg"]'::jsonb, '["supabase://order-images/leg.jpg"]'::jsonb, false, null, null),
         ('LEG-LOG-SETTLED', 'Anh Đức', '2026-10-05', '13:00', 'Bó mẫu đơn', 'Bình thường', 'Ghé lấy', 900000, 'Đã thanh toán', 'sale2', 'Đã giao', true, false, 0, '[]'::jsonb, '[]'::jsonb, false, null, null);
       insert into public.activity_log(username, display_name, role, order_id, action, after_data)
@@ -421,24 +424,33 @@ test('POLICY-04: Dry-run SQL is strictly READ ONLY, works on Production baseline
     assert.ok(summaryRes, 'Summary query returned on Production baseline');
     assert.ok(detailRes, 'Detail query returned on Production baseline');
     const s = summaryRes.rows[0];
-    assert.equal(Number(s.total_suspected_legacy_deleted), 5);
-    assert.equal(Number(s.confirmed_with_evidence), 4, '4 rows have system evidence');
+    assert.equal(Number(s.total_suspected_legacy_deleted), 8);
+    assert.equal(Number(s.confirmed_with_evidence), 7, '7 rows have system evidence');
     assert.equal(Number(s.insufficient_evidence_keyword_only), 1, '1 row is keyword-only');
     assert.equal(Number(s.unpaid_orders), 2, 'LEG-KW-ONLY + LEG-UNPAID-OK');
-    assert.equal(Number(s.deposit_or_partial_paid_orders), 1, 'LEG-DEPOSIT');
+    assert.equal(Number(s.deposit_or_partial_paid_orders), 4, 'LEG-DEPOSIT + LEG-DEP-MULTI-NUM + LEG-DEP-DECIMAL + LEG-DEP-NO-NUM');
     assert.equal(Number(s.full_paid_or_settled_orders), 2, 'LEG-FULLPAID + LEG-LOG-SETTLED');
     assert.equal(Number(s.clean_verified_candidates), 1, 'Only LEG-UNPAID-OK is confirmed & unpaid');
-    assert.equal(Number(s.owner_manual_review_required), 4, '4 cases require Owner review');
-    assert.equal(Number(s.total_order_value_vnd), 3600000);
-    assert.equal(Number(s.total_collected_vnd), 2200000, '300k + 1M + 900k');
-    assert.equal(Number(s.total_related_debt_vnd), 1400000, '400k + 500k + 500k remaining on deposit');
+    assert.equal(Number(s.owner_manual_review_required), 7, '7 cases require Owner review');
+    assert.equal(Number(s.total_order_value_vnd), 6900000);
+    assert.equal(Number(s.total_verified_collected_vnd), 1900000, 'ONLY FullPaid (1M) + Settled (900k) count as verified collected');
+    assert.equal(Number(s.total_unverified_estimated_paid_vnd), 2300000, '300k + 500k + 1.5M unverified text estimates kept separate');
+    assert.equal(Number(s.total_related_debt_vnd), 2700000, '400k + 500k + 500k + 200k + 500k + 600k');
 
     const byId = Object.fromEntries(detailRes.rows.map((r) => [r.id, r]));
     assert.equal(byId['LEG-KW-ONLY'].classification, 'INSUFFICIENT_EVIDENCE_KEYWORD_ONLY');
     assert.equal(byId['LEG-UNPAID-OK'].classification, 'CONFIRMED_UNPAID_CANDIDATE');
     assert.equal(byId['LEG-DEPOSIT'].classification, 'CONFIRMED_PAID_OR_DEPOSIT_REVIEW');
+    assert.equal(Number(byId['LEG-DEPOSIT'].unverified_estimated_paid_vnd), 300000, 'Đã cọc 300 -> 300k');
+    assert.equal(Number(byId['LEG-DEPOSIT'].verified_collected_vnd), 0, 'Unverified deposit NEVER reported as verified');
+    assert.equal(Number(byId['LEG-DEP-MULTI-NUM'].unverified_estimated_paid_vnd), 500000, 'CK 500.000đ ngày 25/11 -> 500k');
+    assert.equal(Number(byId['LEG-DEP-DECIMAL'].unverified_estimated_paid_vnd), 1500000, 'Đã cọc 1,5tr -> 1.5M');
+    assert.equal(byId['LEG-DEP-NO-NUM'].classification, 'CONFIRMED_PAID_OR_DEPOSIT_REVIEW');
+    assert.equal(byId['LEG-DEP-NO-NUM'].has_unverified_payment_signal, true, 'Đã cọc (no number) flagged for Owner review');
     assert.equal(byId['LEG-FULLPAID'].classification, 'CONFIRMED_LOCKED_FINANCIAL_REVIEW');
+    assert.equal(Number(byId['LEG-FULLPAID'].verified_collected_vnd), 1000000);
     assert.equal(byId['LEG-LOG-SETTLED'].classification, 'CONFIRMED_LOCKED_FINANCIAL_REVIEW');
+    assert.equal(Number(byId['LEG-LOG-SETTLED'].verified_collected_vnd), 900000);
 
     // 3. Upgrade DB to RC4 migrations, verify idempotency (run RC4 migrations twice!), then verify hardened backfill
     const v3Files = getMigrationFiles((f) => f.startsWith('20261125'));
@@ -456,6 +468,9 @@ test('POLICY-04: Dry-run SQL is strictly READ ONLY, works on Production baseline
     assert.equal(mapAfter['LEG-UNPAID-OK'].is_deleted, true, 'Verified unpaid legacy deleted order converted');
     assert.equal(mapAfter['LEG-KW-ONLY'].is_deleted, false, 'POLICY-04: keyword-only [ĐÃ XÓA] MUST NOT auto-convert');
     assert.equal(mapAfter['LEG-DEPOSIT'].is_deleted, false, 'POLICY-04: deposit order MUST NOT auto-convert');
+    assert.equal(mapAfter['LEG-DEP-MULTI-NUM'].is_deleted, false, 'POLICY-04: multi-number paid note MUST NOT auto-convert');
+    assert.equal(mapAfter['LEG-DEP-DECIMAL'].is_deleted, false, 'POLICY-04: decimal paid note MUST NOT auto-convert');
+    assert.equal(mapAfter['LEG-DEP-NO-NUM'].is_deleted, false, 'POLICY-04: text-only deposit note MUST NOT auto-convert');
     assert.equal(mapAfter['LEG-FULLPAID'].is_deleted, false, 'POLICY-04: full_paid order MUST NOT auto-convert');
     assert.equal(mapAfter['LEG-LOG-SETTLED'].is_deleted, false, 'POLICY-04: settled order MUST NOT auto-convert');
 
