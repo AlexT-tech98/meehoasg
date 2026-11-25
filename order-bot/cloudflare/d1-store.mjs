@@ -37,6 +37,34 @@ export async function loadDrafts(db, userId) {
 }
 
 /**
+ * Strip legacy inline base64 data_url fields from photo refs before persisting to D1.
+ * Keeps D1 draft JSON compact and within D1 row size limits.
+ */
+function stripInlineImageData(drafts) {
+  if (!drafts || typeof drafts !== 'object') return drafts;
+  const clean = {};
+  for (const [key, val] of Object.entries(drafts)) {
+    if (key.startsWith('__') || !val || typeof val !== 'object') {
+      clean[key] = val;
+      continue;
+    }
+    const stripRefs = refs => Array.isArray(refs)
+      ? refs.map(ref => {
+          if (!ref || typeof ref !== 'object' || !('data_url' in ref)) return ref;
+          const { data_url: _removed, ...rest } = ref;
+          return rest;
+        })
+      : refs;
+    clean[key] = {
+      ...val,
+      ...(Array.isArray(val.sampleRefs) ? { sampleRefs: stripRefs(val.sampleRefs) } : {}),
+      ...(Array.isArray(val.draftBillRefs) ? { draftBillRefs: stripRefs(val.draftBillRefs) } : {})
+    };
+  }
+  return clean;
+}
+
+/**
  * Persist drafts for a given Telegram user ID to D1.
  * @param {object} db - Cloudflare D1 Database binding
  * @param {number|string} userId - Telegram user ID
@@ -44,8 +72,9 @@ export async function loadDrafts(db, userId) {
  */
 export async function saveDrafts(db, userId, drafts) {
   const uid = Number(userId);
-  const activeDraftId = drafts.__active || null;
-  const json = JSON.stringify(drafts);
+  const sanitized = stripInlineImageData(drafts);
+  const activeDraftId = sanitized.__active || null;
+  const json = JSON.stringify(sanitized);
 
   await db.prepare(`
     INSERT INTO bot_drafts (user_id, active_draft_id, drafts_json, updated_at)

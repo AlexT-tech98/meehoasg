@@ -811,3 +811,25 @@ test('Contract 9: AI sanitizer strips forbidden/guessed fields & newlines; natur
   assert.ok(r2.draft.uncertainFields.date, 'Past date in natural text must be marked uncertain');
   assert.equal(isConfirmable(r2.draft), false, 'Draft with uncertain past date must NOT be confirmable');
 });
+
+test('Contract 10: saveDrafts automatically strips legacy inline base64 data_url from D1 rows', async () => {
+  const { saveDrafts, loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const db = createMockD1();
+  const legacyDrafts = {
+    __active: 'legacy-1',
+    'legacy-1': {
+      id: 'legacy-1',
+      status: 'pending',
+      fields: { customer: 'Legacy' },
+      sampleRefs: [{ fileId: 'f1', r2_key: 'order-images/sample-legacy-1-abc.jpg', data_url: 'data:image/jpeg;base64,' + 'A'.repeat(20000) }],
+      draftBillRefs: [{ fileId: 'f2', r2_key: 'settlement-bills/unverified-legacy-1-def.jpg', data_url: 'data:image/jpeg;base64,' + 'B'.repeat(20000) }]
+    }
+  };
+  await saveDrafts(db, 5252724920, legacyDrafts);
+  const row = await db.prepare('SELECT drafts_json FROM bot_drafts WHERE user_id = ?').bind(5252724920).first();
+  assert.ok(!row.drafts_json.includes('data:image/'), 'Persisted D1 JSON must strip legacy data_url');
+  assert.ok(row.drafts_json.length < 1024);
+  const loaded = await loadDrafts(db, 5252724920);
+  assert.equal(loaded['legacy-1'].sampleRefs[0].r2_key, 'order-images/sample-legacy-1-abc.jpg');
+  assert.equal(loaded['legacy-1'].sampleRefs[0].data_url, undefined);
+});
