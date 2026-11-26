@@ -1763,3 +1763,177 @@ test('Contract 17: Crash/stuck-confirming recovery & Full Paid deferral: never a
   assert.equal(draftsNow[draftsNow.__active].fields.paymentState, 'fullpaid');
   assert.ok(sentMessages[sentMessages.length - 1].text.includes('ảnh bill'));
 });
+
+test('Contract 18: /retry_payment & /relink reject wrong, unknown, non-submitted, or ambiguous order codes without touching any order', async () => {
+  const { handleTelegramWebhook, resolveSubmittedDraftTarget } = await import('../order-bot/cloudflare/worker.mjs');
+  const { saveDrafts, loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { db, r2, opsToken, opsHandler } = await createRealOpsHarness();
+  const sentMessages = [];
+  const opsCalls = [];
+
+  const trackedOpsService = {
+    async fetch(input, init) {
+      const req = input instanceof Request ? input : new Request(input, init);
+      const clone = req.clone();
+      opsCalls.push(await clone.json());
+      return opsHandler(req);
+    }
+  };
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  // Seed 2 real OPS orders (including MEE-EDE8086A83B24D73-style unpaid reference & another sharing suffix "99")
+  const ord1 = {
+    id: 'MEE-EDE8086A83B24D99',
+    updated_at: '2026-11-26T06:26:53.991Z',
+    customer: 'Như',
+    phone: '0394200327',
+    order_date: '2026-11-27',
+    order_time: '13:30',
+    flower: 'Ly nhuộm xanh navy',
+    note: 'Đơn đối chiếu',
+    shipping: 'Shop book ship',
+    address: '102/34c Phan huy ích, P. Tân Sơn',
+    flower_total: 350000,
+    payment: 'Chưa thanh toán',
+    sale: 'cmui',
+    card: false,
+    card_qty: 0,
+    card_text: '',
+    banner: false,
+    banner_text: '',
+    charm_fee: 0,
+    charm_text: '',
+    paper_fee: 0,
+    paper_text: '',
+    vat: 0,
+    ship_fee: 0,
+    ship_confirmed: false,
+    settled: false,
+    full_paid: false,
+    image_urls: ['supabase://order-images/sample-1.jpg'],
+    unverified_bill_urls: []
+  };
+  const ord2 = {
+    ...ord1,
+    id: 'MEE-BBBBBBBBBBBBBB99',
+    customer: 'Khách Hai',
+    flower_total: 500000,
+    updated_at: '2026-11-26T06:27:00.000Z'
+  };
+  await db.prepare('INSERT INTO orders(row_key, data) VALUES (?, ?)').bind(ord1.id, JSON.stringify(ord1)).run();
+  await db.prepare('INSERT INTO orders(row_key, data) VALUES (?, ?)').bind(ord2.id, JSON.stringify(ord2)).run();
+
+  const billKey = 'settlement-bills/unverified-test-bill.jpg';
+  await r2.put(billKey, new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1]), { httpMetadata: { contentType: 'image/jpeg' } });
+
+  const initialDrafts = {
+    __active: 'draft-sub-01',
+    'draft-sub-01': {
+      id: 'draft-sub-01',
+      status: 'submitted',
+      opsOrderId: ord1.id,
+      paymentSynced: false,
+      submittedAt: '2026-11-26T06:26:54.000Z',
+      fields: {
+        customer: 'Như',
+        flowerTotal: '350000',
+        paymentState: 'deposit',
+        depositAmount: 200000,
+        note: 'Đơn đối chiếu'
+      },
+      draftBillRefs: [{ fileId: 'bill_1', r2_key: billKey, uri: `supabase://${billKey}` }]
+    },
+    'draft-sub-02': {
+      id: 'draft-sub-02',
+      status: 'submitted',
+      opsOrderId: ord2.id,
+      paymentSynced: false,
+      submittedAt: '2026-11-26T06:27:01.000Z',
+      fields: {
+        customer: 'Khách Hai',
+        flowerTotal: '500000',
+        paymentState: 'deposit',
+        depositAmount: 250000
+      },
+      draftBillRefs: [{ fileId: 'bill_2', r2_key: billKey, uri: `supabase://${billKey}` }]
+    },
+    'draft-pending-03': {
+      id: 'draft-pending-03',
+      status: 'pending',
+      fields: { customer: 'Nháp Chưa Gửi', flowerTotal: '400000', paymentState: 'deposit', depositAmount: 200000 },
+      draftBillRefs: []
+    }
+  };
+  await saveDrafts(db, 5252724920, initialDrafts);
+
+  // Unit assertions on resolveSubmittedDraftTarget
+  assert.deepEqual(
+    { ok: resolveSubmittedDraftTarget(initialDrafts, 'MEE-WRONG-CODE').ok, reason: resolveSubmittedDraftTarget(initialDrafts, 'MEE-WRONG-CODE').reason },
+    { ok: false, reason: 'NOT_FOUND' }
+  );
+  assert.deepEqual(
+    { ok: resolveSubmittedDraftTarget(initialDrafts, '99').ok, reason: resolveSubmittedDraftTarget(initialDrafts, '99').reason },
+    { ok: false, reason: 'AMBIGUOUS' }
+  );
+  assert.deepEqual(
+    { ok: resolveSubmittedDraftTarget(initialDrafts, 'draft-pending-03').ok, reason: resolveSubmittedDraftTarget(initialDrafts, 'draft-pending-03').reason },
+    { ok: false, reason: 'NOT_SUBMITTED' }
+  );
+  assert.equal(resolveSubmittedDraftTarget(initialDrafts, 'MEE-EDE8086A83B24D99').draft.id, 'draft-sub-01');
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: opsToken,
+    OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+    OPS_SERVICE: trackedOpsService,
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  const sendCmd = (updateId, text) => handleTelegramWebhook(
+    makeWebhookRequest({ update_id: updateId, message: { message_id: updateId, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text } }),
+    env
+  );
+
+  // Wrong code, ambiguous suffix, and non-submitted draft MUST NOT modify ANY order
+  const badCommands = [
+    '/retry_payment MEE-KHONG-TON-TAI',
+    '/retry_payment 99',
+    '/retry_payment draft-pending-03',
+    '/relink MEE-KHONG-TON-TAI',
+    '/relink 99',
+    '/relink draft-pending-03'
+  ];
+
+  for (let i = 0; i < badCommands.length; i++) {
+    const res = await sendCmd(18001 + i, badCommands[i]);
+    assert.equal(res.status, 200);
+    assert.ok(sentMessages[sentMessages.length - 1].text.includes('Không có đơn nào bị thay đổi'));
+  }
+
+  assert.equal(opsCalls.length, 0, 'Wrong/ambiguous/non-submitted /retry_payment must make ZERO OPS calls');
+
+  // Verify neither OPS order was altered in payment, note, unverified_bill_urls, or updated_at
+  const row1 = JSON.parse((await db.prepare('SELECT data FROM orders WHERE row_key = ?').bind(ord1.id).first()).data);
+  const row2 = JSON.parse((await db.prepare('SELECT data FROM orders WHERE row_key = ?').bind(ord2.id).first()).data);
+  assert.equal(row1.payment, 'Chưa thanh toán');
+  assert.equal(row1.updated_at, ord1.updated_at);
+  assert.equal(row1.unverified_bill_urls.length, 0);
+  assert.equal(row2.payment, 'Chưa thanh toán');
+  assert.equal(row2.updated_at, ord2.updated_at);
+  assert.equal(row2.unverified_bill_urls.length, 0);
+
+  // Draft state remains untouched as well
+  const draftsAfter = await loadDrafts(db, 5252724920);
+  assert.equal(draftsAfter['draft-sub-01'].paymentSynced, false);
+  assert.equal(draftsAfter['draft-sub-02'].paymentSynced, false);
+});

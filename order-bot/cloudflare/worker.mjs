@@ -1264,40 +1264,93 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
 }
 
 /**
+ * Resolve target submitted draft safely for /retry_payment and /relink.
+ * When an explicit code/id argument is provided, NEVER fall back to the active
+ * or most recent submitted draft if it does not match uniquely.
+ */
+export function resolveSubmittedDraftTarget(drafts, arg) {
+  const draftEntries = Object.entries(drafts || {})
+    .filter(([k, d]) => !k.startsWith('__') && d && d.id)
+    .map(([, d]) => d);
+
+  const trimmed = String(arg || '').trim();
+  if (trimmed) {
+    const upper = trimmed.toUpperCase();
+    const exactMatches = draftEntries.filter(d =>
+      String(d.id || '') === trimmed ||
+      (d.opsOrderId && String(d.opsOrderId).toUpperCase() === upper)
+    );
+    if (exactMatches.length === 1) {
+      const hit = exactMatches[0];
+      if (hit.status !== 'submitted' || !hit.opsOrderId) {
+        return { ok: false, reason: 'NOT_SUBMITTED', query: trimmed, draft: hit };
+      }
+      return { ok: true, draft: hit };
+    }
+    if (exactMatches.length > 1) {
+      return { ok: false, reason: 'AMBIGUOUS', query: trimmed, matches: exactMatches };
+    }
+
+    const suffixMatches = draftEntries.filter(d =>
+      String(d.id || '').endsWith(trimmed) ||
+      (d.opsOrderId && String(d.opsOrderId).toUpperCase().endsWith(upper))
+    );
+    if (suffixMatches.length === 0) {
+      return { ok: false, reason: 'NOT_FOUND', query: trimmed };
+    }
+    if (suffixMatches.length > 1) {
+      return { ok: false, reason: 'AMBIGUOUS', query: trimmed, matches: suffixMatches };
+    }
+    const hit = suffixMatches[0];
+    if (hit.status !== 'submitted' || !hit.opsOrderId) {
+      return { ok: false, reason: 'NOT_SUBMITTED', query: trimmed, draft: hit };
+    }
+    return { ok: true, draft: hit };
+  }
+
+  const active = activeDraft(drafts);
+  if (active && active.status === 'submitted' && active.opsOrderId) {
+    return { ok: true, draft: active };
+  }
+  const submitted = draftEntries
+    .filter(d => d.status === 'submitted' && d.opsOrderId)
+    .sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
+  if (submitted[0]) {
+    return { ok: true, draft: submitted[0] };
+  }
+  return { ok: false, reason: 'NO_SUBMITTED_DRAFT' };
+}
+
+function formatTargetResolutionError(resolved, commandName) {
+  if (resolved.reason === 'NOT_FOUND') {
+    return `⚠️ Không tìm thấy đơn nào khớp mã "${resolved.query}". Không có đơn nào bị thay đổi.`;
+  }
+  if (resolved.reason === 'AMBIGUOUS') {
+    const options = (resolved.matches || [])
+      .slice(0, 5)
+      .map(d => d.opsOrderId || `#${String(d.id || '').slice(-6)}`)
+      .join(', ');
+    return `⚠️ Mã "${resolved.query}" khớp nhiều đơn (${options}). Vui lòng nhập đầy đủ mã đơn OPS (ví dụ MEE-...) để tránh cập nhật nhầm. Không có đơn nào bị thay đổi.`;
+  }
+  if (resolved.reason === 'NOT_SUBMITTED') {
+    const shortId = String(resolved.draft?.id || '').slice(-6);
+    return `⚠️ Nháp #${shortId} chưa tạo đơn trên OPS nên không thể chạy ${commandName}. Không có đơn nào bị thay đổi.`;
+  }
+  return `⚠️ Không tìm thấy đơn đã tạo trên OPS. Dùng ${commandName} <mã_đơn> nếu cần.`;
+}
+
+/**
  * Handle /retry_payment (or /sync_payment) command:
  * Safely records verified deposit/bankfull onto an already-created OPS order via getOrder + updateOrder
  * with idempotent paymentSyncRequestId and double-deposit lock. NEVER calls createOrder.
  */
 async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
-  const draftEntries = Object.entries(drafts || {})
-    .filter(([k, d]) => !k.startsWith('__') && d && d.id)
-    .map(([, d]) => d);
-
-  let targetDraft = null;
-  if (arg) {
-    const trimmed = arg.trim();
-    targetDraft = draftEntries.find(d =>
-      String(d.id || '').endsWith(trimmed) ||
-      String(d.opsOrderId || '').toUpperCase() === trimmed.toUpperCase() ||
-      String(d.opsOrderId || '').toUpperCase().endsWith(trimmed.toUpperCase())
-    );
-  }
-  if (!targetDraft) {
-    const active = activeDraft(drafts);
-    if (active && active.status === 'submitted' && active.opsOrderId) {
-      targetDraft = active;
-    } else {
-      const submitted = draftEntries
-        .filter(d => d.status === 'submitted' && d.opsOrderId)
-        .sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
-      targetDraft = submitted[0] || null;
-    }
-  }
-
-  if (!targetDraft || !targetDraft.opsOrderId) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Không tìm thấy đơn đã tạo trên OPS để đồng bộ thanh toán. Dùng /retry_payment <mã_đơn> nếu cần.');
+  const resolved = resolveSubmittedDraftTarget(drafts, arg);
+  if (!resolved.ok || !resolved.draft?.opsOrderId) {
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, formatTargetResolutionError(resolved, '/retry_payment'));
     return;
   }
+  const targetDraft = resolved.draft;
 
   const { expectedPayment, expectedPaid } = expectedPaymentDetails(targetDraft.fields);
   if (expectedPaid <= 0 && expectedPayment === 'Chưa thanh toán') {
@@ -1386,35 +1439,12 @@ async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
  * without calling createOrder again (100% idempotent, zero duplicate orders).
  */
 async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
-  const draftEntries = Object.entries(drafts || {})
-    .filter(([k, d]) => !k.startsWith('__') && d && d.id)
-    .map(([, d]) => d);
-  let targetDraft = null;
-  if (arg) {
-    const trimmed = arg.trim();
-    targetDraft = draftEntries.find(d =>
-      String(d.id || '').endsWith(trimmed) ||
-      String(d.opsOrderId || '').toUpperCase() === trimmed.toUpperCase() ||
-      String(d.opsOrderId || '').toUpperCase().endsWith(trimmed.toUpperCase())
-    );
-  }
-
-  if (!targetDraft) {
-    const active = activeDraft(drafts);
-    if (active && active.status === 'submitted' && active.opsOrderId) {
-      targetDraft = active;
-    } else {
-      const submitted = draftEntries
-        .filter(d => d.status === 'submitted' && d.opsOrderId)
-        .sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
-      targetDraft = submitted[0] || null;
-    }
-  }
-
-  if (!targetDraft || !targetDraft.opsOrderId) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Không tìm thấy đơn đã tạo nào để liên kết bill. Dùng /relink <mã_đơn> nếu cần.');
+  const resolved = resolveSubmittedDraftTarget(drafts, arg);
+  if (!resolved.ok || !resolved.draft?.opsOrderId) {
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, formatTargetResolutionError(resolved, '/relink'));
     return;
   }
+  const targetDraft = resolved.draft;
 
   const billCount = targetDraft.draftBillRefs?.length || 0;
   if (billCount === 0) {
