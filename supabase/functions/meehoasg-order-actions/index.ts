@@ -1,8 +1,23 @@
 import {createOperationStorage} from '../_shared/storage.js';
 import {createOperationService} from '../_shared/operations.js';
-const BUILD='2026.10.08-order-actions-atomic';
+import {createR2Media} from '../_shared/r2-media.js';
+const BUILD='2026.11.26-order-actions-r2-permanent';
 const SUPABASE_URL=Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const IS_LOOPBACK_QA=/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/.test(SUPABASE_URL||'');
+const R2_UPLOADS_ENABLED=true;
+const r2Media=R2_UPLOADS_ENABLED&&Deno.env.get('R2_ACCESS_KEY_ID')
+  ? createR2Media({
+      accountId:Deno.env.get('R2_ACCOUNT_ID'),
+      accessKeyId:Deno.env.get('R2_ACCESS_KEY_ID'),
+      secretAccessKey:Deno.env.get('R2_SECRET_ACCESS_KEY'),
+      bucket:Deno.env.get('R2_MEDIA_BUCKET'),
+      endpointUrl:Deno.env.get('R2_ENDPOINT_URL')||'',
+    })
+  : null;
+// Permanent R2 writes for settlement bills: never reverts to Supabase Storage on Production.
+function r2WriteEnabled(){return !(IS_LOOPBACK_QA&&!r2Media)}
+function r2BackupEnabled(){return false}
 function clean(v:unknown){return String(v??'').trim()}
 async function sha256(text:string){const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)));return [...bytes].map(n=>n.toString(16).padStart(2,'0')).join('')}
 function newId(prefix:string){return prefix+'-'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase()}
@@ -19,8 +34,44 @@ async function requireUser(raw:string){
   const u=await one('app_users',{username:'eq.'+s.username});if(!u?.active)throw Error('AUTH_REQUIRED');return u;
 }
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
-const uploadImages=operationStorage.uploadImages;
-const operations=createOperationService({db,one,uploadImages,discardImages:operationStorage.discard,sha256,newId});
+async function discardEvidence(urls:string[]){
+  await operationStorage.discard(urls);
+  if(r2Media)await Promise.allSettled((urls||[]).map(url=>r2Media.discard(url)));
+}
+async function uploadEvidenceImages(files:Array<{data?:string}>,bucket:string){
+  if(!r2WriteEnabled())return operationStorage.uploadImages(files,bucket);
+  if(!r2Media)throw Error('R2_NOT_CONFIGURED');
+  const kind=bucket==='order-images'?'sample':bucket==='settlement-bills'?'bill':null;
+  if(!kind)throw Error('IMAGE_INVALID');
+  const images=(files||[]).map(file=>{
+    const match=String(file?.data||'').match(/^data:(image\/(?:jpeg|png|webp));base64,([\s\S]+)$/);
+    if(!match)throw Error('File ảnh không hợp lệ.');
+    const bytes=Uint8Array.from(atob(match[2]),c=>c.charCodeAt(0));
+    if(!bytes.length||bytes.length>5*1024*1024)throw Error('Mỗi ảnh cần dung lượng 1 byte–5 MB.');
+    const extension=match[1]==='image/jpeg'?'jpg':match[1].split('/')[1];
+    const objectKey=r2Media.key(kind,crypto.randomUUID()+'.'+extension);
+    return {bytes,type:match[1],objectKey,ref:r2Media.reference(objectKey)};
+  });
+  const uploaded:string[]=[];
+  try{
+    // Bounded concurrency (3 at a time); fail closed to R2, never fallback to Supabase Storage.
+    for(let offset=0;offset<images.length;offset+=3){
+      const results=await Promise.allSettled(images.slice(offset,offset+3).map(async image=>{
+        uploaded.push(image.ref);
+        const uploadUrl=await r2Media.signedUrl('PUT',image.objectKey,{expiresSeconds:900,contentType:image.type});
+        const response=await fetch(uploadUrl,{method:'PUT',headers:{'Content-Type':image.type},body:image.bytes});
+        if(!response.ok)throw Error('R2_UPLOAD_FAILED');
+      }));
+      const failed=results.find(x=>x.status==='rejected') as PromiseRejectedResult|undefined;
+      if(failed)throw failed.reason;
+    }
+    return images.map(x=>x.ref);
+  }catch(error){
+    await Promise.allSettled(uploaded.map(ref=>r2Media.discard(ref)));
+    throw error;
+  }
+}
+const operations=createOperationService({db,one,uploadImages:uploadEvidenceImages,discardImages:discardEvidence,sha256,newId});
 Deno.serve(async req=>{
   const origin=req.headers.get('origin')||'',allowed=['https://ops.meehoasg.com','http://ops.meehoasg.com','https://meehoasg.com','http://meehoasg.com'];
   const headers={'Content-Type':'application/json; charset=utf-8','Access-Control-Allow-Origin':allowed.includes(origin)?origin:allowed[0],'Access-Control-Allow-Headers':'content-type','Access-Control-Allow-Methods':'POST, OPTIONS','Vary':'Origin'};
@@ -31,5 +82,19 @@ Deno.serve(async req=>{
     if(!['saveShipFee','submitSettlement'].includes(action))return new Response(JSON.stringify({ok:false,message:'Thao tác không được hỗ trợ.'}),{headers});
     const result=await operations.run(action,body,user);const output={...result};delete output.row;
     return new Response(JSON.stringify({...output,build:BUILD}),{headers});
-  }catch(e){const auth=String((e as Error).message)==='AUTH_REQUIRED';console.error('order-actions',e);return new Response(JSON.stringify({ok:false,code:auth?'AUTH_REQUIRED':'SERVER_ERROR',message:auth?'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.':'Chưa xác nhận kết quả. Giữ nguyên mã yêu cầu để thử lại.'}),{headers});}
+  }catch(e){
+    const msg=String((e as Error)?.message||'');
+    const auth=msg==='AUTH_REQUIRED';
+    const r2Cfg=msg==='R2_NOT_CONFIGURED';
+    const r2Err=msg==='R2_UPLOAD_FAILED';
+    const badImg=msg==='File ảnh không hợp lệ.'||msg==='Mỗi ảnh cần dung lượng 1 byte–5 MB.'||msg==='IMAGE_INVALID';
+    console.error('order-actions',e);
+    const code=auth?'AUTH_REQUIRED':r2Cfg?'R2_NOT_CONFIGURED':r2Err?'R2_UPLOAD_FAILED':badImg?'IMAGE_INVALID':'SERVER_ERROR';
+    const message=auth?'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.'
+      :r2Cfg?'Hệ thống lưu trữ ảnh R2 chưa được cấu hình. Vui lòng liên hệ quản trị viên.'
+      :r2Err?'Không tải được ảnh bill lên R2. Giữ nguyên mã yêu cầu để thử lại.'
+      :badImg?msg
+      :'Chưa xác nhận kết quả. Giữ nguyên mã yêu cầu để thử lại.';
+    return new Response(JSON.stringify({ok:false,code,message}),{headers});
+  }
 });
