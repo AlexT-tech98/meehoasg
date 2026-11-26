@@ -84,19 +84,24 @@ export function sanitizeAiFields(parsed) {
 }
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-4-hydrogen';
+export const DEFAULT_GEMINI_TIMEOUT_MS = 28000;
 
 /**
- * Extract order fields from conversational text using Gemini API with telemetry.
- * @returns {Promise<{ok: boolean, fields: object|null, model: string, latencyMs: number, status?: number, error?: string}>}
+ * Build the Gemini generateContent request body.
+ * Gemini 4 models (e.g. gemini-4-hydrogen) default to thinkingLevel="high", which can exceed
+ * webhook latency budgets on short JSON extraction prompts. Use thinkingLevel="low" for Gemini 3/4
+ * models (never send thinkingBudget or "minimal" on Gemini 4, which causes HTTP 400).
  */
-export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFAULT_GEMINI_MODEL, fetcher = fetch) {
+export function buildGeminiRequestBody(text, model = DEFAULT_GEMINI_MODEL) {
   const activeModel = String(model || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
-  if (!apiKey) return { ok: false, fields: null, model: activeModel, latencyMs: 0, error: 'NO_API_KEY' };
-  if (!text || text.trim().length < 5) return { ok: false, fields: null, model: activeModel, latencyMs: 0, error: 'TEXT_TOO_SHORT' };
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(activeModel)}:generateContent`;
-
-  const body = {
+  const generationConfig = {
+    temperature: 0.1,
+    responseMimeType: 'application/json'
+  };
+  if (/^gemini-[34]/i.test(activeModel)) {
+    generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+  }
+  return {
     contents: [
       {
         role: 'user',
@@ -105,14 +110,25 @@ export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFA
         ]
       }
     ],
-    generationConfig: {
-      temperature: 0.1,
-      responseMimeType: 'application/json'
-    }
+    generationConfig
   };
+}
+
+/**
+ * Extract order fields from conversational text using Gemini API with telemetry.
+ * @returns {Promise<{ok: boolean, fields: object|null, model: string, latencyMs: number, status?: number, error?: string}>}
+ */
+export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFAULT_GEMINI_MODEL, fetcher = fetch, timeoutMs = DEFAULT_GEMINI_TIMEOUT_MS) {
+  const activeModel = String(model || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
+  if (!apiKey) return { ok: false, fields: null, model: activeModel, latencyMs: 0, error: 'NO_API_KEY' };
+  if (!text || text.trim().length < 5) return { ok: false, fields: null, model: activeModel, latencyMs: 0, error: 'TEXT_TOO_SHORT' };
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(activeModel)}:generateContent`;
+  const body = buildGeminiRequestBody(text, activeModel);
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  const effectiveTimeout = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0 ? Number(timeoutMs) : DEFAULT_GEMINI_TIMEOUT_MS;
+  const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
   const startedAt = Date.now();
 
   try {
@@ -142,7 +158,10 @@ export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFA
     }
 
     const data = await res.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    const answerPart = parts.find(p => !p?.thought && typeof p?.text === 'string' && p.text.trim())
+      || parts.find(p => typeof p?.text === 'string' && p.text.trim());
+    const rawText = answerPart?.text;
     if (!rawText) return { ok: false, fields: null, model: activeModel, latencyMs, status: res.status, error: 'EMPTY_RESPONSE' };
 
     // Clean JSON markdown fences if any

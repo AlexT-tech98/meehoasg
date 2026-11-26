@@ -2404,3 +2404,130 @@ test('Contract 23: conversation benchmark — keep "Như" on ship add-on, clean 
   assert.equal(failed.length, 0, `Failed benchmark cases: ${JSON.stringify(failed, null, 2)}`);
   assert.equal(results.length, 7);
 });
+
+// ─── Contract 24: Repro 17:45 Hydrogen caption ("Khách Thảo My ... 650 ngàn ... 88 Võ Văn Tần quận 3") ───
+
+test('Contract 24: Gemini 4 Hydrogen sends thinkingLevel=low, skips thought parts, merges all 5 AI fields into pending draft with cmui & logs geminiExtract audit', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { buildGeminiRequestBody } = await import('../order-bot/cloudflare/gemini.mjs');
+
+  // Verify Gemini 4 uses thinkingLevel="low" (never thinkingBudget) while 2.5 Flash omits thinkingConfig
+  const hBody = buildGeminiRequestBody('test text', 'gemini-4-hydrogen');
+  assert.equal(hBody.generationConfig.thinkingConfig?.thinkingLevel, 'low');
+  assert.equal(hBody.generationConfig.thinkingConfig?.thinkingBudget, undefined);
+  const fBody = buildGeminiRequestBody('test text', 'gemini-2.5-flash');
+  assert.equal(fBody.generationConfig.thinkingConfig, undefined);
+
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const sentMessages = [];
+  const geminiRequests = [];
+
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('generativelanguage.googleapis.com')) {
+      const reqBody = JSON.parse(opts.body);
+      geminiRequests.push({ url: u, body: reqBody });
+      // Simulate Gemini 4 Hydrogen returning a thought part at parts[0] + JSON answer at parts[1]
+      return new Response(JSON.stringify({
+        candidates: [{
+          content: {
+            parts: [
+              { thought: true, text: 'Extracting Vietnamese flower order fields...' },
+              {
+                text: JSON.stringify({
+                  customer: 'Thảo My',
+                  phone: null,
+                  flower: 'Kệ chúc mừng tông vàng',
+                  date: '29/12',
+                  time: '16:00',
+                  shipping: 'Shop book ship',
+                  address: '88 Võ Văn Tần, Quận 3',
+                  flowerTotal: 650000,
+                  note: null,
+                  cardText: null,
+                  bannerText: null
+                })
+              }
+            ]
+          }
+        }]
+      }), { status: 200 });
+    }
+    if (u.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/tm.jpg', file_size: 1024 } }));
+    if (u.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 9]));
+    if (u.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  try {
+    const env = {
+      DB: db,
+      MEDIA_R2: r2,
+      BOT_TOKEN: 'fake_bot_token',
+      OPS_TOKEN: '',
+      TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+      ALLOWED_USER_IDS: '5252724920',
+      GEMINI_API_KEY: 'fake-hydrogen-key',
+      GEMINI_MODEL: 'gemini-4-hydrogen'
+    };
+
+    const caption = 'Khách Thảo My đặt một kệ chúc mừng tông vàng 650 ngàn, chiều 29/12 lúc 16h shop giao qua 88 Võ Văn Tần quận 3';
+    await handleTelegramWebhook(
+      makeWebhookRequest({
+        update_id: 24001,
+        message: {
+          message_id: 24001,
+          date: 1795600000,
+          chat: { id: 5252724920, type: 'private' },
+          from: { id: 5252724920 },
+          photo: [{ file_id: 'p_tm', file_unique_id: 'u_tm' }],
+          caption
+        }
+      }),
+      env
+    );
+
+    // 1. Hydrogen endpoint called with thinkingLevel="low"
+    assert.equal(geminiRequests.length, 1);
+    assert.ok(geminiRequests[0].url.includes('/models/gemini-4-hydrogen:generateContent'));
+    assert.equal(geminiRequests[0].body.generationConfig.thinkingConfig?.thinkingLevel, 'low');
+
+    // 2. All 5 AI fields + date/time + Sale cmui present in pending draft (no OPS order created)
+    const drafts = await loadDrafts(db, 5252724920);
+    const active = drafts[drafts.__active];
+    assert.equal(active.status, 'pending');
+    assert.equal(active.fields.customer, 'Thảo My');
+    assert.equal(active.fields.flower, 'Kệ chúc mừng tông vàng');
+    assert.equal(active.fields.flowerTotal, '650000');
+    assert.equal(active.fields.shipping, 'Shop book ship');
+    assert.equal(active.fields.address, '88 Võ Văn Tần, Quận 3');
+    assert.equal(active.fields.date, '2026-12-29');
+    assert.equal(active.fields.time, '16:00');
+    assert.equal(active.fields.sale, 'cmui');
+    assert.equal((active.sampleRefs || []).length, 1);
+
+    // 3. Telegram summary shows all 5 fields + C Mụi
+    const reply = sentMessages[sentMessages.length - 1]?.text || '';
+    for (const expected of ['Thảo My', 'Kệ chúc mừng tông vàng', '650.000', 'Shop book ship', '88 Võ Văn Tần, Quận 3', '2026-12-29', '16:00', 'C Mụi']) {
+      assert.ok(reply.includes(expected), `Summary missing "${expected}": ${reply}`);
+    }
+
+    // 4. bot_audit_logs records geminiExtract telemetry with model, ok=true, status=200, extractedKeys
+    const auditRow = await db.prepare("SELECT payload_json FROM bot_audit_logs WHERE action = 'geminiExtract' ORDER BY id DESC LIMIT 1").first();
+    assert.ok(auditRow?.payload_json);
+    const audit = JSON.parse(auditRow.payload_json);
+    assert.equal(audit.model, 'gemini-4-hydrogen');
+    assert.equal(audit.ok, true);
+    assert.equal(audit.status, 200);
+    assert.ok(audit.extractedKeys.includes('customer'));
+    assert.ok(audit.extractedKeys.includes('flowerTotal'));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
