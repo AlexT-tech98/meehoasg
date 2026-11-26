@@ -571,8 +571,8 @@ test('Unrelated chatter without keywords does not corrupt draft', async () => {
   const drafts = loadDrafts(userId);
   const draft = drafts[drafts.__active];
 
-  // Fields remain empty, chatter is rejected politely
-  assert.deepEqual(draft.fields, {});
+  // Non-sale order fields remain empty (default sale 'cmui' preserved), chatter is rejected politely
+  assert.deepEqual(draft.fields, { sale: 'cmui' });
   assert.ok(sentMessages.some(m => m.includes('chưa được cấu hình đọc hội thoại') || m.includes('Chưa đọc được thông tin')));
 });
 
