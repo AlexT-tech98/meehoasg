@@ -320,13 +320,122 @@ export default {
       }
     }
 
-    // 3. Telegram Webhook endpoint (POST /webhook or POST /)
+    // 3. AI Probe endpoint (POST /ai-probe) — Staging-only internal test harness.
+    //    Runs the full AI extraction pipeline (caption → Gemini → merge) on the Worker
+    //    using the production GEMINI_API_KEY Secret, without touching Telegram or creating
+    //    any OPS orders. Requires the internal OPS_TOKEN header as a lightweight guard
+    //    (same token already stored as a Secret — never sent over chat).
+    //    Caller provides: { caption: string, draftFields?: object, model?: string }
+    //    Returns: { ok, endpoint, model, status, latencyMs, retries, extractedKeys, fields,
+    //               mergeChanges, draftAfter, source, isolationNote }
+    if (request.method === 'POST' && path === '/ai-probe') {
+      // Guard: require OPS_TOKEN header (kept as Secret, never echoed back)
+      const probeToken = request.headers.get('x-ops-token') || '';
+      if (!env.OPS_TOKEN || probeToken !== env.OPS_TOKEN) {
+        return new Response(JSON.stringify({ ok: false, error: 'UNAUTHORIZED' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      if (!env.GEMINI_API_KEY) {
+        return new Response(JSON.stringify({ ok: false, error: 'NO_GEMINI_API_KEY' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      let probeBody;
+      try { probeBody = await request.json(); } catch {
+        return new Response(JSON.stringify({ ok: false, error: 'BAD_JSON' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      const probeCaption = String(probeBody?.caption || '').trim();
+      if (!probeCaption || probeCaption.length < 5) {
+        return new Response(JSON.stringify({ ok: false, error: 'CAPTION_REQUIRED' }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      const probeModel = String(probeBody?.model || env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim();
+
+      // Build a minimal synthetic draft to test merge logic (no D1 write, no OPS call)
+      const { cmdNew: mkNew, applyFields: af } = await import('../core.mjs').catch(() => ({ cmdNew: null, applyFields: null }));
+      let syntheticDraft = { id: 'probe-synthetic', status: 'pending', fields: { sale: 'cmui', ...(probeBody?.draftFields || {}) }, sampleRefs: [], draftBillRefs: [] };
+
+      const probeStart = Date.now();
+      let aiRes = null;
+      try {
+        aiRes = await extractFieldsWithGeminiDetailed(env.GEMINI_API_KEY, probeCaption, probeModel);
+      } catch (err) {
+        return new Response(JSON.stringify({
+          ok: false, error: String(err?.message || 'GEMINI_THREW'), model: probeModel,
+          caption: probeCaption.slice(0, 200), isolationNote: 'NO_OPS_WRITE NO_DRAFT_SAVE NO_TELEGRAM'
+        }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      }
+      const aiExtracted = aiRes.ok ? sanitizeAiFields(aiRes.fields) : null;
+
+      // Simulate the same merge logic mergeAiFallback uses, without any DB/OPS/Telegram side effects
+      let mergeChanges = [];
+      let draftAfter = syntheticDraft;
+      if (aiExtracted && Object.keys(aiExtracted).length) {
+        const { applyFields: applyF } = await import('../core.mjs').catch(() => ({ applyFields: null }));
+        if (applyF) {
+          const lines = Object.entries(aiExtracted)
+            .filter(([k, v]) => v !== null && v !== undefined)
+            .map(([k, v]) => `${k}: ${String(v).trim()}`);
+          const merged = applyF(syntheticDraft, lines.join('\n'), {});
+          draftAfter = merged.draft || syntheticDraft;
+          mergeChanges = merged.changes || [];
+        }
+      }
+
+      // Log to audit table (non-blocking, tagged as probe)
+      if (env.DB) {
+        try {
+          await logAudit(env.DB, null, 'geminiExtract', 'probe-synthetic', null, {
+            model: aiRes.model,
+            endpoint: aiRes.endpoint || null,
+            ok: aiRes.ok,
+            status: aiRes.status ?? null,
+            headersMs: aiRes.headersMs ?? null,
+            latencyMs: aiRes.latencyMs,
+            thoughtParts: aiRes.thoughtParts ?? 0,
+            textParts: aiRes.textParts ?? 0,
+            finishReason: aiRes.finishReason || null,
+            error: aiRes.ok ? null : String(aiRes.error || 'UNKNOWN').slice(0, 180),
+            extractedKeys: aiExtracted ? Object.keys(aiExtracted) : [],
+            probeRun: true
+          });
+        } catch { /* non-critical */ }
+      }
+
+      return new Response(JSON.stringify({
+        ok: aiRes.ok,
+        source: 'worker-real-secret',
+        model: aiRes.model,
+        endpoint: aiRes.endpoint || null,
+        status: aiRes.status ?? null,
+        headersMs: aiRes.headersMs ?? null,
+        latencyMs: aiRes.latencyMs,
+        retries: aiRes.retries ?? 0,
+        thoughtParts: aiRes.thoughtParts ?? 0,
+        textParts: aiRes.textParts ?? 0,
+        finishReason: aiRes.finishReason || null,
+        error: aiRes.ok ? null : String(aiRes.error || 'UNKNOWN'),
+        extractedKeys: aiExtracted ? Object.keys(aiExtracted) : [],
+        extractedFields: aiExtracted || null,
+        mergeChanges,
+        draftFieldsAfter: draftAfter?.fields || null,
+        caption: probeCaption.slice(0, 300),
+        isolationNote: 'NO_OPS_WRITE NO_DRAFT_SAVE NO_TELEGRAM NO_OPS_ORDER'
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // 4. Telegram Webhook endpoint (POST /webhook or POST /)
     if (request.method === 'POST' && (path === '/webhook' || path === '/' || path === '')) {
       return handleTelegramWebhook(request, env);
     }
 
-    return new Response('Not Found', { status: 404 });
-  }
+    return new Response('Not Found', { status: 404 });  }
 };
 
 /**

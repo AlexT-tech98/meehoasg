@@ -2609,3 +2609,202 @@ test('Contract 24: Gemini 4 Hydrogen omits deprecated temperature, uses response
     globalThis.fetch = origFetch;
   }
 });
+
+test('Contract 25: Gemini retry + backoff on transient errors (503, 429), budget guard, Retry-After, /ai-probe isolation', async () => {
+  const { extractFieldsWithGeminiDetailed, retryDelayMs, RETRYABLE_STATUSES, TOTAL_AI_BUDGET_MS } = await import('../order-bot/cloudflare/gemini.mjs');
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+
+  const caption = 'Khách Thảo My đặt một kệ chúc mừng tông vàng 650 ngàn, chiều 29/12 lúc 16h shop giao qua 88 Võ Văn Tần quận 3';
+  const fullJson = JSON.stringify({ customer: 'Thảo My', flower: 'kệ chúc mừng tông vàng', flowerTotal: 650000, shipping: 'Shop book ship', address: '88 Võ Văn Tần, Quận 3', date: '29/12', time: '16:00', phone: null, note: null, cardText: null, bannerText: null });
+
+  // 1. retryDelayMs: exponential backoff
+  assert.equal(retryDelayMs(0, 0), 1000);
+  assert.equal(retryDelayMs(1, 0), 2000);
+  assert.equal(retryDelayMs(2, 0), 4000);
+  assert.equal(retryDelayMs(3, 0), 8000); // capped
+  assert.equal(retryDelayMs(10, 0), 8000); // capped
+  // Retry-After overrides backoff when larger
+  assert.equal(retryDelayMs(0, 5000), 5000);
+  // Retry-After smaller than backoff → use backoff
+  assert.equal(retryDelayMs(2, 500), 4000);
+
+  // 2. RETRYABLE_STATUSES contains expected codes
+  assert.ok(RETRYABLE_STATUSES.has(503));
+  assert.ok(RETRYABLE_STATUSES.has(429));
+  assert.ok(RETRYABLE_STATUSES.has(500));
+  assert.ok(RETRYABLE_STATUSES.has(502));
+  assert.ok(RETRYABLE_STATUSES.has(504));
+  assert.ok(!RETRYABLE_STATUSES.has(400));
+  assert.ok(!RETRYABLE_STATUSES.has(401));
+  assert.ok(!RETRYABLE_STATUSES.has(403));
+
+  // 3. TOTAL_AI_BUDGET_MS is 55000
+  assert.equal(TOTAL_AI_BUDGET_MS, 55000);
+
+  // 4. AQ. key: 503 on aiplatform → retry → success (confirms retry on same endpoint)
+  const aqRetryUrls = [];
+  let aqRetryCount = 0;
+  const aqRetryFetcher = async url => {
+    const u = String(url);
+    aqRetryUrls.push(u);
+    if (u.includes('aiplatform.googleapis.com')) {
+      aqRetryCount++;
+      if (aqRetryCount < 2) {
+        // First call returns 503; second returns success
+        return new Response(
+          JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'High demand' } }),
+          { status: 503, headers: { 'Retry-After': '0' } }
+        );
+      }
+      return new Response(
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: fullJson }] }, finishReason: 'STOP' }] })}\n\n`,
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+      );
+    }
+    return new Response('Not found', { status: 404 });
+  };
+  const aqRetryRes = await extractFieldsWithGeminiDetailed('AQ.testKey', caption, 'gemini-4-hydrogen', aqRetryFetcher);
+  assert.equal(aqRetryRes.ok, true, 'AQ. key: should succeed after 1 retry on 503');
+  assert.equal(aqRetryRes.retries, 1, 'Should record 1 retry');
+  assert.equal(aqRetryRes.endpoint, 'aiplatform');
+  assert.equal(aqRetryRes.fields?.customer, 'Thảo My');
+  assert.equal(aqRetryRes.fields?.flowerTotal, 650000);
+
+  // 5. Standard key: 503 twice → still retries → success
+  let stdRetryCount = 0;
+  const stdRetryFetcher = async url => {
+    const u = String(url);
+    if (u.includes('generativelanguage.googleapis.com')) {
+      stdRetryCount++;
+      if (stdRetryCount < 3) {
+        return new Response(
+          JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'High demand' } }),
+          { status: 503 }
+        );
+      }
+      return new Response(
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: fullJson }] }, finishReason: 'STOP' }] })}\n\n`,
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+      );
+    }
+    // aiplatform only reached if retries exhausted
+    return new Response(
+      `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: fullJson }] }, finishReason: 'STOP' }] })}\n\n`,
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+    );
+  };
+  const stdRetryRes = await extractFieldsWithGeminiDetailed('standard-key', caption, 'gemini-4-hydrogen', stdRetryFetcher);
+  assert.equal(stdRetryRes.ok, true, 'Standard key: should succeed after 2 retries on 503');
+  assert.equal(stdRetryRes.fields?.customer, 'Thảo My');
+
+  // 6. Standard key: 429 → retry → 429 → retry → success (respects max 2 retries)
+  let r429Count = 0;
+  const fetcher429 = async url => {
+    r429Count++;
+    if (r429Count <= 2) {
+      return new Response(
+        JSON.stringify({ error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded' } }),
+        { status: 429, headers: { 'Retry-After': '0' } }
+      );
+    }
+    return new Response(
+      `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: fullJson }] }, finishReason: 'STOP' }] })}\n\n`,
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+    );
+  };
+  const res429 = await extractFieldsWithGeminiDetailed('standard-key', caption, 'gemini-4-hydrogen', fetcher429);
+  assert.equal(res429.ok, true, '429 retry: should succeed after retries');
+
+  // 7. 429 always (3 times exhausted) → ok:false, draft preserved
+  let r429Always = 0;
+  const fetcher429Always = async _url => {
+    r429Always++;
+    return new Response(
+      JSON.stringify({ error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded' } }),
+      { status: 429, headers: { 'Retry-After': '0' } }
+    );
+  };
+  const res429Always = await extractFieldsWithGeminiDetailed('standard-key', caption, 'gemini-4-hydrogen', fetcher429Always);
+  assert.equal(res429Always.ok, false, '429 exhausted: must return ok:false');
+  assert.equal(res429Always.fields, null, '429 exhausted: fields must be null (draft preserved)');
+  assert.equal(res429Always.status, 429);
+
+  // 8. Timeout (AbortError) → ok:false, draft preserved
+  const timeoutFetcher = async (_url, _opts) => {
+    await new Promise(r => setTimeout(r, 60));
+    throw new Error('The operation was aborted. AbortError');
+  };
+  const resTimeout = await extractFieldsWithGeminiDetailed('standard-key', caption, 'gemini-4-hydrogen', timeoutFetcher, 50);
+  assert.equal(resTimeout.ok, false, 'timeout: must return ok:false');
+  assert.equal(resTimeout.fields, null);
+
+  // 9. Malformed JSON response → ok:false, draft preserved
+  const malformedFetcher = async _url => {
+    return new Response('not-json-at-all{{{', { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+  };
+  const resMalformed = await extractFieldsWithGeminiDetailed('AQ.testKey', 'Caption bình thường', 'gemini-4-hydrogen', malformedFetcher);
+  assert.equal(resMalformed.ok, false, 'malformed: must return ok:false (empty SSE → EMPTY_RESPONSE)');
+  assert.equal(resMalformed.fields, null);
+
+  // 10. /ai-probe route: 403 when OPS_TOKEN missing or wrong
+  const probeNoToken = await (async () => {
+    const req = new Request('https://bot.example.com/ai-probe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ caption })
+    });
+    // Import default export (the Worker object)
+    const workerMod = await import('../order-bot/cloudflare/worker.mjs');
+    const worker = workerMod.default;
+    return worker.fetch(req, { GEMINI_API_KEY: 'AQ.testKey', OPS_TOKEN: 'correct-token', GEMINI_MODEL: 'gemini-4-hydrogen' });
+  })();
+  assert.equal(probeNoToken.status, 403, '/ai-probe: missing token → 403');
+
+  // 11. /ai-probe route: 400 when caption missing
+  const probeNoCaption = await (async () => {
+    const req = new Request('https://bot.example.com/ai-probe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-ops-token': 'correct-token' },
+      body: JSON.stringify({ caption: '' })
+    });
+    const workerMod = await import('../order-bot/cloudflare/worker.mjs');
+    return workerMod.default.fetch(req, { GEMINI_API_KEY: 'AQ.testKey', OPS_TOKEN: 'correct-token', GEMINI_MODEL: 'gemini-4-hydrogen' });
+  })();
+  assert.equal(probeNoCaption.status, 400, '/ai-probe: empty caption → 400');
+
+  // 12. /ai-probe route: returns ok result with correct isolationNote (no OPS write)
+  const origFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async url => {
+      if (String(url).includes('aiplatform.googleapis.com')) {
+        return new Response(
+          `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: fullJson }] }, finishReason: 'STOP' }] })}\n\n`,
+          { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+        );
+      }
+      return new Response('Not Found', { status: 404 });
+    };
+    const probeGoodReq = new Request('https://bot.example.com/ai-probe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-ops-token': 'correct-token' },
+      body: JSON.stringify({ caption })
+    });
+    const workerMod = await import('../order-bot/cloudflare/worker.mjs');
+    const probeGoodRes = await workerMod.default.fetch(probeGoodReq, {
+      GEMINI_API_KEY: 'AQ.testKey',
+      OPS_TOKEN: 'correct-token',
+      GEMINI_MODEL: 'gemini-4-hydrogen'
+    });
+    const probeJson = await probeGoodRes.json();
+    assert.equal(probeGoodRes.status, 200, '/ai-probe success → HTTP 200');
+    assert.equal(probeJson.ok, true, '/ai-probe: ok must be true on success');
+    assert.equal(probeJson.source, 'worker-real-secret');
+    assert.ok(probeJson.isolationNote.includes('NO_OPS_WRITE'), '/ai-probe: isolationNote must state no OPS write');
+    assert.ok(probeJson.extractedKeys.includes('customer'), '/ai-probe: must extract customer');
+    assert.ok(probeJson.extractedKeys.includes('flowerTotal'), '/ai-probe: must extract flowerTotal');
+    assert.equal(probeJson.extractedFields?.customer, 'Thảo My');
+    assert.equal(probeJson.extractedFields?.flowerTotal, 650000);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});

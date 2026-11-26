@@ -86,6 +86,28 @@ export function sanitizeAiFields(parsed) {
 export const DEFAULT_GEMINI_MODEL = 'gemini-4-hydrogen';
 export const DEFAULT_GEMINI_TIMEOUT_MS = 40000;
 
+/**
+ * Total time budget for the entire AI extraction (including retries).
+ * Cloudflare Workers limit: CPU 50ms + subrequest wall time, but we control fetch timeouts.
+ * Keep well under Telegram's 60s response expectation.
+ */
+export const TOTAL_AI_BUDGET_MS = 55000;
+
+/** HTTP status codes that are transient and safe to retry. */
+export const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+/**
+ * Compute retry delay (ms) respecting Retry-After header when present.
+ * Uses exponential backoff capped at maxDelay.
+ * @param {number} attempt - 0-based attempt index (0 = first retry)
+ * @param {number} retryAfterMs - value of Retry-After header in ms (0 = none)
+ * @param {number} [maxDelay=8000]
+ */
+export function retryDelayMs(attempt, retryAfterMs = 0, maxDelay = 8000) {
+  const backoff = Math.min(1000 * Math.pow(2, attempt), maxDelay);
+  return Math.max(backoff, retryAfterMs);
+}
+
 export const ORDER_EXTRACTION_RESPONSE_SCHEMA = {
   type: 'OBJECT',
   properties: {
@@ -185,7 +207,9 @@ async function executeGeminiCall(url, endpointName, apiKey, body, fetcher, activ
       clearTimeout(timeoutId);
       const latencyMs = Date.now() - startedAt;
       let errMsg = `HTTP_${res.status}`;
+      let retryAfterRaw = null;
       try {
+        retryAfterRaw = res.headers?.get?.('retry-after') || null;
         const errText = await res.text();
         const errJson = JSON.parse(errText);
         if (errJson?.error?.status || errJson?.error?.message) {
@@ -204,7 +228,8 @@ async function executeGeminiCall(url, endpointName, apiKey, body, fetcher, activ
         thoughtParts: 0,
         textParts: 0,
         finishReason: null,
-        error: errMsg
+        error: errMsg,
+        _retryAfter: retryAfterRaw
       };
     }
 
@@ -331,7 +356,13 @@ async function executeGeminiCall(url, endpointName, apiKey, body, fetcher, activ
  * - All other keys use `generativelanguage.googleapis.com` as primary.
  *   Falls back to `aiplatform.googleapis.com` on 400/401/403/503 (rate-limit / unavailable).
  *
- * @returns {Promise<{ok: boolean, fields: object|null, model: string, endpoint?: string, latencyMs: number, headersMs?: number|null, status?: number|null, thoughtParts?: number, textParts?: number, finishReason?: string|null, error?: string}>}
+ * Retry policy (transient errors 429/500/502/503/504):
+ * - Up to 2 retries on the SAME endpoint (same key routing), with exponential backoff.
+ * - Respects `Retry-After` header when present and within budget.
+ * - Total elapsed must not exceed TOTAL_AI_BUDGET_MS (55 s) including all retries.
+ * - Non-retryable errors (400/401/403, timeout, bad JSON) return immediately.
+ *
+ * @returns {Promise<{ok: boolean, fields: object|null, model: string, endpoint?: string, latencyMs: number, headersMs?: number|null, status?: number|null, thoughtParts?: number, textParts?: number, finishReason?: string|null, error?: string, retries?: number}>}
  */
 export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFAULT_GEMINI_MODEL, fetcher = fetch, timeoutMs = DEFAULT_GEMINI_TIMEOUT_MS) {
   const activeModel = String(model || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
@@ -345,22 +376,69 @@ export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFA
   const aiplatformUrl = `https://aiplatform.googleapis.com/v1/publishers/google/models/${encodeURIComponent(activeModel)}:streamGenerateContent?alt=sse`;
   const genaiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(activeModel)}:streamGenerateContent?alt=sse`;
 
+  /**
+   * Run one attempt on a URL, then retry on transient failures (up to maxRetries).
+   * Returns the last result when retries exhausted or budget exceeded.
+   */
+  async function tryWithRetry(primaryUrl, primaryName, fallbackUrl, fallbackName, fallbackOnStatuses) {
+    const budgetStart = Date.now();
+    let retries = 0;
+    const MAX_RETRIES = 2;
+
+    while (true) {
+      const remaining = TOTAL_AI_BUDGET_MS - (Date.now() - budgetStart);
+      if (remaining <= 2000) {
+        // Not enough budget left for another attempt
+        return {
+          ok: false, fields: null, model: activeModel,
+          endpoint: primaryName, status: null, latencyMs: Date.now() - budgetStart,
+          headersMs: null, thoughtParts: 0, textParts: 0, finishReason: null,
+          error: 'BUDGET_EXCEEDED', retries
+        };
+      }
+      const callTimeout = Math.min(effectiveTimeout, remaining - 500);
+      const res = await executeGeminiCall(primaryUrl, primaryName, apiKey, body, fetcher, activeModel, callTimeout);
+
+      // Success
+      if (res.ok) return { ...res, retries };
+
+      // Check if fallback is applicable (different endpoint)
+      if (fallbackUrl && fallbackOnStatuses.includes(Number(res.status))) {
+        const fbRemaining = TOTAL_AI_BUDGET_MS - (Date.now() - budgetStart);
+        if (fbRemaining > 2000) {
+          const fbRes = await executeGeminiCall(fallbackUrl, fallbackName, apiKey, body, fetcher, activeModel, Math.min(effectiveTimeout, fbRemaining - 500));
+          return { ...fbRes, retries };
+        }
+      }
+
+      // Retryable transient error on primary
+      const isTransient = RETRYABLE_STATUSES.has(Number(res.status)) || res.error === 'AbortError';
+      if (!isTransient || retries >= MAX_RETRIES) return { ...res, retries };
+
+      // Parse Retry-After (supports seconds integer and HTTP-date)
+      let retryAfterMs = 0;
+      if (res._retryAfter) {
+        const ra = parseInt(res._retryAfter, 10);
+        retryAfterMs = Number.isFinite(ra) && ra > 0 ? ra * 1000 : 0;
+      }
+
+      const delay = retryDelayMs(retries, retryAfterMs);
+      const budgetLeft = TOTAL_AI_BUDGET_MS - (Date.now() - budgetStart);
+      if (delay >= budgetLeft - 2000) return { ...res, retries };
+
+      await new Promise(r => setTimeout(r, delay));
+      retries += 1;
+    }
+  }
+
   if (isVertexExpressKey) {
     // Vertex Express key → aiplatform.googleapis.com is primary
-    const primaryRes = await executeGeminiCall(aiplatformUrl, 'aiplatform', apiKey, body, fetcher, activeModel, effectiveTimeout);
-    if (!primaryRes.ok && [401, 403].includes(Number(primaryRes.status))) {
-      // Unexpected: try generativelanguage as last resort
-      return executeGeminiCall(genaiUrl, 'generativelanguage', apiKey, body, fetcher, activeModel, effectiveTimeout);
-    }
-    return primaryRes;
+    // Fall back to generativelanguage only on hard auth failure (401/403)
+    return tryWithRetry(aiplatformUrl, 'aiplatform', genaiUrl, 'generativelanguage', [401, 403]);
   } else {
-    // Standard API key → generativelanguage.googleapis.com is primary
-    // Fallback to aiplatform on 400/401/403/503 (auth error or server overload)
-    const primaryRes = await executeGeminiCall(genaiUrl, 'generativelanguage', apiKey, body, fetcher, activeModel, effectiveTimeout);
-    if (!primaryRes.ok && [400, 401, 403, 503].includes(Number(primaryRes.status))) {
-      return executeGeminiCall(aiplatformUrl, 'aiplatform', apiKey, body, fetcher, activeModel, effectiveTimeout);
-    }
-    return primaryRes;
+    // Standard API key → generativelanguage primary
+    // Fall back to aiplatform on auth error or server overload (400/401/403/503)
+    return tryWithRetry(genaiUrl, 'generativelanguage', aiplatformUrl, 'aiplatform', [400, 401, 403, 503]);
   }
 }
 
