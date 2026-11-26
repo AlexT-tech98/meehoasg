@@ -583,7 +583,7 @@ test('Confirmed draft rejects further edits until operator un-confirms or create
   handleUpdate({ userId, text: '/new', photoFileId: null, photoCaption: null, isBillHint: false, requestId: 's13-0' });
   handleUpdate({
     userId,
-    text: 'khách: Anh Tuấn\nhoa: Bó hoa ly\nngày: 2026-12-15\ngiờ: 10:00\nship: Ghé lấy',
+    text: 'khách: Anh Tuấn\nhoa: Bó hoa ly 500k\nngày: 2026-12-15\ngiờ: 10:00\nship: Ghé lấy',
     photoFileId: null,
     photoCaption: null,
     isBillHint: false,

@@ -10,9 +10,77 @@
  *   - All secrets and technical error messages are sanitized
  */
 
-import { mapPaymentToOps, formatPaymentClaimNote, stripPaymentClaimTags } from '../core.mjs';
+import {
+  mapPaymentToOps,
+  formatPaymentClaimNote,
+  stripPaymentClaimTags,
+  DEFAULT_BOT_SALE,
+  DEFAULT_OPS_ORDER_RULES
+} from '../core.mjs';
 
 export { mapPaymentToOps, formatPaymentClaimNote, stripPaymentClaimTags };
+
+const OPS_RULES_CACHE = new Map();
+const OPS_RULES_TTL_MS = 60 * 1000;
+
+export function clearOpsOrderRulesCache() {
+  OPS_RULES_CACHE.clear();
+}
+
+export function getCachedOpsOrderRules(opsUrl, opsToken) {
+  if (!opsUrl || !opsToken) return DEFAULT_OPS_ORDER_RULES;
+  const cacheKey = `${opsUrl}::${opsToken.slice(0, 8)}`;
+  const cached = OPS_RULES_CACHE.get(cacheKey);
+  if (cached && (Date.now() - cached.fetchedAt) < OPS_RULES_TTL_MS) {
+    return cached.rules;
+  }
+  return DEFAULT_OPS_ORDER_RULES;
+}
+
+/**
+ * Fetch order validation rules from OPS shared source (`getOrderRules`), with short cache
+ * and graceful fallback to DEFAULT_OPS_ORDER_RULES when OPS hasn't exposed the route yet.
+ */
+export async function fetchOpsOrderRules(opsUrl, opsToken, fetcher = fetch, { forceRefresh = false } = {}) {
+  if (!opsUrl || !opsToken) {
+    return { ok: true, source: 'default', rules: DEFAULT_OPS_ORDER_RULES };
+  }
+  const cacheKey = `${opsUrl}::${opsToken.slice(0, 8)}`;
+  const cached = OPS_RULES_CACHE.get(cacheKey);
+  if (!forceRefresh && cached && (Date.now() - cached.fetchedAt) < OPS_RULES_TTL_MS) {
+    return { ok: true, source: cached.source, rules: cached.rules, cached: true };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetcher(opsUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${opsToken}`
+      },
+      body: JSON.stringify({
+        name: 'getOrderRules',
+        payload: { token: opsToken }
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      return { ok: true, source: 'fallback', rules: cached?.rules || DEFAULT_OPS_ORDER_RULES };
+    }
+    const json = await res.json();
+    if (json?.ok && json?.rules && typeof json.rules === 'object') {
+      const merged = { ...DEFAULT_OPS_ORDER_RULES, ...json.rules };
+      OPS_RULES_CACHE.set(cacheKey, { source: 'ops', rules: merged, fetchedAt: Date.now() });
+      return { ok: true, source: 'ops', rules: merged };
+    }
+  } catch {
+    clearTimeout(timeoutId);
+  }
+  return { ok: true, source: 'fallback', rules: cached?.rules || DEFAULT_OPS_ORDER_RULES };
+}
 
 /**
  * Call OPS createOrder endpoint.
@@ -63,7 +131,7 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
         // Owner-verified payment state ('Chưa thanh toán', 'Đã cọc <X> đ', 'Đã thanh toán đủ tiền hoa (Full)')
         // Strict invariant: fullPaidRequested remains false (Full Paid requires bill + ship confirmation in OPS)
         payment: mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal),
-        sale: String(f.sale || '').trim(),
+        sale: String(f.sale || DEFAULT_BOT_SALE).trim(),
         card: Boolean(f.card),
         cardQty: f.card ? Math.max(1, Number(f.cardQty) || 1) : 0,
         card_qty: f.card ? Math.max(1, Number(f.cardQty) || 1) : 0,
@@ -221,7 +289,7 @@ export async function callUpdateOrderPayment(opsUrl, opsToken, orderId, currentO
         address: String(currentOrder.address || '').trim(),
         flowerTotal: Number(currentOrder.flowerTotal) || 0,
         payment: paymentStr,
-        sale: String(currentOrder.saleUsername || currentOrder.sale || '').trim(),
+        sale: String(currentOrder.saleUsername || currentOrder.sale || DEFAULT_BOT_SALE).trim(),
         card: Boolean(currentOrder.card),
         cardQty: currentOrder.card ? Math.max(1, Number(currentOrder.cardQty) || 1) : 0,
         cardText: String(currentOrder.cardText || '').trim(),

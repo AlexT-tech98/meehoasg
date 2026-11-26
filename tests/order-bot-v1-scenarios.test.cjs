@@ -204,10 +204,11 @@ test('Kịch bản 2: Đơn Đã cọc có số tiền cọc, không kèm bill: 
     }
     if (url.includes('/api-core')) {
       const body = JSON.parse(opts.body);
+      if (body.name === 'getOrderRules') return new Response('Not found', { status: 404 });
       if (body.name === 'createOrder') {
         capturedOpsPayload = body;
         const o = body.payload.order;
-        const paid = o.payment === 'Đã cọc 200.000 đ' ? 200000 : 0;
+        const paid = o.payment === 'Đã cọc 300.000 đ' ? 300000 : 0;
         const total = Number(o.flowerTotal) || 600000;
         return new Response(JSON.stringify({
           ok: true,
@@ -232,18 +233,18 @@ test('Kịch bản 2: Đơn Đã cọc có số tiền cọc, không kèm bill: 
     }
   }), env);
 
-  // Khách báo cọc 200k cho bó 600k
+  // Khách báo cọc 300k cho bó 600k (đạt đúng ngưỡng 50% tiền hoa)
   await handleTelegramWebhook(makeWebhookRequest({
     update_id: 202,
     message: {
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: `khách: Chị Hà\nhoa: Bó hoa hồng 600k\nngày: ${FUTURE_DMY}\ngiờ: 15h\nship: Ghé lấy\nKhách đã cọc 200k`
+      text: `khách: Chị Hà\nhoa: Bó hoa hồng 600k\nngày: ${FUTURE_DMY}\ngiờ: 15h\nship: Ghé lấy\nKhách đã cọc 300k`
     }
   }), env);
 
-  // Check draft summary shows remaining balance (400.000 đ)
+  // Check draft summary shows remaining balance (300.000 đ)
   await handleTelegramWebhook(makeWebhookRequest({
     update_id: 203,
     message: {
@@ -255,8 +256,8 @@ test('Kịch bản 2: Đơn Đã cọc có số tiền cọc, không kèm bill: 
   }), env);
 
   const showMsg = sentMessages[sentMessages.length - 1];
-  assert.ok(showMsg.text.includes('Đã cọc 200.000 đ'));
-  assert.ok(showMsg.text.includes('còn lại: 400.000 đ'));
+  assert.ok(showMsg.text.includes('Đã cọc 300.000 đ'));
+  assert.ok(showMsg.text.includes('còn lại: 300.000 đ'));
 
   // /confirm succeeds without bill
   await handleTelegramWebhook(makeWebhookRequest({
@@ -271,7 +272,7 @@ test('Kịch bản 2: Đơn Đã cọc có số tiền cọc, không kèm bill: 
 
   assert.ok(capturedOpsPayload);
   // Owner-verified deposit is recorded directly on OPS order.payment (no [Khách báo:] tag)
-  assert.equal(capturedOpsPayload.payload.order.payment, 'Đã cọc 200.000 đ');
+  assert.equal(capturedOpsPayload.payload.order.payment, 'Đã cọc 300.000 đ');
   assert.equal(capturedOpsPayload.payload.order.fullPaidRequested, false);
   assert.ok(!String(capturedOpsPayload.payload.order.note || '').includes('[Khách báo:'));
 });
@@ -453,6 +454,8 @@ test('Kịch bản 5: Đơn Fullpaid THIẾU bill: chặn /confirm, phản hồi
       return new Response(JSON.stringify({ ok: true }));
     }
     if (url.includes('/api-core')) {
+      const payload = JSON.parse(opts.body);
+      if (payload.name === 'getOrderRules') return new Response('Not found', { status: 404 });
       opsCalled = true;
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
@@ -859,6 +862,8 @@ test('Kịch bản 14: Lỗi tải ảnh từ Telegram: báo lỗi cụ thể, r
       return new Response(Buffer.from('fake-sample-bytes'), { headers: { 'content-type': 'image/jpeg' } });
     }
     if (url.includes('/api-core')) {
+      const payload = JSON.parse(opts.body);
+      if (payload.name === 'getOrderRules') return new Response('Not found', { status: 404 });
       opsCalled = true;
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
@@ -988,8 +993,9 @@ test('Kịch bản 16: Lỗi mạng hoặc timeout khi gọi OPS: giữ nguyên 
   globalThis.fetch = async (url, opts) => {
     if (url.includes('/sendMessage')) return new Response(JSON.stringify({ ok: true }));
     if (url.includes('/api-core')) {
-      attempt++;
       const payload = JSON.parse(opts.body);
+      if (payload.name === 'getOrderRules') return new Response('Not found', { status: 404 });
+      attempt++;
       receivedRequestIds.push(payload.payload.requestId);
 
       if (attempt === 1) {
@@ -1053,6 +1059,8 @@ test('Kịch bản 17: Retry /confirm khi đơn đã submitted: không gọi API
       return new Response(JSON.stringify({ ok: true }));
     }
     if (url.includes('/api-core')) {
+      const payload = JSON.parse(opts.body);
+      if (payload.name === 'getOrderRules') return new Response('Not found', { status: 404 });
       opsCalls++;
       return new Response(JSON.stringify({ ok: true, orderId: 'M-261122-017' }), { status: 200 });
     }
@@ -1111,7 +1119,7 @@ test('Kịch bản 18: Lệnh /relink thử lại liên kết bill thành công 
     JSON.stringify({ id: 'M-261122-018', customer: 'Anh Hậu', unverified_bill_urls: [] })
   );
 
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, opts) => {
     if (url.includes('/getFile')) {
       return new Response(JSON.stringify({ ok: true, result: { file_path: 'bill.jpg' } }));
     }
@@ -1119,6 +1127,8 @@ test('Kịch bản 18: Lệnh /relink thử lại liên kết bill thành công 
       return new Response(Buffer.from('fake-bill-bytes'), { headers: { 'content-type': 'image/jpeg' } });
     }
     if (url.includes('/api-core')) {
+      const payload = JSON.parse(opts.body);
+      if (payload.name === 'getOrderRules') return new Response('Not found', { status: 404 });
       opsCalls++;
       return new Response(JSON.stringify({ ok: true, orderId: 'M-261122-018' }), { status: 200 });
     }

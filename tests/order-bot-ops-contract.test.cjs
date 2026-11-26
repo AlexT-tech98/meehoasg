@@ -88,7 +88,7 @@ test('Contract 1: Cloudflare Bot payload is accepted by canonical OPS normalizat
 
   const states = [
     { paymentState: 'unpaid', expectedPayment: 'Chưa thanh toán' },
-    { paymentState: 'deposit', depositAmount: 250000, expectedPayment: 'Đã cọc 250.000 đ' },
+    { paymentState: 'deposit', depositAmount: 325000, expectedPayment: 'Đã cọc 325.000 đ' },
     { paymentState: 'bankfull', reportedPaidAmount: 650000, expectedPayment: 'Đã thanh toán đủ tiền hoa (Full)' },
     { paymentState: 'fullpaid', expectedPayment: 'Chưa thanh toán' }
   ];
@@ -520,6 +520,8 @@ test('Contract 6: Missing or unreadable R2 object during /confirm aborts BEFORE 
       return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]));
     }
     if (url.includes('/api-core')) {
+      const payload = JSON.parse(opts.body);
+      if (payload.name === 'getOrderRules') return new Response('Not found', { status: 404 });
       opsCalls++;
       return new Response(JSON.stringify({ ok: true, orderId: 'MEE-SHOULD-NOT-CREATE' }));
     }
@@ -753,7 +755,7 @@ test('Contract 8: HTML characters in customer/flower/order fields are escaped in
       message: {
         chat: { id: 5252724920, type: 'private' },
         from: { id: 5252724920 },
-        text: 'Tên: Anh A & B <VIP>\nHoa: Bó <3 & Hồng\nNgày: 2026-12-12\nGiờ: 10:00\nShip: Ghé lấy'
+        text: 'Tên: Anh A & B <VIP>\nHoa: Bó <3 & Hồng\nGiá: 500k\nNgày: 2026-12-12\nGiờ: 10:00\nShip: Ghé lấy'
       }
     }),
     env
@@ -881,6 +883,7 @@ test('Contract 11: Exact staging caption ("Tổng 350k cọc 200k / Như + 03942
     }
     if (url.includes('/api-core')) {
       const payload = JSON.parse(opts.body);
+      if (payload.name === 'getOrderRules') return new Response('Not found', { status: 404 });
       opsCalls.push(payload);
       if (payload.name === 'createOrder') {
         const o = payload.payload.order;
@@ -1535,20 +1538,28 @@ test('Contract 15: Over-deposit (> total) is blocked until corrected; editing mo
   let ordersRes = await callOpsApi('getOrders', { start: '2026-12-20', end: '2026-12-20' });
   assert.equal(ordersRes.items.length, 0, '/confirm must be blocked while depositAmount > totalDue');
 
-  // 2. Fix deposit to 200k then edit flowerTotal to 450k -> uncertain cleared, remaining = 250k
+  // 2. Fix deposit to 200k (>= 50% of 350k) then edit flowerTotal to 450k -> 200k < 225k (50%) gets flagged; fixing deposit to 250k passes
   await sendMsg(15003, { text: 'cọc: 200k' });
+  drafts = await loadDrafts(db, 5252724920);
+  assert.equal(drafts[drafts.__active].uncertainFields.depositAmount, undefined);
+
   await sendMsg(15004, { text: 'tiền hoa: 450k' });
   drafts = await loadDrafts(db, 5252724920);
   draft = drafts[drafts.__active];
+  assert.ok(draft.uncertainFields.depositAmount, '200k on 450k (<50%) must be flagged after flowerTotal increases');
+
+  await sendMsg(15005, { text: 'cọc: 250k' });
+  drafts = await loadDrafts(db, 5252724920);
+  draft = drafts[drafts.__active];
   assert.equal(draft.uncertainFields.depositAmount, undefined);
-  assert.equal(draft.fields.depositAmount, 200000);
+  assert.equal(draft.fields.depositAmount, 250000);
   assert.equal(draft.fields.flowerTotal, '450000');
 
-  await sendMsg(15005, { text: '/confirm' });
+  await sendMsg(15006, { text: '/confirm' });
   ordersRes = await callOpsApi('getOrders', { start: '2026-12-20', end: '2026-12-20' });
   assert.equal(ordersRes.items.length, 1);
-  assert.equal(ordersRes.items[0].paid, 200000);
-  assert.equal(ordersRes.items[0].debt, 250000);
+  assert.equal(ordersRes.items[0].paid, 250000);
+  assert.equal(ordersRes.items[0].debt, 200000);
   assert.equal(ordersRes.items[0].imageUrls.length, 1);
 
   // 3. Updating payment afterwards via valid OPS updateOrder preserves existing sample image URLs
@@ -1705,7 +1716,7 @@ test('Contract 17: Crash/stuck-confirming recovery & Full Paid deferral: never a
         time: '15:00',
         shipping: 'Ghé lấy',
         paymentState: 'deposit',
-        depositAmount: 150000
+        depositAmount: 200000
       },
       sampleRefs: [{ fileId: 'f1', r2_key: sampleKey, uri: `supabase://${sampleKey}`, mimeType: 'image/jpeg' }],
       draftBillRefs: [],
@@ -1736,8 +1747,8 @@ test('Contract 17: Crash/stuck-confirming recovery & Full Paid deferral: never a
 
   const ordersRes = await callOpsApi('getOrders', { start: '2026-12-21', end: '2026-12-21' });
   assert.equal(ordersRes.items.length, 1);
-  assert.equal(ordersRes.items[0].paid, 150000);
-  assert.equal(ordersRes.items[0].debt, 250000);
+  assert.equal(ordersRes.items[0].paid, 200000);
+  assert.equal(ordersRes.items[0].debt, 200000);
 
   // New Full Paid message with ONLY sample photo -> blocked at /confirm (must supply bill later at OPS / send bill)
   await handleTelegramWebhook(
@@ -1936,4 +1947,254 @@ test('Contract 18: /retry_payment & /relink reject wrong, unknown, non-submitted
   const draftsAfter = await loadDrafts(db, 5252724920);
   assert.equal(draftsAfter['draft-sub-01'].paymentSynced, false);
   assert.equal(draftsAfter['draft-sub-02'].paymentSynced, false);
+});
+
+test('Contract 19: Default sale is C Mụi (cmui), shown in summary, and persisted identically in OPS even when OPS token is ADMIN', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { cmdNew, isDraftEmpty, draftSummary } = await import('../order-bot/core.mjs');
+  const { db, r2, opsHandler } = await createRealOpsHarness();
+  const sentMessages = [];
+
+  // Seed an ADMIN account + session so we prove bot explicitly sets sale="cmui" instead of relying on cmui token fallback
+  const adminToken = 'b'.repeat(64);
+  const adminTokenHash = await sha256Hex(adminToken);
+  await db.prepare('INSERT INTO app_users(row_key, data) VALUES (?, ?)')
+    .bind('al', JSON.stringify({ username: 'al', display_name: 'Alexx Tạ', role: 'ADMIN', active: true }))
+    .run();
+  await db.prepare('INSERT INTO app_sessions(row_key, data) VALUES (?, ?)')
+    .bind(adminTokenHash, JSON.stringify({ token_hash: adminTokenHash, username: 'al', expires_at: '2099-12-31T23:59:59.000Z' }))
+    .run();
+
+  // Unit check: cmdNew assigns sale='cmui', keeps isDraftEmpty=true, and draftSummary shows C Mụi
+  const created = cmdNew({}, '');
+  const emptyDraft = created.drafts[created.drafts.__active];
+  assert.equal(emptyDraft.fields.sale, 'cmui');
+  assert.equal(isDraftEmpty(emptyDraft), true, 'New draft with default sale=cmui must still count as empty for /new dedup');
+  assert.ok(draftSummary(emptyDraft).includes('C Mụi (cmui)'));
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/s.jpg', file_size: 1024 } }));
+    if (url.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 3]));
+    if (url.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: adminToken,
+    OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+    OPS_SERVICE: { fetch: opsHandler },
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  const sendMsg = (id, msg) => handleTelegramWebhook(
+    makeWebhookRequest({ update_id: id, message: { message_id: id, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, ...msg } }),
+    env
+  );
+
+  await sendMsg(19001, { text: '/new' });
+  await sendMsg(19002, {
+    photo: [{ file_id: 'p_cmui', file_unique_id: 'u_cmui' }],
+    caption: 'Khách Sale Test\nhoa: Bó hồng 500k\nngày: 2026-12-25\ngiờ: 10h\nship: Ghé lấy'
+  });
+  const summaryMsg = sentMessages[sentMessages.length - 1].text;
+  assert.ok(summaryMsg.includes('C Mụi (cmui)'), 'Summary after photo+caption must show default sale C Mụi');
+
+  await sendMsg(19003, { text: '/confirm' });
+  const confirmMsg = sentMessages[sentMessages.length - 1].text;
+  assert.ok(confirmMsg.includes('C Mụi') && confirmMsg.includes('cmui'), 'Confirm reply must verify OPS saved cmui');
+
+  const stored = await opsHandler(new Request('https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'getOrders', payload: { token: adminToken, start: '2026-12-25', end: '2026-12-25' } })
+  })).then(r => r.json());
+  assert.equal(stored.items.length, 1);
+  assert.equal(stored.items[0].saleUsername, 'cmui', 'OPS must save canonical sale username cmui even when ADMIN token created order');
+  assert.equal(stored.items[0].sale, 'C Mụi');
+
+  const drafts = await loadDrafts(db, 5252724920);
+  assert.equal(drafts[drafts.__active].fields.sale, 'cmui');
+});
+
+test('Contract 20: Mandatory flowerTotal (no 0đ auto-fill) and >=50% deposit threshold on flowerTotal only (excluding ship & accessories) in Bot & OPS', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { normalizeOperationOrder } = await import('../supabase/functions/_shared/operations.js');
+  const { db, r2, opsToken, opsHandler, callOpsApi } = await createRealOpsHarness();
+  const sentMessages = [];
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/s.jpg', file_size: 1024 } }));
+    if (url.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 4]));
+    if (url.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: opsToken,
+    OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+    OPS_SERVICE: { fetch: opsHandler },
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  const sendMsg = (id, msg) => handleTelegramWebhook(
+    makeWebhookRequest({ update_id: id, message: { message_id: id, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, ...msg } }),
+    env
+  );
+
+  // 1. Missing flowerTotal -> blocked at /confirm (must ask for flower price, never auto-fill 0 đ)
+  await sendMsg(20001, {
+    photo: [{ file_id: 'p_noprice', file_unique_id: 'u_noprice' }],
+    caption: 'Khách Thiếu Giá\nhoa: Bó hướng dương\nngày: 2026-12-26\ngiờ: 11h\nship: Ghé lấy'
+  });
+  await sendMsg(20002, { text: '/confirm' });
+  assert.ok(sentMessages[sentMessages.length - 1].text.includes('tiền hoa'), 'Must ask for flowerTotal');
+  let opsList = await callOpsApi('getOrders', { start: '2026-12-26', end: '2026-12-26' });
+  assert.equal(opsList.items.length, 0, 'Order missing flowerTotal must NOT reach OPS');
+
+  // 2. flowerTotal=400k + card(2*10k=20k) + shipFee(50k) => totalDue=470k, but 50% threshold is strictly 200k (50% of 400k flowerTotal)!
+  //    Deposit 199k (< 50% of 400k) -> MUST BE BLOCKED even though accessories + ship exist
+  await sendMsg(20003, {
+    text: 'tiền hoa: 400k\nship: Shop book ship\nđịa chỉ: 10 Nguyễn Huệ, Q.1\nphí ship: 50k\nsl thiệp: 2\nnội dung thiệp: Chúc mừng\ncọc: 199k'
+  });
+  await sendMsg(20004, { text: '/confirm' });
+  assert.ok(sentMessages[sentMessages.length - 1].text.includes('50%'), 'Deposit < 50% of flowerTotal must be blocked');
+  opsList = await callOpsApi('getOrders', { start: '2026-12-26', end: '2026-12-26' });
+  assert.equal(opsList.items.length, 0);
+
+  // Also verify backend normalizeOperationOrder blocks < 50% deposit independently
+  assert.throws(
+    () => normalizeOperationOrder({
+      customer: 'X', flower: 'Y', date: '2026-12-26', time: '11:00',
+      shipping: 'Shop book ship', flowerTotal: 400000, shipFeeActive: '1', shipFee: 50000,
+      payment: 'Đã cọc 199.000 đ'
+    }, { username: 'cmui', role: 'THO_OPS' }),
+    /tối thiểu 50% tiền hoa/
+  );
+
+  // 3. Deposit exact 200k (exact 50% of 400k flowerTotal, even though < 50% of 470k total) -> MUST PASS!
+  await sendMsg(20005, { text: 'cọc: 200k' });
+  await sendMsg(20006, { text: '/confirm' });
+  opsList = await callOpsApi('getOrders', { start: '2026-12-26', end: '2026-12-26' });
+  assert.equal(opsList.items.length, 1, 'Exact 50% flowerTotal deposit must succeed');
+  assert.equal(opsList.items[0].flowerTotal, 400000);
+  assert.equal(opsList.items[0].paid, 200000);
+  assert.equal(opsList.items[0].debt, 270000, 'Remaining debt = 400k + 20k card + 50k ship - 200k = 270k');
+  assert.equal(opsList.items[0].saleUsername, 'cmui');
+});
+
+test('Contract 21: Bot dynamically enforces OPS shared getOrderRules on rule change without code/prompt changes and preserves draft on unsupported rules', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { clearOpsOrderRulesCache } = await import('../order-bot/cloudflare/ops-client.mjs');
+  const { db, r2, opsToken, opsHandler, callOpsApi } = await createRealOpsHarness();
+  const sentMessages = [];
+
+  clearOpsOrderRulesCache();
+  let opsRuleMode = 'require_phone';
+
+  const ruleAwareOpsService = {
+    async fetch(input, init) {
+      const req = input instanceof Request ? input : new Request(input, init);
+      const clone = req.clone();
+      const body = await clone.json();
+      if (body.name === 'getOrderRules') {
+        if (opsRuleMode === 'require_phone') {
+          return new Response(JSON.stringify({
+            ok: true,
+            rules: {
+              schemaVersion: '2026-11-26.phone-req',
+              saleDefault: 'cmui',
+              saleDefaultName: 'C Mụi',
+              required: ['customer', 'flower', 'date', 'time', 'shipping', 'flowerTotal', 'phone'],
+              requireFlowerTotal: true,
+              minDepositRatio: 0.5,
+              enums: { shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'] }
+            }
+          }));
+        }
+        if (opsRuleMode === 'unsupported_rule') {
+          return new Response(JSON.stringify({
+            ok: true,
+            rules: {
+              schemaVersion: '2026-12-01.future',
+              required: ['customer', 'flower', 'date', 'time', 'shipping', 'flowerTotal', 'deliveryWindowCode'],
+              supportedRuleFeatures: ['required_fields', 'future_delivery_window']
+            }
+          }));
+        }
+      }
+      return opsHandler(req);
+    }
+  };
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/s.jpg', file_size: 1024 } }));
+    if (url.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 6]));
+    if (url.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: opsToken,
+    OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+    OPS_SERVICE: ruleAwareOpsService,
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  const sendMsg = (id, msg) => handleTelegramWebhook(
+    makeWebhookRequest({ update_id: id, message: { message_id: id, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, ...msg } }),
+    env
+  );
+
+  // 1. Caption normally valid WITHOUT phone -> OPS switched getOrderRules to require phone -> /confirm blocks & asks for SĐT dynamically!
+  await sendMsg(21001, {
+    photo: [{ file_id: 'p_dyn', file_unique_id: 'u_dyn' }],
+    caption: 'Khách Dynamic Rule\nhoa: Bó cúc 450k\nngày: 2026-12-27\ngiờ: 09h\nship: Ghé lấy'
+  });
+  await sendMsg(21002, { text: '/confirm' });
+
+  const blockReply = sentMessages[sentMessages.length - 1].text;
+  assert.ok(blockReply.includes('số điện thoại'), 'Bot must ask for phone dynamically when OPS adds phone to required rules');
+  let opsList = await callOpsApi('getOrders', { start: '2026-12-27', end: '2026-12-27' });
+  assert.equal(opsList.items.length, 0);
+
+  // 2. While OPS briefly turns on an unsupported rule, bot preserves draft safely without calling OPS createOrder
+  opsRuleMode = 'unsupported_rule';
+  await sendMsg(21003, { text: 'sđt: 0909888777' });
+  await sendMsg(21004, { text: '/confirm' });
+  const unsupportedReply = sentMessages[sentMessages.length - 1].text;
+  assert.ok(unsupportedReply.includes('chưa hỗ trợ'), 'Bot must hold draft cleanly on unsupported OPS rules');
+  let drafts = await loadDrafts(db, 5252724920);
+  assert.equal(drafts[drafts.__active].fields.phone, '0909888777');
+  assert.equal(drafts[drafts.__active].status, 'pending');
+
+  // 3. OPS back to supported require_phone rule -> since phone is already supplied, /confirm succeeds immediately!
+  opsRuleMode = 'require_phone';
+  await sendMsg(21005, { text: '/confirm' });
+  opsList = await callOpsApi('getOrders', { start: '2026-12-27', end: '2026-12-27' });
+  assert.equal(opsList.items.length, 1);
+  assert.equal(opsList.items[0].phone, '0909888777');
+  assert.equal(opsList.items[0].saleUsername, 'cmui');
 });

@@ -444,6 +444,63 @@ export function stripPaymentClaimTags(note) {
 /**
  * Compute expected order total from draft fields (flower + accessories + VAT + confirmed ship).
  */
+export const DEFAULT_BOT_SALE = 'cmui';
+export const DEFAULT_BOT_SALE_NAME = 'C Mụi';
+
+export const DEFAULT_OPS_ORDER_RULES = {
+  schemaVersion: '2026-11-26.v2',
+  saleDefault: DEFAULT_BOT_SALE,
+  saleDefaultName: DEFAULT_BOT_SALE_NAME,
+  required: ['customer', 'flower', 'date', 'time', 'shipping', 'flowerTotal'],
+  requireFlowerTotal: true,
+  minFlowerTotal: 1,
+  minDepositRatio: 0.5,
+  depositBase: 'flowerTotal',
+  conditionalRequired: [
+    { field: 'address', when: { field: 'shipping', equals: 'Shop book ship' }, rejectPending: true }
+  ],
+  enums: {
+    shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'],
+    statuses: ['Chờ bó', 'Đã bó', 'Đã giao']
+  },
+  supportedRuleFeatures: [
+    'required_fields',
+    'conditional_required',
+    'min_deposit_ratio',
+    'flower_total_required',
+    'shipping_enum',
+    'sale_default'
+  ]
+};
+
+const FIELD_LABELS_VI = {
+  customer: 'tên khách',
+  phone: 'số điện thoại',
+  flower: 'mẫu hoa',
+  flowerTotal: 'tiền hoa',
+  date: 'ngày nhận',
+  time: 'giờ nhận',
+  shipping: 'hình thức ship',
+  address: 'địa chỉ giao hàng',
+  note: 'ghi chú',
+  sale: 'sale phụ trách',
+  sampleRefs: 'ảnh mẫu hoa',
+  draftBillRefs: 'ảnh bill chuyển khoản'
+};
+
+export const SUPPORTED_BOT_FIELDS = new Set(Object.keys(FIELD_LABELS_VI));
+export const SUPPORTED_BOT_RULE_FEATURES = new Set(DEFAULT_OPS_ORDER_RULES.supportedRuleFeatures);
+
+export function formatSaleDisplay(saleValue, rules = DEFAULT_OPS_ORDER_RULES) {
+  const raw = String(saleValue || rules?.saleDefault || DEFAULT_BOT_SALE).trim();
+  if (!raw || raw.toLowerCase() === 'cmui' || raw.toLowerCase() === 'c mụi' || raw.toLowerCase() === 'c mui') {
+    const defUser = rules?.saleDefault || DEFAULT_BOT_SALE;
+    const defName = rules?.saleDefaultName || DEFAULT_BOT_SALE_NAME;
+    return `${defName} (${defUser})`;
+  }
+  return raw;
+}
+
 export function computeDraftTotal(fields = {}) {
   const f = fields || {};
   const flowerTotal = Number(f.flowerTotal) || 0;
@@ -491,7 +548,7 @@ export function mapPaymentToOps(paymentState, depositAmount, _flowerTotal) {
 // Draft display
 // ---------------------------------------------------------------------------
 
-export function draftSummary(draft) {
+export function draftSummary(draft, rules = DEFAULT_OPS_ORDER_RULES) {
   const f = draft.fields || {};
   const statusBadge = {
     pending: '',
@@ -501,13 +558,15 @@ export function draftSummary(draft) {
   }[draft.status] || '';
 
   const shortId = (draft.id || '').slice(-6);
+  const saleDisplay = formatSaleDisplay(f.sale, rules);
   const lines = [
     `📋 *ĐƠN NHÁP #${shortId}*${statusBadge ? '  ' + statusBadge : ''}`,
     `━━━━━━━━━━━━━━━━━━━━`,
+    `🧑‍💼 Sale phụ trách: ${saleDisplay}`,
     `👤 Khách hàng: ${f.customer || '—'}`,
     f.phone ? `📞 Số điện thoại: ${f.phone}` : null,
     `🌸 Mẫu hoa: ${f.flower || '—'}`,
-    f.flowerTotal ? `💰 Tiền hoa: ${Number(f.flowerTotal).toLocaleString('vi')} đ` : null,
+    f.flowerTotal ? `💰 Tiền hoa: ${Number(f.flowerTotal).toLocaleString('vi')} đ` : `💰 Tiền hoa: — (bắt buộc)`,
   ];
 
   const pState = f.paymentState || 'unpaid';
@@ -553,9 +612,18 @@ export function draftSummary(draft) {
 
   lines.push(`━━━━━━━━━━━━━━━━━━━━`);
 
-  const missing = requiredMissing(draft);
-  if (missing.length) {
-    lines.push(`\n⚠️ Còn thiếu: ${missing.join(', ')}`);
+  const validation = validateOrderAgainstRules(draft, rules);
+  if (validation.unsupportedRules.length) {
+    lines.push(`\n🚧 OPS vừa cập nhật quy tắc mới bot chưa hỗ trợ (${validation.unsupportedRules.join(', ')}). Nháp vẫn được giữ nguyên; vui lòng hoàn tất trực tiếp trên OPS hoặc chờ cập nhật bot.`);
+  }
+  if (validation.missing.length) {
+    lines.push(`\n⚠️ Còn thiếu: ${validation.missing.join(', ')}`);
+  }
+  if (validation.ruleErrors.length) {
+    lines.push(`\n⛔ Quy tắc OPS chưa đạt:`);
+    for (const msg of validation.ruleErrors) {
+      lines.push(`  • ${msg}`);
+    }
   }
 
   const uncertain = Object.entries(draft.uncertainFields || {});
@@ -579,31 +647,117 @@ function isPendingAddress(addr) {
   return /^(?:dia\s*chi\s*)?(?:bsung|bo\s*sung|bao|gui)\s*sau$|^chua\s*co(?:\s*dia\s*chi)?$|^(?:bao|gui)\s*dia\s*chi\s*sau$/i.test(norm);
 }
 
-function requiredMissing(draft) {
-  const f = draft.fields || {};
-  const need = [];
-  if (!f.customer) need.push('tên khách');
-  if (!f.flower) need.push('mẫu hoa');
-  if (!f.date) need.push('ngày nhận');
-  if (!f.time) need.push('giờ nhận');
-  if (!f.shipping) need.push('hình thức ship');
-  if (f.shipping === 'Shop book ship' && (!f.address || isPendingAddress(f.address))) {
-    need.push('địa chỉ giao hàng');
+export function validateOrderAgainstRules(draft, rules = DEFAULT_OPS_ORDER_RULES) {
+  const effectiveRules = rules || DEFAULT_OPS_ORDER_RULES;
+  const f = draft?.fields || {};
+  const missing = [];
+  const ruleErrors = [];
+  const unsupportedRules = [];
+
+  for (const feat of effectiveRules.supportedRuleFeatures || []) {
+    if (!SUPPORTED_BOT_RULE_FEATURES.has(feat)) {
+      unsupportedRules.push(feat);
+    }
   }
+
+  const pushMissing = label => {
+    if (label && !missing.includes(label)) missing.push(label);
+  };
+
+  const hasFieldValue = (field, rejectPending = false) => {
+    if (field === 'sampleRefs') return Array.isArray(draft?.sampleRefs) && draft.sampleRefs.length > 0;
+    if (field === 'draftBillRefs') return Array.isArray(draft?.draftBillRefs) && draft.draftBillRefs.length > 0;
+    if (field === 'flowerTotal') {
+      const minFlower = Number(effectiveRules.minFlowerTotal ?? 1);
+      return Boolean(f.flowerTotal) && Number(f.flowerTotal) >= minFlower;
+    }
+    if (field === 'sale') return Boolean(String(f.sale || effectiveRules.saleDefault || DEFAULT_BOT_SALE).trim());
+    const val = f[field];
+    if (val === undefined || val === null || String(val).trim() === '') return false;
+    if (field === 'address' && rejectPending && isPendingAddress(val)) return false;
+    return true;
+  };
+
+  for (const field of effectiveRules.required || DEFAULT_OPS_ORDER_RULES.required) {
+    if (!SUPPORTED_BOT_FIELDS.has(field)) {
+      unsupportedRules.push(`required:${field}`);
+      continue;
+    }
+    if (!hasFieldValue(field, true)) {
+      pushMissing(FIELD_LABELS_VI[field] || field);
+    }
+  }
+
+  // Fallback safeguard: flowerTotal is strictly mandatory (never defaults to 0)
+  if (effectiveRules.requireFlowerTotal !== false && !hasFieldValue('flowerTotal')) {
+    pushMissing(FIELD_LABELS_VI.flowerTotal);
+  }
+
+  for (const cond of effectiveRules.conditionalRequired || []) {
+    const condField = cond?.field;
+    const whenField = cond?.when?.field;
+    const whenEquals = cond?.when?.equals;
+    if (!condField || !whenField) continue;
+    if (!SUPPORTED_BOT_FIELDS.has(condField) || !SUPPORTED_BOT_FIELDS.has(whenField)) {
+      unsupportedRules.push(`conditional:${condField}`);
+      continue;
+    }
+    if (String(f[whenField] || '') === String(whenEquals || '')) {
+      if (!hasFieldValue(condField, Boolean(cond.rejectPending))) {
+        pushMissing(FIELD_LABELS_VI[condField] || condField);
+      }
+    }
+  }
+
+  const allowedShipping = effectiveRules.enums?.shipping;
+  if (f.shipping && Array.isArray(allowedShipping) && allowedShipping.length && !allowedShipping.includes(f.shipping)) {
+    ruleErrors.push(`Hình thức ship "${f.shipping}" chưa khớp danh sách OPS (${allowedShipping.join(', ')}).`);
+  }
+
+  // Deposit rules (minimum 50% calculated strictly on flowerTotal, excluding accessories & ship; exact 50% passes)
   if (f.paymentState === 'deposit') {
-    if (!f.flowerTotal || Number(f.flowerTotal) <= 0) need.push('tiền hoa');
-    if (!f.depositAmount || Number(f.depositAmount) <= 0) need.push('số tiền cọc');
+    const dep = Number(f.depositAmount) || 0;
+    const flowerTotal = Number(f.flowerTotal) || 0;
+    const minRatio = Number(effectiveRules.minDepositRatio ?? 0.5);
+    if (dep <= 0) {
+      pushMissing('số tiền cọc');
+    } else {
+      if (flowerTotal > 0 && Number.isFinite(minRatio) && minRatio > 0) {
+        const minDeposit = flowerTotal * minRatio;
+        if (dep < minDeposit) {
+          ruleErrors.push(
+            `Tiền cọc (${dep.toLocaleString('vi')} đ) thấp hơn tối thiểu ${Math.round(minRatio * 100)}% tiền hoa (${Math.ceil(minDeposit).toLocaleString('vi')} đ — không tính ship/phụ kiện).`
+          );
+        }
+      }
+      const totalDue = computeDraftTotal(f);
+      if (totalDue > 0 && dep > totalDue) {
+        ruleErrors.push(
+          `Số tiền cọc (${dep.toLocaleString('vi')} đ) lớn hơn tổng đơn (${totalDue.toLocaleString('vi')} đ).`
+        );
+      }
+    }
   }
-  if (f.paymentState === 'fullpaid' && (!draft.draftBillRefs || draft.draftBillRefs.length === 0)) {
-    need.push('ảnh bill chuyển khoản (bắt buộc với đơn Fullpaid)');
+
+  if (f.paymentState === 'fullpaid' && (!draft?.draftBillRefs || draft.draftBillRefs.length === 0)) {
+    pushMissing(FIELD_LABELS_VI.draftBillRefs + ' (bắt buộc với đơn Fullpaid)');
   }
-  return need;
+
+  const hasUncertain = Boolean(draft?.uncertainFields && Object.keys(draft.uncertainFields).length > 0);
+  return {
+    ok: unsupportedRules.length === 0 && missing.length === 0 && ruleErrors.length === 0 && !hasUncertain,
+    missing,
+    ruleErrors,
+    unsupportedRules
+  };
 }
 
-function isConfirmable(draft) {
-  if (requiredMissing(draft).length > 0) return false;
-  if (draft.uncertainFields && Object.keys(draft.uncertainFields).length > 0) return false;
-  return true;
+function requiredMissing(draft, rules = DEFAULT_OPS_ORDER_RULES) {
+  return validateOrderAgainstRules(draft, rules).missing;
+}
+
+function isConfirmable(draft, rules = DEFAULT_OPS_ORDER_RULES) {
+  return validateOrderAgainstRules(draft, rules).ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -625,7 +779,10 @@ function activeDraft(drafts) {
 export function isDraftEmpty(draft) {
   if (!draft || draft.status !== 'pending') return false;
   const f = draft.fields || {};
-  const hasAnyField = Object.values(f).some(v => v !== undefined && v !== null && String(v).trim() !== '' && v !== false && v !== 0);
+  const hasAnyField = Object.entries(f).some(([k, v]) => {
+    if (k === 'sale') return false;
+    return v !== undefined && v !== null && String(v).trim() !== '' && v !== false && v !== 0;
+  });
   const hasSamples = Array.isArray(draft.sampleRefs) && draft.sampleRefs.length > 0;
   const hasBills = Array.isArray(draft.draftBillRefs) && draft.draftBillRefs.length > 0;
   const hasUncertain = draft.uncertainFields && Object.keys(draft.uncertainFields).length > 0;
@@ -642,15 +799,15 @@ function cmdNew(drafts, _args) {
   const current = activeDraft(drafts);
   if (isDraftEmpty(current)) {
     return {
-      reply: `ℹ️ Đơn nháp trống #${current.id.slice(-6)} đang mở sẵn (không tạo thêm nháp trùng).\n\nBạn có thể gửi ảnh mẫu kèm chú thích đơn hàng hoặc nhập thông tin theo dạng:\n  tên khách: Nguyễn A\n  mẫu hoa: Hoa hồng đỏ\n  ngày nhận: 2026-12-01\n  giờ nhận: 10:00\n  hình thức: Shop book ship`,
+      reply: `ℹ️ Đơn nháp trống #${current.id.slice(-6)} đang mở sẵn (không tạo thêm nháp trùng).\n\nBạn có thể gửi ảnh mẫu kèm chú thích đơn hàng hoặc nhập thông tin theo dạng:\n  tên khách: Nguyễn A\n  mẫu hoa: Hoa hồng đỏ\n  giá: 500k\n  ngày nhận: 2026-12-01\n  giờ nhận: 10:00\n  hình thức: Shop book ship`,
       drafts,
       reused: true,
     };
   }
   const id = newDraftId();
-  const draft = { id, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending', createdAt: new Date().toISOString() };
+  const draft = { id, fields: { sale: DEFAULT_BOT_SALE }, sampleRefs: [], draftBillRefs: [], status: 'pending', createdAt: new Date().toISOString() };
   const next = { ...drafts, [id]: draft, __active: id };
-  return { reply: `✅ Đã tạo đơn nháp mới #${id.slice(-6)}.\n\nGửi ảnh mẫu kèm thông tin đơn hoặc nhập theo dạng:\n  tên khách: Nguyễn A\n  mẫu hoa: Hoa hồng đỏ\n  ngày nhận: 2026-12-01\n  giờ nhận: 10:00\n  hình thức: Shop book ship`, drafts: next };
+  return { reply: `✅ Đã tạo đơn nháp mới #${id.slice(-6)} (Sale: ${DEFAULT_BOT_SALE_NAME}).\n\nGửi ảnh mẫu kèm thông tin đơn hoặc nhập theo dạng:\n  tên khách: Nguyễn A\n  mẫu hoa: Hoa hồng đỏ\n  giá: 500k\n  ngày nhận: 2026-12-01\n  giờ nhận: 10:00\n  hình thức: Shop book ship`, drafts: next };
 }
 
 function cmdList(drafts) {
@@ -674,10 +831,10 @@ function cmdSelect(drafts, args) {
   return { reply: `Đang xem đơn #${shortId}.\n\n${draftSummary(drafts[found])}`, drafts: { ...drafts, __active: found } };
 }
 
-function cmdShow(drafts) {
+function cmdShow(drafts, _args, rules = DEFAULT_OPS_ORDER_RULES) {
   const draft = activeDraft(drafts);
   if (!draft) return { reply: 'Chưa chọn đơn nào. Dùng /new hoặc /list.', drafts };
-  return { reply: draftSummary(draft), drafts };
+  return { reply: draftSummary(draft, rules), drafts };
 }
 
 function cmdCancel(drafts, _args) {
@@ -692,7 +849,7 @@ function cmdCancel(drafts, _args) {
   return { reply: `🗑 Đã xóa đơn nháp #${id.slice(-6)}.`, drafts: next };
 }
 
-function cmdConfirm(drafts, _args) {
+function cmdConfirm(drafts, _args, rules = DEFAULT_OPS_ORDER_RULES) {
   const draft = activeDraft(drafts);
   if (!draft) return { reply: 'Chưa có đơn nháp đang chọn. Dùng /new.', drafts };
   if (draft.status === 'submitted') return { reply: '⚠️ Đơn này đã được tạo trong OPS rồi.', drafts };
@@ -700,16 +857,29 @@ function cmdConfirm(drafts, _args) {
   const f = draft.fields || {};
   if (f.paymentState === 'fullpaid' && (!draft.draftBillRefs || draft.draftBillRefs.length === 0)) {
     return {
-      reply: '⚠️ Đơn ở trạng thái Đã thanh toán toàn bộ (Fullpaid) nhưng chưa có ảnh bill. Vui lòng gửi ảnh bill trước khi xác nhận tạo đơn.\n\n' + draftSummary(draft),
+      reply: '⚠️ Đơn ở trạng thái Đã thanh toán toàn bộ (Fullpaid) nhưng chưa có ảnh bill. Vui lòng gửi ảnh bill trước khi xác nhận tạo đơn.\n\n' + draftSummary(draft, rules),
       drafts
     };
   }
-  if (!isConfirmable(draft)) {
-    return { reply: `❌ Chưa đủ dữ liệu hoặc còn thông tin chưa rõ ràng để xác nhận:\n\n${draftSummary(draft)}`, drafts };
+  const validation = validateOrderAgainstRules(draft, rules);
+  if (validation.unsupportedRules.length > 0) {
+    return {
+      reply: `🚧 OPS vừa thay đổi quy tắc bắt buộc mà bot chưa hỗ trợ (${validation.unsupportedRules.join(', ')}).\nĐơn nháp vẫn được giữ nguyên trong hệ thống để không mất dữ liệu.\n\n${draftSummary(draft, rules)}`,
+      drafts
+    };
+  }
+  if (!validation.ok) {
+    return { reply: `❌ Chưa đủ dữ liệu hoặc còn thông tin chưa rõ ràng (chưa đạt quy tắc OPS) để xác nhận:\n\n${draftSummary(draft, rules)}`, drafts };
   }
   // requestId is set once and kept fixed across all retries — idempotency key for mee_ops_lookup.
   const reqId = draft.requestId || randomUUID();
-  const confirmed = { ...draft, status: 'confirmed', confirmedAt: draft.confirmedAt || new Date().toISOString(), requestId: reqId };
+  const confirmed = {
+    ...draft,
+    fields: { ...f, sale: f.sale || rules?.saleDefault || DEFAULT_BOT_SALE },
+    status: 'confirmed',
+    confirmedAt: draft.confirmedAt || new Date().toISOString(),
+    requestId: reqId
+  };
   return { reply: '__CONFIRM__', drafts: { ...drafts, [draft.id]: confirmed } };
 }
 
@@ -1038,20 +1208,35 @@ function applyFields(draft, text, options = {}) {
 
   if (!changes.length && !warnings.length) return { draft, changes: [], warnings: [] };
 
-  // Re-validate payment consistency against current order total after all field updates
+  const effectiveRules = options?.rules || DEFAULT_OPS_ORDER_RULES;
+  if (!newFields.sale) {
+    newFields.sale = effectiveRules.saleDefault || DEFAULT_BOT_SALE;
+  }
+
+  // Re-validate payment consistency against current order total and OPS min-deposit rule after all field updates
   if (newFields.paymentState === 'bankfull' && newFields.flowerTotal) {
     newFields.reportedPaidAmount = Number(newFields.flowerTotal);
   }
+  const DEPOSIT_ERROR_PATTERN = /lớn hơn tổng đơn|thấp hơn tối thiểu/;
   if (newFields.paymentState === 'deposit' && Number(newFields.depositAmount) > 0) {
+    const dep = Number(newFields.depositAmount);
+    const flowerTotal = Number(newFields.flowerTotal) || 0;
     const totalDue = computeDraftTotal(newFields);
-    if (totalDue > 0 && Number(newFields.depositAmount) > totalDue) {
-      const reason = `Số tiền cọc (${Number(newFields.depositAmount).toLocaleString('vi')} đ) lớn hơn tổng đơn (${totalDue.toLocaleString('vi')} đ). Vui lòng kiểm tra lại tổng tiền hoặc tiền cọc.`;
+    const minRatio = Number(effectiveRules.minDepositRatio ?? 0.5);
+    const minDeposit = flowerTotal > 0 && Number.isFinite(minRatio) && minRatio > 0 ? flowerTotal * minRatio : 0;
+
+    if (totalDue > 0 && dep > totalDue) {
+      const reason = `Số tiền cọc (${dep.toLocaleString('vi')} đ) lớn hơn tổng đơn (${totalDue.toLocaleString('vi')} đ). Vui lòng kiểm tra lại tổng tiền hoặc tiền cọc.`;
       uncertain.depositAmount = reason;
-      changes.push({ field: 'depositAmount', value: newFields.depositAmount, uncertain: true, reason });
-    } else if (uncertain.depositAmount && /lớn hơn tổng đơn/.test(uncertain.depositAmount)) {
+      changes.push({ field: 'depositAmount', value: dep, uncertain: true, reason });
+    } else if (minDeposit > 0 && dep < minDeposit) {
+      const reason = `Tiền cọc (${dep.toLocaleString('vi')} đ) thấp hơn tối thiểu ${Math.round(minRatio * 100)}% tiền hoa (${Math.ceil(minDeposit).toLocaleString('vi')} đ — không tính phụ kiện/phí ship).`;
+      uncertain.depositAmount = reason;
+      changes.push({ field: 'depositAmount', value: dep, uncertain: true, reason });
+    } else if (uncertain.depositAmount && DEPOSIT_ERROR_PATTERN.test(uncertain.depositAmount)) {
       delete uncertain.depositAmount;
     }
-  } else if (uncertain.depositAmount && /lớn hơn tổng đơn/.test(uncertain.depositAmount)) {
+  } else if (uncertain.depositAmount && DEPOSIT_ERROR_PATTERN.test(uncertain.depositAmount)) {
     delete uncertain.depositAmount;
   }
 

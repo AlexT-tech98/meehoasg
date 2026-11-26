@@ -2,6 +2,60 @@
 export function operationFailure(message, code='ORDER_INPUT_INVALID') { return {ok:false,code,message}; }
 const clean=v=>String(v??'').trim();
 const bool=v=>v===true||v===1||v==='1'||v==='true'||v==='on';
+
+export const ORDER_VALIDATION_RULES = {
+  schemaVersion: '2026-11-26.v2',
+  saleDefault: 'cmui',
+  saleDefaultName: 'C Mụi',
+  required: ['customer', 'flower', 'date', 'time', 'shipping', 'flowerTotal'],
+  requireFlowerTotal: true,
+  minFlowerTotal: 1,
+  minDepositRatio: 0.5,
+  depositBase: 'flowerTotal',
+  conditionalRequired: [
+    { field: 'address', when: { field: 'shipping', equals: 'Shop book ship' }, rejectPending: true }
+  ],
+  enums: {
+    shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'],
+    statuses: ['Chờ bó', 'Đã bó', 'Đã giao']
+  },
+  supportedRuleFeatures: [
+    'required_fields',
+    'conditional_required',
+    'min_deposit_ratio',
+    'flower_total_required',
+    'shipping_enum',
+    'sale_default'
+  ]
+};
+
+export function extractDepositPaymentAmount(payment) {
+  const raw = clean(payment);
+  if (!raw) return null;
+  const normalized = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ');
+  if (/chua|full|du tien hoa|toan bo don|da tt|thanh toan du/.test(normalized)) return null;
+  if (!/(?:coc|da thanh toan)/.test(normalized)) return null;
+  const match = normalized.replace(/\s/g, '').match(/([0-9.,]+)(k|tr|trieu)?/);
+  if (!match) return null;
+  let value = operationMoney(match[1]);
+  if (match[2] === 'tr' || match[2] === 'trieu') value *= 1000000;
+  else if (match[2] === 'k') value *= 1000;
+  return value;
+}
+
+export function validateOrderDepositRule(flowerTotal, payment, rules = ORDER_VALIDATION_RULES) {
+  const ratio = Number(rules?.minDepositRatio ?? 0.5);
+  if (!Number.isFinite(ratio) || ratio <= 0) return;
+  const totalFlower = Number(flowerTotal) || 0;
+  if (totalFlower <= 0) return;
+  const deposit = extractDepositPaymentAmount(payment);
+  if (deposit === null) return;
+  // Minimum deposit threshold is strictly based on flowerTotal alone (excluding ship & accessories); exact 50% passes.
+  const minDeposit = totalFlower * ratio;
+  if (deposit < minDeposit) {
+    throw Error(`Tiền cọc phải đạt tối thiểu ${Math.round(ratio * 100)}% tiền hoa.`);
+  }
+}
 export function operationMoney(value, optional=false) {
   if(optional&&(value===undefined||value===null||value===''))return 0;
   if(typeof value==='number'){if(Number.isFinite(value)&&value>=0&&value<=999999999999)return value;throw Error('Số tiền không hợp lệ.');}
@@ -27,8 +81,11 @@ export function normalizeOperationOrder(input,user,current={}) {
   if(banner&&(!Number.isInteger(bannerQty)||bannerQty<1||bannerQty>99||!clean(d.bannerText)))throw Error('Banner cần số lượng 1–99 và nội dung.');
   const shipping=clean(d.shipping),shipActive=clean(d.shipFeeActive)==='1';
   if(shipActive&&shipping!=='Shop book ship')throw Error('Phí ship chỉ dùng cho đơn Shop book ship.');
+  const flowerTotal=operationMoney(d.flowerTotal);
+  const payment=clean(d.payment);
+  validateOrderDepositRule(flowerTotal, payment);
   return {customer:clean(d.customer),phone:clean(d.phone),order_date:date,order_time:t[1].padStart(2,'0')+':'+t[2],
-    flower:clean(d.flower),note:clean(d.note),shipping,address:clean(d.address),flower_total:operationMoney(d.flowerTotal),payment:clean(d.payment),
+    flower:clean(d.flower),note:clean(d.note),shipping,address:clean(d.address),flower_total:flowerTotal,payment,
     sale:user.role==='SALE'?user.username:clean(d.sale||current.sale||user.username),
     card,card_qty:qty,card_text:clean(d.cardText),banner,banner_qty:bannerQty,banner_text:clean(d.bannerText),
     charm_fee:operationMoney(d.charmFee,true),charm_text:clean(d.charmText),paper_fee:operationMoney(d.paperFee,true),paper_text:clean(d.paperText),vat:operationMoney(d.vat,true),

@@ -536,6 +536,7 @@ test('Scenario 10: Multiple /confirm calls maintain fixed requestId and create s
   globalThis.fetch = async (url, opts) => {
     if (url.includes('/api-core')) {
       const payload = JSON.parse(opts.body);
+      if (payload.name === 'getOrderRules') return new Response('Not found', { status: 404 });
       opsCalls.push(payload);
       return new Response(JSON.stringify({ ok: true, orderId: 'MEE-STAGING-001' }));
     }
@@ -598,8 +599,10 @@ test('Scenario 11: OPS timeout keeps draft in confirmed state for recovery', asy
     ALLOWED_USER_IDS: '5252724920'
   };
 
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, opts) => {
     if (url.includes('/api-core')) {
+      const payload = JSON.parse(opts.body);
+      if (payload.name === 'getOrderRules') return new Response('Not found', { status: 404 });
       const abortError = new Error('The operation was aborted');
       abortError.name = 'AbortError';
       throw abortError;
@@ -622,7 +625,7 @@ test('Scenario 11: OPS timeout keeps draft in confirmed state for recovery', asy
     message: {
       chat: { id: 5252724920, type: 'private' },
       from: { id: 5252724920 },
-      text: 'Tên: Chị Vân\nHoa: Bó cúc mẫu đơn\nNgày: 2026-12-05\nGiờ: 11:00\nShip: Ghé lấy'
+      text: 'Tên: Chị Vân\nHoa: Bó cúc mẫu đơn\nGiá: 500k\nNgày: 2026-12-05\nGiờ: 11:00\nShip: Ghé lấy'
     }
   }), env);
 
@@ -1208,6 +1211,7 @@ test('Scenario 22: Worker restart resets stuck confirming draft and allows idemp
   globalThis.fetch = async (url, opts) => {
     if (url.includes('/api-core')) {
       const payload = JSON.parse(opts.body);
+      if (payload.name === 'getOrderRules') return new Response('Not found', { status: 404 });
       opsCalls.push(payload);
       return new Response(JSON.stringify({ ok: true, orderId: 'MEE-STAGING-RECOVERED' }));
     }

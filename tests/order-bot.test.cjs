@@ -100,7 +100,7 @@ test('/confirm sets status=confirmed and preserves requestId without changing pa
   const draftId = randomUUID();
   const draft = {
     id: draftId,
-    fields: { customer: 'A', flower: 'B', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' },
+    fields: { customer: 'A', flower: 'B', flowerTotal: '500000', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' },
     sampleRefs: [],
     draftBillRefs: [{ fileId: 'bill-001', caption: 'bill', savedAt: new Date().toISOString() }],
     status: 'pending',
@@ -248,7 +248,7 @@ test('bill and sample refs coexist independently in same draft', async () => {
 test('requiredMissing returns empty when all required fields present', async () => {
   const { requiredMissing } = await getCore();
   const draft = {
-    fields: { customer: 'A', flower: 'B', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' },
+    fields: { customer: 'A', flower: 'B', flowerTotal: '500000', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' },
     sampleRefs: [], draftBillRefs: [], status: 'pending',
   };
   assert.deepEqual(requiredMissing(draft), []);
@@ -665,7 +665,7 @@ test('/confirm triggers action:confirm when all required fields present', async 
   const userId = 'test-' + randomUUID().slice(0, 8);
   const draftId = randomUUID();
   saveDrafts(userId, {
-    [draftId]: { id: draftId, fields: { customer: 'A', flower: 'B', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' }, sampleRefs: [], draftBillRefs: [], status: 'pending' },
+    [draftId]: { id: draftId, fields: { customer: 'A', flower: 'B', flowerTotal: '500000', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' }, sampleRefs: [], draftBillRefs: [], status: 'pending' },
     __active: draftId,
   });
 
@@ -950,7 +950,7 @@ test('draftSummary shows submitted status badge', async () => {
 
 test('requiredMissing detects only flower missing', async () => {
   const { requiredMissing } = await getCore();
-  const draft = { fields: { customer: 'A', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' } };
+  const draft = { fields: { customer: 'A', flowerTotal: '500000', date: '2026-12-01', time: '10:00', shipping: 'Ghé lấy' } };
   const missing = requiredMissing(draft);
   assert.ok(missing.includes('mẫu hoa'));
   assert.equal(missing.filter(m => m !== 'mẫu hoa').length, 0, 'only flower missing');
@@ -1916,7 +1916,7 @@ test('providing valid value resolves uncertainty, removes field from uncertainFi
 
   handleUpdate({
     userId,
-    text: 'khách: Anh Tuấn\nhoa: Bó cúc mẫu đơn\nngày: 2026-12-15\ngiờ: chiều\nship: Ghé lấy',
+    text: 'khách: Anh Tuấn\nhoa: Bó cúc mẫu đơn 500k\nngày: 2026-12-15\ngiờ: chiều\nship: Ghé lấy',
     photoFileId: null,
     photoCaption: null,
     isBillHint: false,

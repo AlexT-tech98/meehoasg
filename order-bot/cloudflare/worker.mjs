@@ -33,7 +33,11 @@ import {
   stripPaymentClaimTags,
   applyFields,
   draftSummary,
-  requiredMissing
+  requiredMissing,
+  validateOrderAgainstRules,
+  DEFAULT_BOT_SALE,
+  DEFAULT_OPS_ORDER_RULES,
+  formatSaleDisplay
 } from '../core.mjs';
 
 import {
@@ -57,7 +61,7 @@ import {
   bytesToBase64
 } from './telegram.mjs';
 
-import { callCreateOrder, syncOrderPaymentToOps } from './ops-client.mjs';
+import { callCreateOrder, syncOrderPaymentToOps, fetchOpsOrderRules, getCachedOpsOrderRules } from './ops-client.mjs';
 import { extractFieldsWithGemini, sanitizeAiFields } from './gemini.mjs';
 
 const DEFAULT_ALLOWED_USER_ID = 5252724920;
@@ -533,8 +537,9 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
         let extraReply = '';
         let captionApplied = false;
+        const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
         if (caption && !isBill) {
-          const { draft: updatedDraft, changes, warnings } = applyFields(drafts[drafts.__active], caption);
+          const { draft: updatedDraft, changes, warnings } = applyFields(drafts[drafts.__active], caption, { rules: opsRules });
           if (changes && changes.length > 0) {
             drafts[drafts.__active] = updatedDraft;
             captionApplied = true;
@@ -563,7 +568,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
           await sendTelegramMessage(
             env.BOT_TOKEN,
             chatId,
-            `${html(header)}\n\n${html(draftSummary(newDraft))}`,
+            `${html(header)}\n\n${html(draftSummary(newDraft, opsRules))}`,
             'HTML'
           );
         } else if (captionApplied) {
@@ -571,7 +576,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
           await sendTelegramMessage(
             env.BOT_TOKEN,
             chatId,
-            `${html(result.reply)}${html(extraReply)}\n\n${html(draftSummary(updatedNow))}`,
+            `${html(result.reply)}${html(extraReply)}\n\n${html(draftSummary(updatedNow, opsRules))}`,
             'HTML'
           );
         } else {
@@ -632,12 +637,16 @@ export async function handleTelegramWebhook(request, rawEnv) {
         const res = cmdList(drafts);
         await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
       } else if (cmd === '/select') {
+        const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
         const res = cmdSelect(drafts, arg);
         if (res.drafts) drafts = res.drafts;
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
+        const selected = activeDraft(drafts);
+        const reply = selected ? `Đang xem đơn #${selected.id.slice(-6)}.\n\n${draftSummary(selected, opsRules)}` : res.reply;
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, reply);
       } else if (cmd === '/show') {
-        const res = cmdShow(drafts);
+        const opsRules = await loadCurrentOpsRules(env, { forceRefresh: false });
+        const res = cmdShow(drafts, arg, opsRules);
         await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
       } else if (cmd === '/cancel') {
         const draftToCancel = activeDraft(drafts);
@@ -693,8 +702,9 @@ export async function handleTelegramWebhook(request, rawEnv) {
                          (messageDate && lastMessageDate && messageDate < lastMessageDate) ||
                          (messageDate && lastMessageDate && messageDate === lastMessageDate && messageId && lastMessageId && messageId < lastMessageId);
 
-    // Apply structured fields via core applyFields
-    let { draft: updated, changes, warnings } = applyFields(draft, rawText);
+    // Apply structured fields via core applyFields against cached/default OPS validation rules
+    const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
+    let { draft: updated, changes, warnings } = applyFields(draft, rawText, { rules: opsRules });
 
     // AI Fallback if structured parsing yields nothing and Gemini Key is available
     if ((!changes || changes.length === 0) && env.GEMINI_API_KEY) {
@@ -705,7 +715,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
         const lines = Object.entries(aiExtracted)
           .map(([k, v]) => `${k}: ${String(v).replace(/[\r\n]+/g, ' ').trim()}`)
           .join('\n');
-        const aiApplied = applyFields(draft, lines);
+        const aiApplied = applyFields(draft, lines, { rules: opsRules });
         if (aiApplied.changes?.length) {
           updated = aiApplied.draft;
           changes = aiApplied.changes;
@@ -723,7 +733,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
       }
       // Re-apply only non-conflicting changes
       const filteredLines = changes.map(c => `${c.field}: ${c.value}`).join('\n');
-      const filteredApplied = applyFields(draft, filteredLines);
+      const filteredApplied = applyFields(draft, filteredLines, { rules: opsRules });
       updated = filteredApplied.draft;
       changes = filteredApplied.changes;
     }
@@ -738,13 +748,17 @@ export async function handleTelegramWebhook(request, rawEnv) {
       if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
       const changedText = changes.map(c => c.uncertain ? `  ⚠️ ${c.field}: ${c.reason}` : `  ${c.field}: ${c.value}`).join('\n');
-      const missing = requiredMissing(updated);
+      const validation = validateOrderAgainstRules(updated, opsRules);
       const uncertainCount = Object.keys(updated.uncertainFields || {}).length;
 
       let extra = '';
-      if (missing.length) extra += `\n⚠️ Còn thiếu: ${missing.join(', ')}`;
+      if (validation.unsupportedRules.length) {
+        extra += `\n🚧 OPS vừa thêm quy tắc mới bot chưa hỗ trợ (${validation.unsupportedRules.join(', ')}). Nháp vẫn được giữ nguyên.`;
+      }
+      if (validation.missing.length) extra += `\n⚠️ Còn thiếu: ${validation.missing.join(', ')}`;
+      if (validation.ruleErrors.length) extra += `\n⛔ ${validation.ruleErrors.join(' | ')}`;
       if (uncertainCount) extra += `\n❓ Có ${uncertainCount} trường cần làm rõ trước khi xác nhận.`;
-      if (!missing.length && !uncertainCount) extra += '\n✅ Đã đủ dữ liệu — dùng /confirm để tạo đơn.';
+      if (validation.ok) extra += `\n✅ Đã đủ dữ liệu (Sale: ${formatSaleDisplay(updated.fields?.sale, opsRules)}) — dùng /confirm để tạo đơn.`;
       const warnMsg = warnings?.length ? `\n${warnings.join('\n')}` : '';
 
       const prefix = changedText ? `✏️ Đã cập nhật:\n${changedText}` : '';
@@ -785,6 +799,14 @@ export async function handleTelegramWebhook(request, rawEnv) {
   return new Response('OK', { status: 200 });
 }
 
+async function loadCurrentOpsRules(env, { forceRefresh = false } = {}) {
+  if (!env?.OPS_TOKEN) return DEFAULT_OPS_ORDER_RULES;
+  const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
+  const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+  const res = await fetchOpsOrderRules(opsUrl, env.OPS_TOKEN, fetcher, { forceRefresh });
+  return res.rules || DEFAULT_OPS_ORDER_RULES;
+}
+
 function expectedPaymentDetails(fields = {}) {
   const f = fields || {};
   const expectedPayment = mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal);
@@ -819,8 +841,9 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     return;
   }
 
-  // 1. Pre-validation via cmdConfirm
-  const confirmResult = cmdConfirm(drafts);
+  // 1. Pre-validation right before createOrder against fresh shared OPS validation rules
+  const opsRules = await loadCurrentOpsRules(env, { forceRefresh: true });
+  const confirmResult = cmdConfirm(drafts, '', opsRules);
   if (confirmResult.reply !== '__CONFIRM__') {
     await sendTelegramMessage(env.BOT_TOKEN, chatId, confirmResult.reply);
     return;
@@ -1095,9 +1118,19 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     const opsPaymentStr = finalOpsOrder?.payment || (paymentSynced ? expectedPayment : 'Chưa thanh toán');
     const opsPaid = finalOpsOrder ? (Number(finalOpsOrder.paid) || 0) : (paymentSynced ? expectedPaid : 0);
     const opsDebt = finalOpsOrder ? (Number(finalOpsOrder.debt) || 0) : Math.max(0, totalDue - opsPaid);
+    const expectedSaleUsername = String(draft.fields?.sale || opsRules.saleDefault || DEFAULT_BOT_SALE).trim();
+    const opsSaleUsername = String(finalOpsOrder?.saleUsername || '').trim();
+    const opsSaleName = finalOpsOrder?.sale || formatSaleDisplay(expectedSaleUsername, opsRules);
+    const saleLine = opsSaleUsername
+      ? `🧑‍💼 Sale phụ trách (OPS): ${html(opsSaleName)} (<code>${html(opsSaleUsername)}</code>)\n`
+      : `🧑‍💼 Sale phụ trách: ${html(opsSaleName)}\n`;
+    const saleMismatchWarning = (opsSaleUsername && opsSaleUsername.toLowerCase() !== expectedSaleUsername.toLowerCase())
+      ? `\n⚠️ <b>LƯU Ý SALE PHỤ TRÁCH:</b> OPS đang lưu tài khoản <code>${html(opsSaleUsername)}</code> thay vì <code>${html(expectedSaleUsername)}</code>.\n`
+      : '';
 
     let successMsg = `✅ <b>TẠO ĐƠN THÀNH CÔNG TRÊN MEEHOA OPS STAGING!</b>\n\n` +
       `🆔 <b>Mã đơn:</b> <code>${html(opsRes.orderId)}</code>\n` +
+      saleLine +
       `👤 Khách: ${html(customer)}\n` +
       `🌸 Mẫu hoa: ${html(flower)}\n` +
       `📅 Ngày nhận: ${html(date)} lúc ${html(time)}\n` +
@@ -1107,7 +1140,8 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       `💳 Trạng thái OPS: ${html(opsPaymentStr)}\n` +
       `💵 Đã thu: ${opsPaid.toLocaleString('vi-VN')} đ\n` +
       `📌 Còn phải thu: ${opsDebt.toLocaleString('vi-VN')} đ\n` +
-      `🖼️ Ảnh mẫu: ${sampleFiles.length} ảnh\n`;
+      `🖼️ Ảnh mẫu: ${sampleFiles.length} ảnh\n` +
+      saleMismatchWarning;
 
     if (!paymentSynced) {
       successMsg += `\n⚠️ <b>CẢNH BÁO GHI NHẬN THANH TOÁN:</b>\n` +

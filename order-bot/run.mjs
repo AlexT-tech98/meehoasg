@@ -187,7 +187,7 @@ QUY TẮC BẢO MẬT:
           note: cleanedNote,
           flowerTotal: f.flowerTotal ? Number(f.flowerTotal) : 0,
           payment: mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal),
-          sale: f.sale || '',
+          sale: String(f.sale || 'cmui').trim(),
           card: Boolean(f.card || f.cardText),
           cardQty: f.cardQty ? Number(f.cardQty) : (f.cardText ? 1 : 0),
           cardText: f.cardText || '',

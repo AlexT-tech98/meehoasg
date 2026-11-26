@@ -1,5 +1,5 @@
 import {createOperationStorage} from '../_shared/storage.js';
-import {createOperationService} from '../_shared/operations.js';
+import {createOperationService,ORDER_VALIDATION_RULES} from '../_shared/operations.js';
 import {createR2Media} from '../_shared/r2-media.js';
 const BUILD='2026.10.08-core6-atomic';
 const UI_BUILD='2026.09.28-supabase-v3';
@@ -432,6 +432,7 @@ Deno.serve(async request=>{
     else if(name==='logOrderSaveFailure')result=await logOrderSaveFailure(payload);
     else if(name==='prepareOrderUploads')result=await prepareOrderUploads(payload);
     else if(name==='getOrder')result=await fastOrder(payload);
+    else if(name==='getOrderRules'){await requireUser(payload);result={ok:true,rules:ORDER_VALIDATION_RULES};}
     else if(name==='getDebtReview')result=await fastDebt(payload);
     else if(name==='getFullPaidReport')result=await fullPaidReport(payload);
     else if(name==='getSettlementQueue')result=await fastSettlementQueue(payload);
