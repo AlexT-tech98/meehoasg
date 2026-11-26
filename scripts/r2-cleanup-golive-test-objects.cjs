@@ -27,11 +27,11 @@ const ALLOWED_GOLIVE_TEST_OBJECTS = Object.freeze([
   'settlement-bills/0f56829a-cfb8-4351-96b3-a9c59ea24d8c.jpg',
 ]);
 
-async function countReferencesInDb({ supabaseUrl, serviceKey, objectKey, fetcher = fetch }) {
+async function countReferencesInDb({ supabaseUrl, serviceKey, objectKey, r2Bucket = 'meehoasg-website-media', fetcher = fetch }) {
   const basename = objectKey.split('/').pop();
   const checks = [
-    { table: 'orders', filter: `or=(image_urls.cs.["r2://meehoasg-media/${objectKey}"],full_paid_bill_urls.cs.["r2://meehoasg-media/${objectKey}"],image_urls.cs.["supabase://${objectKey}"],full_paid_bill_urls.cs.["supabase://${objectKey}"])` },
-    { table: 'settlement_requests', filter: `or=(bill_urls.cs.["r2://meehoasg-media/${objectKey}"],bill_urls.cs.["supabase://${objectKey}"])` },
+    { table: 'orders', filter: `or=(image_urls.cs.["r2://${r2Bucket}/${objectKey}"],full_paid_bill_urls.cs.["r2://${r2Bucket}/${objectKey}"],image_urls.cs.["supabase://${objectKey}"],full_paid_bill_urls.cs.["supabase://${objectKey}"])` },
+    { table: 'settlement_requests', filter: `or=(bill_urls.cs.["r2://${r2Bucket}/${objectKey}"],bill_urls.cs.["supabase://${objectKey}"])` },
     { table: 'activity_log', filter: `detail=ilike.*${basename}*` },
   ];
   let total = 0;
@@ -55,11 +55,12 @@ async function runCleanup({
   execute = false,
   supabaseUrl,
   serviceKey,
+  r2Bucket = process.env.R2_MEDIA_BUCKET || 'meehoasg-website-media',
   r2Media,
   fetcher = fetch,
 }) {
   const allowSet = new Set(ALLOWED_GOLIVE_TEST_OBJECTS);
-  const report = { mode: execute ? 'execute' : 'dry-run', allowListCount: ALLOWED_GOLIVE_TEST_OBJECTS.length, items: [], deletedCount: 0, blockedCount: 0 };
+  const report = { mode: execute ? 'execute' : 'dry-run', r2Bucket, allowListCount: ALLOWED_GOLIVE_TEST_OBJECTS.length, items: [], deletedCount: 0, blockedCount: 0 };
 
   for (const key of keys) {
     if (!allowSet.has(key)) {
@@ -67,7 +68,7 @@ async function runCleanup({
       report.items.push({ key, status: 'BLOCKED_NOT_IN_ALLOWLIST' });
       continue;
     }
-    const refCheck = await countReferencesInDb({ supabaseUrl, serviceKey, objectKey: key, fetcher });
+    const refCheck = await countReferencesInDb({ supabaseUrl, serviceKey, objectKey: key, r2Bucket, fetcher });
     if (refCheck.referenced) {
       report.blockedCount += 1;
       report.items.push({ key, status: 'BLOCKED_REFERENCED_IN_DB', matchedTables: refCheck.matchedTables });
@@ -109,7 +110,7 @@ if (require.main === module) {
         accountId: process.env.R2_ACCOUNT_ID,
         accessKeyId: process.env.R2_ACCESS_KEY_ID,
         secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-        bucket: process.env.R2_MEDIA_BUCKET || 'meehoasg-media',
+        bucket: process.env.R2_MEDIA_BUCKET || 'meehoasg-website-media',
         endpointUrl: process.env.R2_ENDPOINT_URL || '',
       });
     }

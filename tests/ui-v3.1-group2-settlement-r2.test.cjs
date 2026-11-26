@@ -280,13 +280,13 @@ test('Group 2B: legacy settlement bills batch migration, SHA-256 verify, DB refe
     `);
 
     // Only verify key1 first -> key2 MUST NOT be switched!
-    await pg.query("select set_config('app.r2_bucket', 'meehoasg-media', false)");
+    await pg.query("select set_config('app.r2_bucket', 'meehoasg-website-media', false)");
     await pg.query("select set_config('app.verified_settlement_bill_keys', $1, false)", [JSON.stringify([key1])]);
     await pg.exec(fs.readFileSync(SWITCH_SQL_PATH, 'utf8'));
 
     const afterSwitch = await pg.query('select id, bill_urls from public.settlement_requests order by id');
-    assert.deepEqual(afterSwitch.rows[0].bill_urls, [`r2://meehoasg-media/settlement-bills/${key1}`, 'https://drive.google.com/legacy']);
-    assert.deepEqual(afterSwitch.rows[1].bill_urls, [`r2://meehoasg-media/settlement-bills/${key1}`, `supabase://settlement-bills/${key2}`]);
+    assert.deepEqual(afterSwitch.rows[0].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${key1}`, 'https://drive.google.com/legacy']);
+    assert.deepEqual(afterSwitch.rows[1].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${key1}`, `supabase://settlement-bills/${key2}`]);
 
     // Rollback restores original supabase:// URLs cleanly
     await pg.exec(fs.readFileSync(ROLLBACK_SQL_PATH, 'utf8'));

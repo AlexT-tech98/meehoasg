@@ -23,7 +23,7 @@ const path = require('node:path');
 const VALID_KEY = /^[0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp)$/;
 
 function parseArgs(argv) {
-  const args = { mode: 'dry-run', batchSize: 20, r2Bucket: process.env.R2_MEDIA_BUCKET || 'meehoasg-media', reportPath: '' };
+  const args = { mode: 'dry-run', batchSize: 20, r2Bucket: process.env.R2_MEDIA_BUCKET || 'meehoasg-website-media', reportPath: '' };
   for (const token of argv) {
     if (token === '--copy') args.mode = 'copy';
     else if (token === '--verify') args.mode = 'verify';

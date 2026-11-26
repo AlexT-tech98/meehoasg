@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS public.legacy_settlement_bills_r2_backup (
   order_id text NOT NULL,
   orig_bill_urls jsonb NOT NULL,
   new_bill_urls jsonb NOT NULL,
-  r2_bucket text NOT NULL DEFAULT 'meehoasg-media',
+  r2_bucket text NOT NULL DEFAULT 'meehoasg-website-media',
   migrated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -18,11 +18,11 @@ ALTER TABLE public.legacy_settlement_bills_r2_backup ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.legacy_settlement_bills_r2_backup FROM PUBLIC, anon, authenticated;
 GRANT ALL ON public.legacy_settlement_bills_r2_backup TO service_role;
 
--- Expects session config `app.r2_bucket` (default 'meehoasg-media') and
+-- Expects session config `app.r2_bucket` (default 'meehoasg-website-media') and
 -- `app.verified_settlement_bill_keys` (JSON array of verified object names like ["<uuid>.jpg"]).
 WITH cfg AS (
   SELECT
-    coalesce(nullif(current_setting('app.r2_bucket', true), ''), 'meehoasg-media') AS bucket,
+    coalesce(nullif(current_setting('app.r2_bucket', true), ''), 'meehoasg-website-media') AS bucket,
     coalesce(nullif(current_setting('app.verified_settlement_bill_keys', true), ''), '[]')::jsonb AS verified_json
 ),
 verified AS (

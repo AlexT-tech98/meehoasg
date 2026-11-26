@@ -136,7 +136,7 @@ Applies on top of UI V3 Production baseline `f0f9953cc53ab123707d7eef817b3cf3eef
 2. **Group 2B — Legacy Settlement Bills Migration (~430 bills, `150.7 MB`):**
    - Re-run read-only `scripts/legacy-settlement-bills-inventory.sql` (baseline: `430` distinct `supabase://settlement-bills/...` across `285` `settlement_requests`, `0` missing in `storage.objects`).
    - Run `scripts/migrate-settlement-bills-to-r2.cjs --copy --batch-size=20` then `--verify --batch-size=20` (SHA-256 + R2 GET verification on every object).
-   - Run `scripts/legacy-settlement-bills-r2-switch.sql` with verified keys list (creates `public.legacy_settlement_bills_r2_backup`, switches DB refs to `r2://meehoasg-media/settlement-bills/...`, **keeps Supabase Storage originals intact** until Owner approves separate cleanup).
+   - Run `scripts/legacy-settlement-bills-r2-switch.sql` with verified keys list (creates `public.legacy_settlement_bills_r2_backup`, switches DB refs to `r2://meehoasg-website-media/settlement-bills/...`, **keeps Supabase Storage originals intact** until Owner approves separate cleanup).
    - Verify Payment Check displays migrated bills cleanly; independent rollback: `scripts/legacy-settlement-bills-r2-rollback.sql`.
 3. **Group 2C — Go-Live R2 Test Objects Cleanup (Allow-List Only):**
    - Run `scripts/r2-cleanup-golive-test-objects.cjs` (`--dry-run` first, then `--execute` after Owner confirmation) covering **ONLY** the 6 verified zero-ref JPEG objects from purged orders `MEE-4C8D65C26A8B4BA1` & `MEE-3ECAF7FA21984333`. Never deletes `MEE-4CEA187B770C469B` (`efe981ed-...`, still in Trash) or any customer/website/Order Bot media.
