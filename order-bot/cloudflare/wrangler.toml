@@ -25,3 +25,11 @@ id = "c483e22ad8c546c5bdf4f6711098fd04"
 [[services]]
 binding = "OPS_SERVICE"
 service = "meehoasg-ops-staging"
+
+[[durable_objects.bindings]]
+name = "GEMINI_EGRESS_DO"
+class_name = "GeminiEgressProxy"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GeminiEgressProxy"]

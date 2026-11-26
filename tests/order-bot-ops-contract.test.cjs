@@ -2958,6 +2958,44 @@ test('Contract 25: Gemini retry + Retry-After + budget guard, SSE interruption/m
     assert.equal(faultJson.retries, 1);
     assert.equal(faultJson.activeDraft.fields.customer, 'Thảo My');
     assert.equal(faultJson.activeDraft.status, 'pending');
+
+    // 8. GeminiEgressProxy DO routing (locationHint: 'wnam') & HTTP 400/404 does NOT fall back to disabled aiplatform
+    const { GeminiEgressProxy, resolveGeminiFetcher } = workerMod;
+    const proxy = new GeminiEgressProxy(null, { GEMINI_API_KEY: 'AQ.proxy' });
+    const badProxyRes = await proxy.fetch(new Request('https://gemini-egress.internal/proxy', {
+      method: 'POST',
+      headers: { 'x-gemini-target-url': 'https://evil.example.com/steal' },
+      body: '{}'
+    }));
+    assert.equal(badProxyRes.status, 400, 'GeminiEgressProxy must reject non-Google target URLs');
+
+    const doCalls = [];
+    const doEnv = {
+      GEMINI_EGRESS_DO: {
+        idFromName: name => `id:${name}`,
+        get: (id, getOpts) => {
+          doCalls.push({ id, getOpts });
+          return { fetch: (u, init) => proxy.fetch(new Request(u, { method: init.method, headers: init.headers, body: init.body })) };
+        }
+      }
+    };
+    const doFetcher = resolveGeminiFetcher(doEnv);
+    const resThroughDo = await doFetcher('https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:streamGenerateContent?alt=sse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': 'AQ.proxy' },
+      body: JSON.stringify({ test: true })
+    });
+    assert.equal(resThroughDo.status, 200);
+    assert.equal(doCalls[0].getOpts?.locationHint, 'wnam');
+
+    const urls400 = [];
+    const res400NoFb = await extractFieldsWithGeminiDetailed('AQ.testKey', caption, 'gemini-4-hydrogen', async u => {
+      urls400.push(String(u));
+      return new Response(JSON.stringify({ error: { code: 400, status: 'FAILED_PRECONDITION', message: 'Location not supported' } }), { status: 400 });
+    }, 5000, { baseDelayMs: 5 });
+    assert.equal(urls400.length, 1, 'HTTP 400 must not fall back to aiplatform');
+    assert.equal(res400NoFb.ok, false);
+    assert.equal(res400NoFb.endpoint, 'generativelanguage');
   } finally {
     globalThis.fetch = origFetch;
   }

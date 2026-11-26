@@ -515,9 +515,10 @@ export async function extractFieldsWithGeminiDetailed(
       };
     }
 
-    // Secondary endpoint fallback only on auth/config errors for AQ. keys or explicit aiplatform probes
+    // Secondary endpoint fallback ONLY on true auth/credential errors ([401, 403]) for AQ. keys or aiplatform probes.
+    // Never fall back to aiplatform on 400 (geo restriction) or 404 (model availability) when aiplatform is disabled.
     const canFallback = !didFallback &&
-      [400, 401, 403, 404].includes(Number(res.status)) &&
+      [401, 403].includes(Number(res.status)) &&
       (String(apiKey).startsWith('AQ.') || opts.preferredEndpoint === 'aiplatform');
 
     if (canFallback) {

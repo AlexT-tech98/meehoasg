@@ -81,6 +81,101 @@ const replyTg = (env, chatId, text, parseMode = null) =>
 const downloadTgPhoto = (env, fileId, maxBytes = MAX_IMAGE_BYTES) =>
   downloadTelegramPhoto(env.BOT_TOKEN, fileId, maxBytes, env.TELEGRAM_FETCHER || fetch);
 
+const ALLOWED_GEMINI_PROXY_PREFIXES = [
+  'https://generativelanguage.googleapis.com/',
+  'https://aiplatform.googleapis.com/'
+];
+
+/**
+ * Durable Object acting as a clean outbound proxy in US-West (`locationHint: "wnam"`)
+ * so Gemini API requests NEVER egress from Cloudflare's HKG PoP (blocked by AI Studio).
+ * Compatible with plain Workers Free SQLite Durable Objects and Node.js unit test imports.
+ */
+export class GeminiEgressProxy {
+  constructor(ctx, env) {
+    this.ctx = ctx;
+    this.env = env;
+  }
+
+  async fetch(request) {
+    if (request.method !== 'POST') {
+      return new Response('Method Not Allowed', { status: 405 });
+    }
+    const targetUrl = String(request.headers.get('x-gemini-target-url') || '').trim();
+    if (!ALLOWED_GEMINI_PROXY_PREFIXES.some(prefix => targetUrl.startsWith(prefix))) {
+      return new Response(JSON.stringify({ error: { code: 400, message: 'INVALID_GEMINI_TARGET' } }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    const apiKey = request.headers.get('x-goog-api-key') || this.env?.GEMINI_API_KEY || '';
+    const bodyText = await request.text();
+    const upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { 'x-goog-api-key': apiKey } : {})
+      },
+      body: bodyText,
+      signal: AbortSignal.timeout(35000)
+    });
+
+    const outHeaders = new Headers();
+    const ct = upstream.headers.get('content-type');
+    if (ct) outHeaders.set('content-type', ct);
+    const ra = upstream.headers.get('retry-after');
+    if (ra) outHeaders.set('retry-after', ra);
+    outHeaders.set('x-gemini-proxy-colo', String(request.cf?.colo || 'do-wnam'));
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: outHeaders
+    });
+  }
+}
+
+export function resolveGeminiFetcher(env) {
+  if (env?.GEMINI_FETCHER) return env.GEMINI_FETCHER;
+  if (env?.GEMINI_EGRESS_DO && typeof env.GEMINI_EGRESS_DO.idFromName === 'function') {
+    return async (targetUrl, opts = {}) => {
+      const id = env.GEMINI_EGRESS_DO.idFromName('gemini-egress-wnam-v1');
+      const stub = env.GEMINI_EGRESS_DO.get(id, { locationHint: 'wnam' });
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-gemini-target-url': String(targetUrl)
+      };
+      const apiKey = opts?.headers?.['x-goog-api-key'] || opts?.headers?.['X-Goog-Api-Key'] || '';
+      if (apiKey) headers['x-goog-api-key'] = apiKey;
+
+      const doPromise = stub.fetch('https://gemini-egress.internal/proxy', {
+        method: 'POST',
+        headers,
+        body: opts?.body
+      });
+      if (!opts?.signal) return doPromise;
+      return new Promise((resolve, reject) => {
+        if (opts.signal.aborted) {
+          const e = new Error('The operation was aborted.');
+          e.name = 'AbortError';
+          reject(e);
+          return;
+        }
+        const onAbort = () => {
+          const e = new Error('The operation was aborted.');
+          e.name = 'AbortError';
+          reject(e);
+        };
+        opts.signal.addEventListener('abort', onAbort, { once: true });
+        doPromise.then(
+          res => { opts.signal.removeEventListener('abort', onAbort); resolve(res); },
+          err => { opts.signal.removeEventListener('abort', onAbort); reject(err); }
+        );
+      });
+    };
+  }
+  return fetch;
+}
+
 function formatAiFailureNotice(aiRes) {
   if (!aiRes || aiRes.ok) return null;
   const status = Number(aiRes.status);
@@ -715,7 +810,7 @@ async function handleAiProbe(request, env) {
       env.GEMINI_API_KEY,
       probeCaption,
       probeModel,
-      faultFetcher || fetch,
+      faultFetcher || resolveGeminiFetcher(env),
       timeoutMs || DEFAULT_GEMINI_TIMEOUT_MS,
       geminiOptions
     );
@@ -1535,7 +1630,7 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
       env.GEMINI_API_KEY,
       text,
       env.GEMINI_MODEL,
-      env.GEMINI_FETCHER || fetch,
+      resolveGeminiFetcher(env),
       env.GEMINI_TIMEOUT_MS,
       env.GEMINI_OPTIONS || {}
     );
