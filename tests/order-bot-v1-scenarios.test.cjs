@@ -29,6 +29,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { DatabaseSync } = require('node:sqlite');
 
+const _futureDt = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
+const FUTURE_ISO = `${_futureDt.getUTCFullYear()}-${String(_futureDt.getUTCMonth() + 1).padStart(2, '0')}-${String(_futureDt.getUTCDate()).padStart(2, '0')}`;
+const FUTURE_DMY = `${String(_futureDt.getUTCDate()).padStart(2, '0')}/${String(_futureDt.getUTCMonth() + 1).padStart(2, '0')}/${_futureDt.getUTCFullYear()}`;
+
 function createMockD1() {
   const sqlite = new DatabaseSync(':memory:');
   const schema = fs.readFileSync('order-bot/cloudflare/schema.sql', 'utf8');
@@ -156,7 +160,7 @@ test('Kịch bản 1: Đơn Chưa thanh toán không kèm bill: tạo đơn thà
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Anh Khang\nhoa: Bó hoa hướng dương 500k\nngày: 25/11/2026\ngiờ: 10:00\nship: Ghé lấy'
+      text: `khách: Anh Khang\nhoa: Bó hoa hướng dương 500k\nngày: ${FUTURE_DMY}\ngiờ: 10:00\nship: Ghé lấy`
     }
   }), env);
 
@@ -176,7 +180,7 @@ test('Kịch bản 1: Đơn Chưa thanh toán không kèm bill: tạo đơn thà
   assert.equal(capturedOpsPayload.payload.order.fullPaidRequested, false);
   assert.equal(capturedOpsPayload.payload.order.customer, 'Anh Khang');
   assert.equal(capturedOpsPayload.payload.order.flowerTotal, 500000);
-  assert.equal(capturedOpsPayload.payload.order.date, '2026-11-25');
+  assert.equal(capturedOpsPayload.payload.order.date, FUTURE_ISO);
   assert.equal(capturedOpsPayload.payload.order.time, '10:00');
 
   const successMsg = sentMessages.find(m => m.text?.includes('M-261122-001'));
@@ -224,7 +228,7 @@ test('Kịch bản 2: Đơn Đã cọc có số tiền cọc, không kèm bill: 
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Chị Hà\nhoa: Bó hoa hồng 600k\nngày: 25/11/2026\ngiờ: 15h\nship: Ghé lấy\nKhách đã cọc 200k'
+      text: `khách: Chị Hà\nhoa: Bó hoa hồng 600k\nngày: ${FUTURE_DMY}\ngiờ: 15h\nship: Ghé lấy\nKhách đã cọc 200k`
     }
   }), env);
 
@@ -297,7 +301,7 @@ test('Kịch bản 3: Đơn Bankfull không kèm bill: tạo đơn thành công,
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Anh Tuấn\nhoa: Giỏ hoa khai trương 1.2tr\nngày: 25/11/2026\ngiờ: 8h30\nship: Shop book ship\nđịa chỉ: 12 Pasteur Q1\nKhách đã bankfull tiền hoa'
+      text: `khách: Anh Tuấn\nhoa: Giỏ hoa khai trương 1.2tr\nngày: ${FUTURE_DMY}\ngiờ: 8h30\nship: Shop book ship\nđịa chỉ: 12 Pasteur Q1\nKhách đã bankfull tiền hoa`
     }
   }), env);
 
@@ -377,7 +381,7 @@ test('Kịch bản 4: Đơn Fullpaid CÓ bill: tạo đơn thành công, liên k
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Chị Mai\nhoa: Bó hoa tulip 750k\nngày: 25/11/2026\ngiờ: 16h\nship: Ghé lấy\nKhách đã thanh toán đủ'
+      text: `khách: Chị Mai\nhoa: Bó hoa tulip 750k\nngày: ${FUTURE_DMY}\ngiờ: 16h\nship: Ghé lấy\nKhách đã thanh toán đủ`
     }
   }), env);
 
@@ -448,7 +452,7 @@ test('Kịch bản 5: Đơn Fullpaid THIẾU bill: chặn /confirm, phản hồi
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Chị Loan\nhoa: Bó hoa cúc tana 450k\nngày: 25/11/2026\ngiờ: 11h\nship: Ghé lấy\nKhách đã thanh toán toàn bộ fullpaid'
+      text: `khách: Chị Loan\nhoa: Bó hoa cúc tana 450k\nngày: ${FUTURE_DMY}\ngiờ: 11h\nship: Ghé lấy\nKhách đã thanh toán toàn bộ fullpaid`
     }
   }), env);
 
@@ -520,7 +524,7 @@ test('Kịch bản 7: Tin nhắn kèm ảnh và caption: ảnh vào sampleRefs, 
     message: { message_id: 1, from: { id: 5252724920 }, chat: { id: 5252724920, type: 'private' }, text: '/new' }
   }), env);
 
-  const captionText = 'Bó hoa hướng dương 500k cho anh Minh giao 9h sáng mai 25/11/2026 ghé lấy';
+  const captionText = `Bó hoa hướng dương 500k cho anh Minh giao 9h sáng mai ${FUTURE_DMY} ghé lấy`;
   await handleTelegramWebhook(makeWebhookRequest({
     update_id: 702,
     message: {
@@ -537,7 +541,7 @@ test('Kịch bản 7: Tin nhắn kèm ảnh và caption: ảnh vào sampleRefs, 
   assert.equal(draft.sampleRefs.length, 1);
   assert.equal(draft.sampleRefs[0].fileId, 'sample_photo_minh');
   assert.equal(draft.fields.flowerTotal, '500000');
-  assert.equal(draft.fields.date, '2026-11-25');
+  assert.equal(draft.fields.date, FUTURE_ISO);
   assert.equal(draft.fields.time, '09:00');
   assert.equal(draft.fields.shipping, 'Ghé lấy');
 });
@@ -574,7 +578,7 @@ test('Kịch bản 8: Tin nhắn bổ sung địa chỉ và SĐT: cập nhật �
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Chị Linh\nhoa: Bó hoa tulip trắng 600k\nngày: 26/11/2026\ngiờ: 14h\nship: Ghé lấy'
+      text: `khách: Chị Linh\nhoa: Bó hoa tulip trắng 600k\nngày: ${FUTURE_DMY}\ngiờ: 14h\nship: Ghé lấy`
     }
   }), env);
 
@@ -631,7 +635,7 @@ test('Kịch bản 9: Khách đổi ý từ Bankfull sang Fullpaid: yêu cầu b
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Anh Nam\nhoa: Bó hoa 500k\nngày: 25/11/2026\ngiờ: 10h\nship: Ghé lấy\nKhách đã bankfull tiền hoa'
+      text: `khách: Anh Nam\nhoa: Bó hoa 500k\nngày: ${FUTURE_DMY}\ngiờ: 10h\nship: Ghé lấy\nKhách đã bankfull tiền hoa`
     }
   }), env);
 
@@ -694,7 +698,7 @@ test('Kịch bản 10: Sửa giá sau khi đã báo thanh toán: cập nhật gi
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Chị Nga\nhoa: Bó hoa 600k\nngày: 25/11/2026\ngiờ: 10h\nship: Ghé lấy\nKhách đã cọc 200k'
+      text: `khách: Chị Nga\nhoa: Bó hoa 600k\nngày: ${FUTURE_DMY}\ngiờ: 10h\nship: Ghé lấy\nKhách đã cọc 200k`
     }
   }), env);
 
@@ -853,7 +857,7 @@ test('Kịch bản 14: Lỗi tải ảnh từ Telegram: báo lỗi cụ thể, r
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Anh Bình\nhoa: Bó hoa 500k\nngày: 25/11/2026\ngiờ: 10h\nship: Ghé lấy'
+      text: `khách: Anh Bình\nhoa: Bó hoa 500k\nngày: ${FUTURE_DMY}\ngiờ: 10h\nship: Ghé lấy`
     }
   }), env);
 
@@ -931,7 +935,7 @@ test('Kịch bản 15: Lỗi OPS từ chối tạo đơn: bot thông báo lỗi 
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Anh Cường\nhoa: Bó hoa 500k\nngày: 25/11/2026\ngiờ: 10h\nship: Ghé lấy'
+      text: `khách: Anh Cường\nhoa: Bó hoa 500k\nngày: ${FUTURE_DMY}\ngiờ: 10h\nship: Ghé lấy`
     }
   }), env);
 
@@ -988,7 +992,7 @@ test('Kịch bản 16: Lỗi mạng hoặc timeout khi gọi OPS: giữ nguyên 
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Chị Dung\nhoa: Bó hoa 500k\nngày: 25/11/2026\ngiờ: 10h\nship: Ghé lấy'
+      text: `khách: Chị Dung\nhoa: Bó hoa 500k\nngày: ${FUTURE_DMY}\ngiờ: 10h\nship: Ghé lấy`
     }
   }), env);
 
@@ -1047,7 +1051,7 @@ test('Kịch bản 17: Retry /confirm khi đơn đã submitted: không gọi API
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Chị Giang\nhoa: Bó hoa 500k\nngày: 25/11/2026\ngiờ: 10h\nship: Ghé lấy'
+      text: `khách: Chị Giang\nhoa: Bó hoa 500k\nngày: ${FUTURE_DMY}\ngiờ: 10h\nship: Ghé lấy`
     }
   }), env);
 
@@ -1113,7 +1117,7 @@ test('Kịch bản 18: Lệnh /relink thử lại liên kết bill thành công 
       message_id: 2,
       from: { id: 5252724920 },
       chat: { id: 5252724920, type: 'private' },
-      text: 'khách: Anh Hậu\nhoa: Bó hoa 500k\nngày: 25/11/2026\ngiờ: 10h\nship: Ghé lấy'
+      text: `khách: Anh Hậu\nhoa: Bó hoa 500k\nngày: ${FUTURE_DMY}\ngiờ: 10h\nship: Ghé lấy`
     }
   }), env);
 
@@ -1457,7 +1461,7 @@ test('Kiểm tra địa chỉ bổ sung sau: chặn /confirm khi Shop book ship 
 
   const msgShopShip = `Khách: Anh Nam
 Hoa: Bó hoa hướng dương 500k
-Ngày: 25/11/2026
+Ngày: ${FUTURE_DMY}
 Giờ: 14h
 Ship: Shop book ship
 Địa chỉ bsung sau`;
@@ -1502,7 +1506,7 @@ Ship: Shop book ship
 
   const msgPickup = `Khách: Chị Lan
 Hoa: Bó hoa cẩm tú cầu 600k
-Ngày: 25/11/2026
+Ngày: ${FUTURE_DMY}
 Giờ: 16h
 Ship: Ghé lấy
 Địa chỉ bsung sau`;

@@ -1026,13 +1026,20 @@ test('field update on submitted draft guides to /new', async () => {
 // 54. Multiple /new creates independent drafts
 // ---------------------------------------------------------------------------
 
-test('multiple /new calls create independent drafts without overwriting each other', async () => {
+test('multiple /new calls create independent drafts for populated orders and reuse empty active draft', async () => {
   const { handleUpdate, loadDrafts } = await getCore();
   const { randomUUID } = require('node:crypto');
 
   const userId = 'test-' + randomUUID().slice(0, 8);
+  // Repeated /new while active draft is still empty must NOT spawn unwanted extra empty drafts
   handleUpdate({ userId, text: '/new', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
   handleUpdate({ userId, text: '/new', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  assert.equal(Object.keys(loadDrafts(userId)).filter(k => !k.startsWith('_')).length, 1, 'repeated /new on empty draft reuses single draft');
+
+  // Populating each draft before /new creates independent drafts without overwriting each other
+  handleUpdate({ userId, text: 'tên khách: Khách 1', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  handleUpdate({ userId, text: '/new', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
+  handleUpdate({ userId, text: 'tên khách: Khách 2', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
   handleUpdate({ userId, text: '/new', photoFileId: null, photoCaption: '', isBillHint: false, requestId: randomUUID() });
 
   const drafts = loadDrafts(userId);

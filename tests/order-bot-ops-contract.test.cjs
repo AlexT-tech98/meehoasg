@@ -833,3 +833,432 @@ test('Contract 10: saveDrafts automatically strips legacy inline base64 data_url
   assert.equal(loaded['legacy-1'].sampleRefs[0].r2_key, 'order-images/sample-legacy-1-abc.jpg');
   assert.equal(loaded['legacy-1'].sampleRefs[0].data_url, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// 8. Photo + Caption Draft Isolation, Exact Staging Bug Repro, Ambiguity & /new
+// ---------------------------------------------------------------------------
+
+test('Contract 11: Exact staging caption ("Tổng 350k cọc 200k / Như + 0394200327 / 27/11 & 13h30 / địa chỉ nhận / note") isolates into new draft without mixing old draft #d4a39f', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts, saveDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { activeDraft, requiredMissing } = await import('../order-bot/core.mjs');
+
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const sentMessages = [];
+  const opsCalls = [];
+
+  // Seed existing draft #d4a39f ("Test Ảnh 26/11", "Bó hoa thử nghiệm", 400k, 1 photo)
+  const oldDraftId = '11111111-2222-4333-8444-555555d4a39f';
+  const oldPhotoKey = `order-images/sample-${oldDraftId}-oldpic01.jpg`;
+  await r2.put(oldPhotoKey, new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1]), { httpMetadata: { contentType: 'image/jpeg' } });
+  await saveDrafts(db, 5252724920, {
+    __active: oldDraftId,
+    [oldDraftId]: {
+      id: oldDraftId,
+      status: 'pending',
+      fields: {
+        customer: 'Test Ảnh 26/11',
+        flower: 'Bó hoa thử nghiệm',
+        flowerTotal: '400000',
+        date: '2026-12-05',
+        time: '10:00',
+        shipping: 'Ghé lấy'
+      },
+      sampleRefs: [{ fileId: 'old_photo_1', r2_key: oldPhotoKey, uri: `supabase://${oldPhotoKey}`, mimeType: 'image/jpeg' }],
+      draftBillRefs: [],
+      createdAt: '2026-11-26T04:00:00.000Z'
+    }
+  });
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/getFile')) {
+      return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/nhu_sample.jpg', file_size: 2048 } }));
+    }
+    if (url.includes('/file/bot')) {
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 8, 7]));
+    }
+    if (url.includes('/api-core')) {
+      const payload = JSON.parse(opts.body);
+      opsCalls.push(payload);
+      return new Response(JSON.stringify({ ok: true, orderId: 'MEE-NHU-001' }));
+    }
+    if (url.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: 'test_ops_token',
+    OPS_API_URL: 'https://ops-staging.local/api-core',
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  // Use the literal caption reported on staging
+  const literalCaption = `Tổng 350k cọc 200k
+Như + 0394200327
+27/11 & 13h30
+địa chỉ nhận: 102/34c Phan Huy Ích, P. Tân Sơn
+note: “Chúc mừng ngày nhận bằng thật rạng rỡ!”`;
+
+  const resPhoto = await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99601,
+      message: {
+        message_id: 10,
+        chat: { id: 5252724920, type: 'private' },
+        from: { id: 5252724920 },
+        photo: [{ file_id: 'nhu_photo_1', file_unique_id: 'uniq_nhu_1' }],
+        caption: literalCaption
+      }
+    }),
+    env
+  );
+  assert.equal(resPhoto.status, 200);
+
+  const drafts = await loadDrafts(db, 5252724920);
+  const draftIds = Object.keys(drafts).filter(k => !k.startsWith('__'));
+  assert.equal(draftIds.length, 2, 'Old draft must be kept separate and a brand-new draft must be created');
+
+  // 1. Old draft #d4a39f MUST remain 100% untouched
+  const preservedOld = drafts[oldDraftId];
+  assert.ok(preservedOld);
+  assert.equal(preservedOld.fields.customer, 'Test Ảnh 26/11');
+  assert.equal(preservedOld.fields.flower, 'Bó hoa thử nghiệm');
+  assert.equal(preservedOld.fields.flowerTotal, '400000');
+  assert.equal(preservedOld.sampleRefs.length, 1, 'Old draft must NOT receive the new photo');
+  assert.equal(preservedOld.sampleRefs[0].fileId, 'old_photo_1');
+
+  // 2. New active draft MUST contain ONLY the new order's parsed data
+  const newDraft = activeDraft(drafts);
+  assert.notEqual(newDraft.id, oldDraftId);
+  assert.equal(newDraft.fields.customer, 'Như');
+  assert.equal(newDraft.fields.phone, '0394200327');
+  assert.equal(newDraft.fields.flowerTotal, '350000');
+  assert.equal(newDraft.fields.paymentState, 'deposit');
+  assert.equal(newDraft.fields.depositAmount, 200000);
+  assert.equal(newDraft.fields.time, '13:30');
+  assert.match(newDraft.fields.date || '', /^\d{4}-11-27$/);
+  assert.equal(newDraft.fields.address, '102/34c Phan Huy Ích, P. Tân Sơn');
+  assert.equal(newDraft.fields.note, '“Chúc mừng ngày nhận bằng thật rạng rỡ!”');
+  // STRICT NO-GUESSING: flower and shipping must NOT be inherited from old draft or guessed
+  assert.equal(newDraft.fields.flower, undefined, 'Must NOT inherit or guess flower');
+  assert.equal(newDraft.fields.shipping, undefined, 'Must NOT inherit or guess shipping');
+  assert.equal(newDraft.sampleRefs.length, 1);
+  assert.equal(newDraft.sampleRefs[0].fileId, 'nhu_photo_1');
+  assert.equal(newDraft.sampleRefs[0].data_url, undefined);
+
+  // 3. Reply summary shows 350k, deposit 200k, remaining 150k, unpaid OPS invariant, and missing fields
+  const photoReply = sentMessages[sentMessages.length - 1].text;
+  assert.ok(photoReply.includes('d4a39f'), 'Must mention old draft was preserved');
+  assert.ok(photoReply.includes('350.000 đ'));
+  assert.ok(photoReply.includes('Đã cọc 200.000 đ'));
+  assert.ok(photoReply.includes('còn lại: 150.000 đ'));
+  assert.ok(photoReply.includes('OPS tạo Chưa thanh toán'));
+  assert.ok(photoReply.includes('mẫu hoa'));
+  assert.ok(photoReply.includes('hình thức ship'));
+
+  // 4. /confirm MUST be blocked while flower and shipping are missing (zero OPS calls)
+  const missing = requiredMissing(newDraft);
+  assert.ok(missing.includes('mẫu hoa'));
+  assert.ok(missing.includes('hình thức ship'));
+
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99602,
+      message: { message_id: 11, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+    }),
+    env
+  );
+  assert.equal(opsCalls.length, 0, '/confirm must be blocked when flower & shipping are missing');
+
+  // 5. Duplicate Telegram delivery of the same update_id must be ignored cleanly
+  const resDup = await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99601,
+      message: {
+        message_id: 10,
+        chat: { id: 5252724920, type: 'private' },
+        from: { id: 5252724920 },
+        photo: [{ file_id: 'nhu_photo_1', file_unique_id: 'uniq_nhu_1' }],
+        caption: literalCaption
+      }
+    }),
+    env
+  );
+  assert.equal(resDup.status, 200);
+  assert.match(await resDup.text(), /Already Processed/);
+  const draftsAfterDup = await loadDrafts(db, 5252724920);
+  assert.equal(Object.keys(draftsAfterDup).filter(k => !k.startsWith('__')).length, 2, 'Duplicate update_id must not create 3rd draft');
+
+  // 6. Supplement missing flower + shipping, then /confirm -> OPS gets exact 350k, unpaid payment, deposit in note, 1 photo
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99603,
+      message: {
+        message_id: 12,
+        chat: { id: 5252724920, type: 'private' },
+        from: { id: 5252724920 },
+        text: 'mẫu hoa: Bó hướng dương tốt nghiệp\nhình thức: Shop book ship'
+      }
+    }),
+    env
+  );
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99604,
+      message: { message_id: 13, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+    }),
+    env
+  );
+
+  assert.equal(opsCalls.length, 1);
+  const sentOrder = opsCalls[0].payload.order;
+  assert.equal(sentOrder.customer, 'Như');
+  assert.equal(sentOrder.phone, '0394200327');
+  assert.equal(sentOrder.flower, 'Bó hướng dương tốt nghiệp');
+  assert.equal(sentOrder.flowerTotal, 350000);
+  assert.equal(sentOrder.shipping, 'Shop book ship');
+  assert.equal(sentOrder.address, '102/34c Phan Huy Ích, P. Tân Sơn');
+  assert.equal(sentOrder.payment, 'Chưa thanh toán', 'OPS payment must stay unpaid');
+  assert.equal(sentOrder.fullPaidRequested, false);
+  assert.ok(sentOrder.note.includes('[Khách báo: Đã cọc 200.000 đ]'));
+  assert.equal(sentOrder.imageFiles.length, 1);
+
+  // 7. Repeating /confirm on submitted draft must NEVER create a duplicate order
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99605,
+      message: { message_id: 14, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+    }),
+    env
+  );
+  assert.equal(opsCalls.length, 1, 'Duplicate /confirm must not create second OPS order');
+});
+
+test('Contract 12: Supplementary photo attaches to active draft; ambiguous conflicting photo+caption asks user instead of silently merging', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { activeDraft } = await import('../order-bot/core.mjs');
+
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const sentMessages = [];
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/getFile')) {
+      return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/p.jpg', file_size: 1024 } }));
+    }
+    if (url.includes('/file/bot')) {
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 4, 5]));
+    }
+    if (url.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  // Start directly by sending 1 sample photo with caption (no /new needed!)
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99701,
+      message: {
+        message_id: 1,
+        chat: { id: 5252724920, type: 'private' },
+        from: { id: 5252724920 },
+        photo: [{ file_id: 'p_init', file_unique_id: 'u_init' }],
+        caption: 'khách: Chị An\nhoa: Bó hồng đỏ 500k\ngiờ: 10:00\nship: Ghé lấy'
+      }
+    }),
+    env
+  );
+
+  let drafts = await loadDrafts(db, 5252724920);
+  const draft1Id = activeDraft(drafts).id;
+  assert.equal(drafts[draft1Id].sampleRefs.length, 1);
+  assert.equal(drafts[draft1Id].fields.customer, 'Chị An');
+
+  // 1. Supplementary photo (short non-order label "góc chụp khác") -> safely attaches to same draft
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99702,
+      message: {
+        message_id: 2,
+        chat: { id: 5252724920, type: 'private' },
+        from: { id: 5252724920 },
+        photo: [{ file_id: 'p_supp', file_unique_id: 'u_supp' }],
+        caption: 'góc chụp khác'
+      }
+    }),
+    env
+  );
+
+  drafts = await loadDrafts(db, 5252724920);
+  assert.equal(drafts.__active, draft1Id, 'Supplementary photo must keep same active draft');
+  assert.equal(drafts[draft1Id].sampleRefs.length, 2);
+
+  // 2. Ambiguous photo+caption (conflicting flower & price without customer/phone) -> asks user, does NOT mutate draft1!
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99703,
+      message: {
+        message_id: 3,
+        chat: { id: 5252724920, type: 'private' },
+        from: { id: 5252724920 },
+        photo: [{ file_id: 'p_ambig', file_unique_id: 'u_ambig' }],
+        caption: 'Giỏ hoa lan hồ điệp 1.2tr'
+      }
+    }),
+    env
+  );
+
+  drafts = await loadDrafts(db, 5252724920);
+  assert.ok(drafts.__pendingPhoto, 'Ambiguous photo must be held in __pendingPhoto');
+  assert.equal(drafts[draft1Id].sampleRefs.length, 2, 'Active draft must NOT be mutated while ambiguous');
+  assert.equal(drafts[draft1Id].fields.flower, 'Bó hồng đỏ 500k');
+  assert.equal(drafts[draft1Id].fields.flowerTotal, '500000');
+  assert.match(sentMessages[sentMessages.length - 1].text, /\/new_from_photo/);
+  assert.match(sentMessages[sentMessages.length - 1].text, /\/attach/);
+
+  // 3. Operator picks "1" (create new draft from pending photo) -> creates clean draft 2, leaves draft 1 untouched, cleans pending R2 key
+  const pendingKey = drafts.__pendingPhoto.r2_key;
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99704,
+      message: { message_id: 4, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '1' }
+    }),
+    env
+  );
+
+  drafts = await loadDrafts(db, 5252724920);
+  assert.equal(drafts.__pendingPhoto, undefined);
+  assert.equal(r2.objects.has(pendingKey), false, 'Temporary pending R2 key must be cleaned up after move');
+  const draft2 = activeDraft(drafts);
+  assert.notEqual(draft2.id, draft1Id);
+  assert.equal(draft2.fields.flower, 'Giỏ hoa lan hồ điệp 1.2tr');
+  assert.equal(draft2.fields.flowerTotal, '1200000');
+  assert.equal(draft2.fields.customer, undefined, 'New draft must NOT inherit customer from draft 1');
+  assert.equal(draft2.sampleRefs.length, 1);
+  assert.equal(r2.objects.has(draft2.sampleRefs[0].r2_key), true);
+
+  // Draft 1 still completely intact
+  assert.equal(drafts[draft1Id].fields.customer, 'Chị An');
+  assert.equal(drafts[draft1Id].sampleRefs.length, 2);
+
+  // 4. Operator can also explicitly choose /attach (2) when updating same draft with a new sample photo
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99705,
+      message: {
+        message_id: 5,
+        chat: { id: 5252724920, type: 'private' },
+        from: { id: 5252724920 },
+        photo: [{ file_id: 'p_attach_update', file_unique_id: 'u_attach_upd' }],
+        caption: 'Giỏ hoa lan hồ điệp trắng 1.5tr'
+      }
+    }),
+    env
+  );
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99706,
+      message: { message_id: 6, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/attach' }
+    }),
+    env
+  );
+  drafts = await loadDrafts(db, 5252724920);
+  assert.equal(drafts.__active, draft2.id);
+  assert.equal(drafts[draft2.id].sampleRefs.length, 2);
+  assert.equal(drafts[draft2.id].fields.flowerTotal, '1500000');
+});
+
+test('Contract 13: Repeated /new on empty draft does not spawn duplicate drafts; text amendment updates active draft cleanly', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const sentMessages = [];
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  // Press /new 3 times rapidly
+  for (let i = 1; i <= 3; i++) {
+    await handleTelegramWebhook(
+      makeWebhookRequest({
+        update_id: 99800 + i,
+        message: { message_id: i, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/new' }
+      }),
+      env
+    );
+  }
+
+  let drafts = await loadDrafts(db, 5252724920);
+  const ids = Object.keys(drafts).filter(k => !k.startsWith('__'));
+  assert.equal(ids.length, 1, 'Repeated /new on empty draft must keep exactly 1 draft');
+  assert.match(sentMessages[sentMessages.length - 1].text, /đang mở sẵn/);
+
+  // Text amendment updates active draft without creating another draft
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99810,
+      message: {
+        message_id: 10,
+        chat: { id: 5252724920, type: 'private' },
+        from: { id: 5252724920 },
+        text: 'Tổng 350k cọc 200k\nNhư + 0394200327\nđịa chỉ nhận: 102/34c Phan Huy Ích'
+      }
+    }),
+    env
+  );
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 99811,
+      message: {
+        message_id: 11,
+        chat: { id: 5252724920, type: 'private' },
+        from: { id: 5252724920 },
+        text: 'tổng: 420k\nđịa chỉ nhận: 99 Nguyễn Huệ, Q.1'
+      }
+    }),
+    env
+  );
+
+  drafts = await loadDrafts(db, 5252724920);
+  assert.equal(Object.keys(drafts).filter(k => !k.startsWith('__')).length, 1);
+  const d = drafts[drafts.__active];
+  assert.equal(d.fields.customer, 'Như');
+  assert.equal(d.fields.flowerTotal, '420000');
+  assert.equal(d.fields.depositAmount, 200000);
+  assert.equal(d.fields.address, '99 Nguyễn Huệ, Q.1');
+  assert.equal(d.fields.shipping, undefined, 'Address alone must never guess shipping');
+});

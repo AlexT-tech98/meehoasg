@@ -26,6 +26,8 @@ import {
   addSampleRef,
   addBillRef,
   activeDraft,
+  isDraftEmpty,
+  classifyIncomingPhotoDraft,
   applyFields,
   draftSummary,
   requiredMissing
@@ -379,29 +381,36 @@ export async function handleTelegramWebhook(request, rawEnv) {
         await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Kho ảnh chưa sẵn sàng. Ảnh chưa được thêm vào đơn nháp.');
         return;
       }
-      const draft = activeDraft(drafts);
 
-      if (!draft) {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa có đơn nháp nào đang chọn. Gõ /new để tạo đơn mới.');
+      const highestPhoto = message.photo[message.photo.length - 1];
+      const caption = (message.caption || '').trim();
+      if (caption && detectPromptInjection(caption)) {
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, '🛡️ Tin nhắn bị từ chối do chứa nội dung can thiệp hệ thống hoặc quyền hạn.');
         return;
       }
 
-      if (draft.status === 'confirming') {
+      const isBill = isBillCaption(caption);
+      const decision = classifyIncomingPhotoDraft(drafts, caption, isBill);
+
+      if (decision.action === 'reject_no_draft') {
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa có đơn nháp nào đang chọn. Gửi ảnh mẫu kèm chú thích đơn hàng hoặc gõ /new để tạo đơn mới.');
+        return;
+      }
+      if (decision.action === 'reject_confirming') {
         await sendTelegramMessage(env.BOT_TOKEN, chatId, '⏳ Đơn đang trong tiến trình xác nhận với OPS, không thể bổ sung ảnh.');
         return;
       }
-      if (draft.status === 'submitted') {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Đơn này đã được tạo thành công trên OPS. Gõ /new để tạo đơn mới.');
+      if (decision.action === 'reject_submitted') {
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Đơn này đã được tạo thành công trên OPS. Gửi ảnh mẫu kèm chú thích đơn mới hoặc gõ /new để tạo đơn mới.');
         return;
       }
 
-      const highestPhoto = message.photo[message.photo.length - 1];
-      const caption = message.caption || '';
-      const isBill = isBillCaption(caption);
-
-      if ((isBill ? draft.draftBillRefs : draft.sampleRefs)?.length >= 10) {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Mỗi nhóm chỉ nhận tối đa 10 ảnh. Ảnh này chưa được thêm vào đơn nháp.');
-        return;
+      const currentActive = activeDraft(drafts);
+      if (decision.action === 'attach_active' && currentActive) {
+        if ((isBill ? currentActive.draftBillRefs : currentActive.sampleRefs)?.length >= 10) {
+          await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Mỗi nhóm chỉ nhận tối đa 10 ảnh. Ảnh này chưa được thêm vào đơn nháp.');
+          return;
+        }
       }
 
       // Download photo with 5MB validation
@@ -411,16 +420,85 @@ export async function handleTelegramWebhook(request, rawEnv) {
         return;
       }
 
-      // Store evidence durably in R2 BEFORE accepting the reference into the draft.
       const ext = downloadResult.mimeType === 'image/png'
         ? 'png'
         : downloadResult.mimeType === 'image/webp'
           ? 'webp'
           : 'jpg';
       const fileHash = (highestPhoto.file_unique_id || String(Date.now())).slice(0, 12);
+
+      // Ambiguous photo+caption against an existing populated draft -> NEVER silently merge!
+      // Store photo safely in R2 pending slot and ask operator to choose.
+      if (decision.action === 'ask_user' && currentActive) {
+        const pendingId = crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : String(Date.now());
+        const pendingKey = `order-images/pending-${pendingId}-${fileHash}.${ext}`;
+        const stored = await savePhotoToR2(env.MEDIA_R2, pendingKey, downloadResult.buffer, downloadResult.mimeType);
+        if (!stored) {
+          await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa lưu được ảnh vào kho lưu trữ. Vui lòng gửi lại; ảnh này chưa được thêm vào đơn nháp.');
+          return;
+        }
+
+        const previousPendingKey = drafts.__pendingPhoto?.r2_key || null;
+        drafts = {
+          ...drafts,
+          __pendingPhoto: {
+            id: pendingId,
+            fileId: highestPhoto.file_id,
+            fileHash,
+            ext,
+            r2_key: pendingKey,
+            uri: `supabase://${pendingKey}`,
+            mimeType: downloadResult.mimeType,
+            byteSize: downloadResult.byteSize,
+            caption,
+            activeDraftId: currentActive.id,
+            updateId: updateId || 0,
+            messageDate: Number(message.date) || 0,
+            messageId: Number(message.message_id) || 0,
+            createdAt: new Date().toISOString()
+          }
+        };
+
+        try {
+          await saveDrafts(env.DB, userId, drafts);
+        } catch (saveErr) {
+          await deletePhotoFromR2(env.MEDIA_R2, pendingKey);
+          throw saveErr;
+        }
+        if (previousPendingKey && previousPendingKey !== pendingKey) {
+          await deletePhotoFromR2(env.MEDIA_R2, previousPendingKey);
+        }
+
+        const oldShort = currentActive.id.slice(-6);
+        const oldCust = currentActive.fields?.customer || '(chưa có tên)';
+        const conflictText = decision.conflicts?.length
+          ? ` (${decision.conflicts.join(', ')})`
+          : '';
+        await sendTelegramMessage(
+          env.BOT_TOKEN,
+          chatId,
+          `❓ Ảnh kèm chú thích vừa gửi có thông tin chưa chắc thuộc nháp hiện tại #${oldShort} — ${oldCust}${conflictText}.\n` +
+          `Bot KHÔNG tự gộp để tránh trộn dữ liệu hai đơn.\n\n` +
+          `Vui lòng chọn:\n` +
+          `1️⃣ Gõ /new_from_photo (hoặc nhắn 1) — Tạo đơn nháp MỚI từ ảnh & chú thích này (giữ nguyên nháp #${oldShort})\n` +
+          `2️⃣ Gõ /attach (hoặc nhắn 2) — Gộp ảnh & cập nhật chú thích vào nháp hiện tại #${oldShort}\n` +
+          `3️⃣ Gõ /discard_photo (hoặc nhắn 3) — Hủy ảnh vừa gửi`
+        );
+        return;
+      }
+
+      // If caption clearly represents a NEW order, preserve old draft and create a brand-new draft!
+      let prevDraft = null;
+      if (decision.action === 'create_new') {
+        prevDraft = currentActive;
+        const created = cmdNew(drafts, '');
+        drafts = created.drafts;
+      }
+
+      const targetDraft = activeDraft(drafts);
       const r2Key = isBill
-        ? `settlement-bills/unverified-${draft.id}-${fileHash}.${ext}`
-        : `order-images/sample-${draft.id}-${fileHash}.${ext}`;
+        ? `settlement-bills/unverified-${targetDraft.id}-${fileHash}.${ext}`
+        : `order-images/sample-${targetDraft.id}-${fileHash}.${ext}`;
 
       const stored = await savePhotoToR2(env.MEDIA_R2, r2Key, downloadResult.buffer, downloadResult.mimeType);
       if (!stored) {
@@ -451,12 +529,17 @@ export async function handleTelegramWebhook(request, rawEnv) {
         }
 
         let extraReply = '';
-        if (caption && caption.trim() && !isBill) {
-          const { draft: updatedDraft, changes } = applyFields(drafts[drafts.__active], caption.trim());
+        let captionApplied = false;
+        if (caption && !isBill) {
+          const { draft: updatedDraft, changes, warnings } = applyFields(drafts[drafts.__active], caption);
           if (changes && changes.length > 0) {
             drafts[drafts.__active] = updatedDraft;
+            captionApplied = true;
             const changedText = changes.map(c => c.uncertain ? `  ⚠️ ${c.field}: ${c.reason}` : `  ${c.field}: ${c.value}`).join('\n');
             extraReply = `\n\n✏️ Đã nhận thông tin từ chú thích:\n${changedText}`;
+          }
+          if (warnings?.length) {
+            extraReply += `\n${warnings.join('\n')}`;
           }
         }
 
@@ -467,7 +550,30 @@ export async function handleTelegramWebhook(request, rawEnv) {
           await deletePhotoFromR2(env.MEDIA_R2, r2Key);
           throw saveErr;
         }
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, `${html(result.reply)}${html(extraReply)}`, 'HTML');
+
+        if (decision.action === 'create_new') {
+          const newDraft = drafts[drafts.__active];
+          const newShort = newDraft.id.slice(-6);
+          const header = prevDraft && prevDraft.status !== 'submitted'
+            ? `🆕 Phát hiện đơn mới khác với nháp cũ #${prevDraft.id.slice(-6)} (${prevDraft.fields?.customer || 'chưa có tên'}).\nĐã giữ nguyên nháp cũ (dùng /list hoặc /select ${prevDraft.id.slice(-6)} để xem lại) và tạo nháp mới #${newShort}:`
+            : `🆕 Đã tạo đơn nháp mới #${newShort} kèm 1 ảnh mẫu:`;
+          await sendTelegramMessage(
+            env.BOT_TOKEN,
+            chatId,
+            `${html(header)}\n\n${html(draftSummary(newDraft))}`,
+            'HTML'
+          );
+        } else if (captionApplied) {
+          const updatedNow = drafts[drafts.__active];
+          await sendTelegramMessage(
+            env.BOT_TOKEN,
+            chatId,
+            `${html(result.reply)}${html(extraReply)}\n\n${html(draftSummary(updatedNow))}`,
+            'HTML'
+          );
+        } else {
+          await sendTelegramMessage(env.BOT_TOKEN, chatId, `${html(result.reply)}${html(extraReply)}`, 'HTML');
+        }
       } else {
         await deletePhotoFromR2(env.MEDIA_R2, r2Key);
         await sendTelegramMessage(env.BOT_TOKEN, chatId, `⚠️ ${result.reply}`);
@@ -486,16 +592,38 @@ export async function handleTelegramWebhook(request, rawEnv) {
       return;
     }
 
-    // A. Commands: /new, /list, /select, /show, /cancel, /confirm
+    // A. Commands: /new, /list, /select, /show, /cancel, /confirm, and pending-photo choices
+    if (drafts.__pendingPhoto) {
+      const choiceNorm = rawText.toLowerCase();
+      if (choiceNorm === '1' || choiceNorm === 'mới' || choiceNorm === 'moi') {
+        await resolvePendingPhotoChoice(drafts, 'new', env, userId, chatId);
+        return;
+      }
+      if (choiceNorm === '2' || choiceNorm === 'gộp' || choiceNorm === 'gop') {
+        await resolvePendingPhotoChoice(drafts, 'attach', env, userId, chatId);
+        return;
+      }
+      if (choiceNorm === '3' || choiceNorm === 'bỏ' || choiceNorm === 'bo') {
+        await resolvePendingPhotoChoice(drafts, 'discard', env, userId, chatId);
+        return;
+      }
+    }
+
     if (rawText.startsWith('/')) {
       const parts = rawText.split(/\s+/);
       const cmd = parts[0].toLowerCase();
       const arg = parts.slice(1).join(' ').trim();
 
-      if (cmd === '/new') {
+      if (cmd === '/new_from_photo') {
+        await resolvePendingPhotoChoice(drafts, 'new', env, userId, chatId);
+      } else if (cmd === '/attach') {
+        await resolvePendingPhotoChoice(drafts, 'attach', env, userId, chatId);
+      } else if (cmd === '/discard_photo') {
+        await resolvePendingPhotoChoice(drafts, 'discard', env, userId, chatId);
+      } else if (cmd === '/new') {
         const res = cmdNew(drafts, arg);
         drafts = res.drafts;
-        if (env.DB) await saveDrafts(env.DB, userId, drafts);
+        if (env.DB && !res.reused) await saveDrafts(env.DB, userId, drafts);
         await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
       } else if (cmd === '/list') {
         const res = cmdList(drafts);
@@ -512,9 +640,17 @@ export async function handleTelegramWebhook(request, rawEnv) {
         const draftToCancel = activeDraft(drafts);
         const res = cmdCancel(drafts, arg);
         if (res.drafts) drafts = res.drafts;
+        let orphanPendingKey = null;
+        if (draftToCancel && !drafts[draftToCancel.id] && drafts.__pendingPhoto?.activeDraftId === draftToCancel.id) {
+          orphanPendingKey = drafts.__pendingPhoto.r2_key || null;
+          delete drafts.__pendingPhoto;
+        }
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
         if (draftToCancel && !drafts[draftToCancel.id]) {
           await cleanupCancelledDraftMedia(draftToCancel, drafts, env);
+        }
+        if (orphanPendingKey && env.MEDIA_R2) {
+          await deletePhotoFromR2(env.MEDIA_R2, orphanPendingKey);
         }
         await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
       } else if (cmd === '/confirm') {
@@ -876,19 +1012,143 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
 }
 
 /**
+ * Resolve an ambiguous pending photo+caption choice ('new' | 'attach' | 'discard').
+ */
+async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
+  const pending = drafts.__pendingPhoto;
+  if (!pending) {
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, 'ℹ️ Hiện không có ảnh nào đang chờ chọn nháp.');
+    return;
+  }
+
+  if (choice === 'discard') {
+    const nextDrafts = { ...drafts };
+    delete nextDrafts.__pendingPhoto;
+    if (env.DB) await saveDrafts(env.DB, userId, nextDrafts);
+    if (pending.r2_key && env.MEDIA_R2) {
+      await deletePhotoFromR2(env.MEDIA_R2, pending.r2_key);
+    }
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, '🗑 Đã hủy ảnh đang chờ xử lý. Đơn nháp hiện tại vẫn được giữ nguyên.');
+    return;
+  }
+
+  if (!env.MEDIA_R2 || !pending.r2_key) {
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Kho ảnh chưa sẵn sàng. Vui lòng gửi lại ảnh.');
+    return;
+  }
+
+  let sourceBytes = null;
+  try {
+    const obj = await env.MEDIA_R2.get(pending.r2_key);
+    if (obj) {
+      sourceBytes = typeof obj.arrayBuffer === 'function'
+        ? await obj.arrayBuffer()
+        : (obj.buffer || obj.body);
+    }
+  } catch {
+    sourceBytes = null;
+  }
+  if (!sourceBytes) {
+    const nextDrafts = { ...drafts };
+    delete nextDrafts.__pendingPhoto;
+    if (env.DB) await saveDrafts(env.DB, userId, nextDrafts);
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Không đọc được ảnh đang chờ trong kho R2. Vui lòng gửi lại ảnh.');
+    return;
+  }
+
+  let workingDrafts = { ...drafts };
+  delete workingDrafts.__pendingPhoto;
+
+  let prevDraft = null;
+  if (choice === 'new') {
+    prevDraft = activeDraft(workingDrafts);
+    // Force a fresh draft even if active somehow became empty
+    const created = cmdNew(workingDrafts, '');
+    workingDrafts = created.drafts;
+  } else if (choice === 'attach') {
+    const target = workingDrafts[pending.activeDraftId] || activeDraft(workingDrafts);
+    if (!target) {
+      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Nháp cũ không còn tồn tại. Dùng /new_from_photo để tạo nháp mới.');
+      return;
+    }
+    if (target.status === 'submitted' || target.status === 'confirming') {
+      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Nháp cũ không thể chỉnh sửa nữa. Dùng /new_from_photo để tạo nháp mới.');
+      return;
+    }
+    if ((target.sampleRefs || []).length >= 10) {
+      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Nháp hiện tại đã đủ tối đa 10 ảnh mẫu.');
+      return;
+    }
+    workingDrafts.__active = target.id;
+  }
+
+  const targetDraft = activeDraft(workingDrafts);
+  const newKey = `order-images/sample-${targetDraft.id}-${pending.fileHash || 'img'}.${pending.ext || 'jpg'}`;
+  const stored = await savePhotoToR2(env.MEDIA_R2, newKey, sourceBytes, pending.mimeType || 'image/jpeg');
+  if (!stored) {
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa lưu được ảnh vào kho lưu trữ. Vui lòng thử lại.');
+    return;
+  }
+
+  const added = addSampleRef(workingDrafts, pending.fileId, pending.caption || '');
+  if (!added.ok) {
+    await deletePhotoFromR2(env.MEDIA_R2, newKey);
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, `⚠️ ${added.reply}`);
+    return;
+  }
+
+  workingDrafts = added.drafts;
+  const refs = workingDrafts[targetDraft.id].sampleRefs;
+  const lastRef = refs[refs.length - 1];
+  lastRef.r2_key = newKey;
+  lastRef.uri = `supabase://${newKey}`;
+  lastRef.mimeType = pending.mimeType || 'image/jpeg';
+  lastRef.byteSize = pending.byteSize || 0;
+
+  if (pending.caption) {
+    const applied = applyFields(workingDrafts[targetDraft.id], pending.caption);
+    if (applied.changes?.length) {
+      workingDrafts[targetDraft.id] = applied.draft;
+    }
+  }
+
+  const finalDraft = workingDrafts[targetDraft.id];
+  finalDraft.lastUpdateId = Math.max(Number(finalDraft.lastUpdateId) || 0, pending.updateId || 0);
+  finalDraft.lastMessageDate = Math.max(Number(finalDraft.lastMessageDate) || 0, pending.messageDate || 0);
+  finalDraft.lastMessageId = Math.max(Number(finalDraft.lastMessageId) || 0, pending.messageId || 0);
+
+  try {
+    await saveDrafts(env.DB, userId, workingDrafts);
+  } catch (saveErr) {
+    await deletePhotoFromR2(env.MEDIA_R2, newKey);
+    throw saveErr;
+  }
+
+  if (pending.r2_key !== newKey) {
+    await deletePhotoFromR2(env.MEDIA_R2, pending.r2_key);
+  }
+
+  const header = choice === 'new'
+    ? `🆕 Đã tạo đơn nháp mới #${finalDraft.id.slice(-6)} (giữ nguyên nháp cũ #${prevDraft?.id?.slice(-6) || ''}):`
+    : `📎 Đã gộp ảnh và cập nhật vào nháp #${finalDraft.id.slice(-6)}:`;
+  await sendTelegramMessage(env.BOT_TOKEN, chatId, `${html(header)}\n\n${html(draftSummary(finalDraft))}`, 'HTML');
+}
+
+/**
  * Handle /relink command: Retry linking bill images to an already-created OPS order
  * without calling createOrder again (100% idempotent, zero duplicate orders).
  */
 async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
+  const draftEntries = Object.entries(drafts || {})
+    .filter(([k, d]) => !k.startsWith('__') && d && d.id)
+    .map(([, d]) => d);
   let targetDraft = null;
   if (arg) {
     const trimmed = arg.trim();
-    targetDraft = Object.values(drafts).find(d =>
-      d && (
-        String(d.id || '').endsWith(trimmed) ||
-        String(d.opsOrderId || '').toUpperCase() === trimmed.toUpperCase() ||
-        String(d.opsOrderId || '').toUpperCase().endsWith(trimmed.toUpperCase())
-      )
+    targetDraft = draftEntries.find(d =>
+      String(d.id || '').endsWith(trimmed) ||
+      String(d.opsOrderId || '').toUpperCase() === trimmed.toUpperCase() ||
+      String(d.opsOrderId || '').toUpperCase().endsWith(trimmed.toUpperCase())
     );
   }
 
@@ -897,8 +1157,8 @@ async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
     if (active && active.status === 'submitted' && active.opsOrderId) {
       targetDraft = active;
     } else {
-      const submitted = Object.values(drafts)
-        .filter(d => d && d.status === 'submitted' && d.opsOrderId)
+      const submitted = draftEntries
+        .filter(d => d.status === 'submitted' && d.opsOrderId)
         .sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
       targetDraft = submitted[0] || null;
     }

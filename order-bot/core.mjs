@@ -139,9 +139,14 @@ const FIELD_ALIASES = {
   'hình thức': 'shipping', 'hinh thuc': 'shipping', ship: 'shipping', shipping: 'shipping',
   'giao hàng': 'shipping', 'giao hang': 'shipping', 'vận chuyển': 'shipping', 'van chuyen': 'shipping',
   'địa chỉ': 'address', 'dia chi': 'address', address: 'address',
+  'địa chỉ nhận': 'address', 'dia chi nhan': 'address',
+  'địa chỉ giao': 'address', 'dia chi giao': 'address',
+  'địa chỉ giao hàng': 'address', 'dia chi giao hang': 'address',
+  dc: 'address', 'd/c': 'address',
   sdt: 'phone', 'số điện thoại': 'phone', phone: 'phone', 'điện thoại': 'phone', 'dien thoai': 'phone',
   'ghi chú': 'note', 'ghi chu': 'note', note: 'note',
   'tổng hoa': 'flowerTotal', 'tong hoa': 'flowerTotal', 'flower total': 'flowerTotal', flowertotal: 'flowerTotal',
+  tong: 'flowerTotal', 'tổng': 'flowerTotal', 'tong don': 'flowerTotal', 'tong tien hoa': 'flowerTotal',
   gia: 'flowerTotal', 'giá': 'flowerTotal', 'tiền': 'flowerTotal', 'tien': 'flowerTotal', 'tiền hoa': 'flowerTotal', 'tien hoa': 'flowerTotal', 'tổng tiền': 'flowerTotal', 'tong tien': 'flowerTotal',
   'phí ship': 'shipFee', 'phi ship': 'shipFee', shipfee: 'shipFee', 'tiền ship': 'shipFee', 'tien ship': 'shipFee',
   'thanh toán khách báo': 'paymentInfo', 'thanh toan khach bao': 'paymentInfo',
@@ -343,13 +348,26 @@ function normalizeTime(raw) {
   return parsed.value || raw;
 }
 
+const MONEY_TOKEN_SOURCE = '(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+(?:tr|trieu)\\d+|\\d+(?:[.,]\\d+)?\\s*(?:k|tr|trieu)|\\d{5,9})';
+
 export function parsePaymentInfo(text, existingFlowerTotal = 0) {
   const normText = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
 
+  // Helper: extract explicit total amount if stated on the same line (e.g. "Tổng 350k cọc 200k", "Giá 500k cọc 200k")
+  const explicitTotalMatch = normText.match(
+    new RegExp(`(?:tong(?:\\s*(?:tien|don|hoa))?|gia(?:\\s*hoa)?|tien\\s*hoa)\\s*[:=-]?\\s*(${MONEY_TOKEN_SOURCE})`, 'i')
+  );
+  const leadingTotalBeforeDeposit = normText.match(
+    new RegExp(`^(${MONEY_TOKEN_SOURCE})\\s*(?:[-,/|+;]|\\s)+\\s*(?:da\\s*)?(?:coc|chuyen\\s*truoc|ck\\s*truoc)\\b`, 'i')
+  );
+  const rawTotalToken = explicitTotalMatch?.[1] || leadingTotalBeforeDeposit?.[1] || null;
+  const parsedTotal = rawTotalToken ? Number(normalizeMoney(rawTotalToken)) : null;
+  const validExplicitTotal = parsedTotal && Number.isFinite(parsedTotal) && parsedTotal >= 10000 ? parsedTotal : null;
+
   // 1. Fullpaid
   if (/\b(fullpaid|full\s*paid|thanh\s*toan\s*(?:het|du|toan\s*bo)|tt\s*het|ck\s*het)\b/.test(normText)) {
-    const mAmount = normText.match(/(?:fullpaid|full\s*paid|thanh\s*toan\s*(?:het|du|toan\s*bo)|tt\s*het|ck\s*het)\s*[:=-]?\s*(\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)?|\d{5,9})/);
-    const amount = mAmount ? normalizeMoney(mAmount[1]) : (existingFlowerTotal ? String(existingFlowerTotal) : null);
+    const mAmount = normText.match(new RegExp(`(?:fullpaid|full\\s*paid|thanh\\s*toan\\s*(?:het|du|toan\\s*bo)|tt\\s*het|ck\\s*het)\\s*[:=-]?\\s*(${MONEY_TOKEN_SOURCE})`, 'i'));
+    const amount = mAmount ? normalizeMoney(mAmount[1]) : (validExplicitTotal ? String(validExplicitTotal) : (existingFlowerTotal ? String(existingFlowerTotal) : null));
     return {
       paymentState: 'fullpaid',
       flowerTotal: amount ? Number(amount) : null,
@@ -361,8 +379,8 @@ export function parsePaymentInfo(text, existingFlowerTotal = 0) {
 
   // 2. Bankfull
   if (/\b(bankfull|bank\s*full|bank\s*(?:du|full)\s*tien\s*hoa)\b/.test(normText)) {
-    const mAmount = normText.match(/(?:bankfull|bank\s*full|bank\s*(?:du|full)\s*tien\s*hoa)\s*[:=-]?\s*(\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)?|\d{5,9})/);
-    const amount = mAmount ? normalizeMoney(mAmount[1]) : (existingFlowerTotal ? String(existingFlowerTotal) : null);
+    const mAmount = normText.match(new RegExp(`(?:bankfull|bank\\s*full|bank\\s*(?:du|full)\\s*tien\\s*hoa)\\s*[:=-]?\\s*(${MONEY_TOKEN_SOURCE})`, 'i'));
+    const amount = mAmount ? normalizeMoney(mAmount[1]) : (validExplicitTotal ? String(validExplicitTotal) : (existingFlowerTotal ? String(existingFlowerTotal) : null));
     return {
       paymentState: 'bankfull',
       flowerTotal: amount ? Number(amount) : null,
@@ -374,11 +392,12 @@ export function parsePaymentInfo(text, existingFlowerTotal = 0) {
 
   // 3. Deposit
   if (/\b(coc|cọc|chuyen\s*truoc|ck\s*truoc|thanh\s*toan\s*1\s*phan|thanh\s*toan\s*mot\s*phan|da\s*chuyen\s*mot\s*phan)\b/.test(normText)) {
-    const mAmount = normText.match(/(?:coc|cọc|chuyen\s*truoc|ck\s*truoc|thanh\s*toan\s*1\s*phan|thanh\s*toan\s*mot\s*phan|da\s*chuyen\s*mot\s*phan)\s*[:=-]?\s*(\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)?|\d{5,9})/);
+    const mAmount = normText.match(new RegExp(`(?:coc|cọc|chuyen\\s*truoc|ck\\s*truoc|thanh\\s*toan\\s*1\\s*phan|thanh\\s*toan\\s*mot\\s*phan|da\\s*chuyen\\s*mot\\s*phan)\\s*[:=-]?\\s*(${MONEY_TOKEN_SOURCE})`, 'i'));
     if (mAmount) {
       const depositAmount = Number(normalizeMoney(mAmount[1]));
       return {
         paymentState: 'deposit',
+        ...(validExplicitTotal ? { flowerTotal: validExplicitTotal } : {}),
         depositAmount: depositAmount,
         reportedPaidAmount: depositAmount,
         billRequired: false,
@@ -387,6 +406,7 @@ export function parsePaymentInfo(text, existingFlowerTotal = 0) {
     } else {
       return {
         paymentState: 'deposit',
+        ...(validExplicitTotal ? { flowerTotal: validExplicitTotal } : {}),
         depositAmount: null,
         reportedPaidAmount: null,
         isUncertain: true,
@@ -401,6 +421,7 @@ export function parsePaymentInfo(text, existingFlowerTotal = 0) {
   if (/\b(chua\s*thanh\s*toan|chua\s*tt|chua\s*ck|thu\s*cod|cod)\b/.test(normText)) {
     return {
       paymentState: 'unpaid',
+      ...(validExplicitTotal ? { flowerTotal: validExplicitTotal } : {}),
       reportedPaidAmount: 0,
       depositAmount: 0,
       billRequired: false,
@@ -578,19 +599,42 @@ function activeDraft(drafts) {
   return id ? drafts[id] || null : null;
 }
 
+/**
+ * Returns true if a draft is still an empty, untouched pending draft.
+ */
+export function isDraftEmpty(draft) {
+  if (!draft || draft.status !== 'pending') return false;
+  const f = draft.fields || {};
+  const hasAnyField = Object.values(f).some(v => v !== undefined && v !== null && String(v).trim() !== '' && v !== false && v !== 0);
+  const hasSamples = Array.isArray(draft.sampleRefs) && draft.sampleRefs.length > 0;
+  const hasBills = Array.isArray(draft.draftBillRefs) && draft.draftBillRefs.length > 0;
+  const hasUncertain = draft.uncertainFields && Object.keys(draft.uncertainFields).length > 0;
+  return !hasAnyField && !hasSamples && !hasBills && !hasUncertain;
+}
+
 // ---------------------------------------------------------------------------
 // Command handlers — return { reply, drafts }
 // ---------------------------------------------------------------------------
 
 function cmdNew(drafts, _args) {
+  // Idempotent /new: if the currently active draft is already an empty pending draft,
+  // reuse it instead of spawning unwanted duplicate empty drafts.
+  const current = activeDraft(drafts);
+  if (isDraftEmpty(current)) {
+    return {
+      reply: `ℹ️ Đơn nháp trống #${current.id.slice(-6)} đang mở sẵn (không tạo thêm nháp trùng).\n\nBạn có thể gửi ảnh mẫu kèm chú thích đơn hàng hoặc nhập thông tin theo dạng:\n  tên khách: Nguyễn A\n  mẫu hoa: Hoa hồng đỏ\n  ngày nhận: 2026-12-01\n  giờ nhận: 10:00\n  hình thức: Shop book ship`,
+      drafts,
+      reused: true,
+    };
+  }
   const id = newDraftId();
   const draft = { id, fields: {}, sampleRefs: [], draftBillRefs: [], status: 'pending', createdAt: new Date().toISOString() };
   const next = { ...drafts, [id]: draft, __active: id };
-  return { reply: `✅ Đã tạo đơn nháp mới #${id.slice(-6)}.\n\nGửi thông tin theo dạng:\n  tên khách: Nguyễn A\n  mẫu hoa: Hoa hồng đỏ\n  ngày nhận: 2026-12-01\n  giờ nhận: 10:00\n  hình thức: Shop book ship`, drafts: next };
+  return { reply: `✅ Đã tạo đơn nháp mới #${id.slice(-6)}.\n\nGửi ảnh mẫu kèm thông tin đơn hoặc nhập theo dạng:\n  tên khách: Nguyễn A\n  mẫu hoa: Hoa hồng đỏ\n  ngày nhận: 2026-12-01\n  giờ nhận: 10:00\n  hình thức: Shop book ship`, drafts: next };
 }
 
 function cmdList(drafts) {
-  const all = Object.entries(drafts).filter(([k]) => k !== '__active' && k !== '__seenUpdates').map(([, v]) => v);
+  const all = Object.entries(drafts).filter(([k, v]) => !k.startsWith('__') && v && v.id).map(([, v]) => v);
   if (!all.length) return { reply: 'Không có đơn nháp nào. Dùng /new để tạo mới.', drafts };
   const active = drafts.__active;
   const lines = all.map(d => {
@@ -605,7 +649,7 @@ function cmdList(drafts) {
 function cmdSelect(drafts, args) {
   const shortId = (args || '').trim();
   if (!shortId) return { reply: 'Dùng: /select <6 ký tự cuối ID>', drafts };
-  const found = Object.keys(drafts).filter(k => k !== '__active' && k !== '__seenUpdates').find(k => k.endsWith(shortId));
+  const found = Object.keys(drafts).filter(k => !k.startsWith('__') && drafts[k]?.id).find(k => k.endsWith(shortId));
   if (!found) return { reply: `Không tìm thấy đơn #${shortId}. Dùng /list để xem.`, drafts };
   return { reply: `Đang xem đơn #${shortId}.\n\n${draftSummary(drafts[found])}`, drafts: { ...drafts, __active: found } };
 }
@@ -681,7 +725,7 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
     if (!cleanLine) continue;
     const normLine = cleanLine.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
 
-    // 1. Payment detection
+    // 1. Payment detection (also handles combined lines like "Tổng 350k cọc 200k")
     const payment = parsePaymentInfo(cleanLine, Number(existingFields.flowerTotal || fields.flowerTotal || 0));
     if (payment) {
       fields.paymentState = payment.paymentState;
@@ -690,6 +734,18 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
       if (payment.reportedPaidAmount !== undefined) fields.reportedPaidAmount = payment.reportedPaidAmount;
       if (payment.isUncertain) uncertainFields.depositAmount = payment.reason;
       continue;
+    }
+
+    // 1b. Standalone total price line (e.g. "Tổng 350k", "Giá 450k", "Tiền hoa 600k") without flower/payment keyword
+    const mStandaloneTotal = normLine.match(
+      new RegExp(`^(?:tong(?:\\s*(?:tien|don|hoa))?|gia(?:\\s*hoa)?|tien\\s*hoa)\\s*[:=-]?\\s*(${MONEY_TOKEN_SOURCE})$`, 'i')
+    );
+    if (mStandaloneTotal) {
+      const normTotal = normalizeMoney(mStandaloneTotal[1]);
+      if (/^\d+$/.test(normTotal) && Number(normTotal) >= 10000) {
+        fields.flowerTotal = normTotal;
+        continue;
+      }
     }
 
     // 2. Date and Time detection
@@ -717,10 +773,23 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
       }
     }
 
-    // 3. Phone detection
+    // 3. Phone detection (also extracts customer name on combined lines like "Như + 0394200327")
     const mPhone = cleanLine.match(/(?:sdt|phone|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*(0\d{9,10})\b/i);
     if (mPhone) {
       fields.phone = mPhone[1];
+      if (!fields.customer && !FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|duong|phuong|quan|p\.|q\.|ship|book|lay|ghe|tan\s*noi)\b/i.test(normLine)) {
+        const namePart = cleanLine
+          .replace(/(?:sdt|phone|số\s*điện\s*thoại|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*0\d{9,10}\b/gi, '')
+          .replace(/^[\s+\-/|,;:—&]+|[\s+\-/|,;:—&]+$/g, '')
+          .trim();
+        if (namePart && /^[A-ZÀ-Ỹa-zà-ỹ\s]+$/.test(namePart) && namePart.split(/\s+/).length <= 4) {
+          const words = namePart.split(/\s+/);
+          const stripped = words.length > 1
+            ? namePart.replace(/^(?:chị|anh|em|cô|bác|khách|bạn)\s+/i, '').trim()
+            : namePart;
+          if (stripped) fields.customer = stripped;
+        }
+      }
     }
 
     // 4. Explicit shipping detection
@@ -730,27 +799,25 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
       else if (/ghe\s*lay|tai\s*tiem|tu\s*qua\s*lay|tu\s*lay/.test(normLine)) fields.shipping = 'Ghé lấy';
     }
 
-    // 5. Address detection
+    // 5. Address detection (NEVER auto-guesses shipping when shipping method is not stated)
     if (/(?:dia\s*chi\s*)?(?:bsung|bo\s*sung|bao|gui)\s*sau|chua\s*co\s*dia\s*chi|(?:bao|gui)\s*dia\s*chi\s*sau/i.test(normLine)) {
       fields.address = 'Địa chỉ báo sau';
       if (!FLOWER_PATTERN.test(normLine) && !/\b(bank|ck|fullpaid|coc)\b/.test(normLine)) {
         continue;
       }
     }
-    const mAddr = cleanLine.match(/(?:(?:^|[\s,;])(?:[dđ][iị]a\s*ch[iỉ]|[dđ]c|giao\s*[dđ][eêế]n|giao\s*t[aạ]i|giao\s*qua))\s*[:=-]?\s*([^,\n]+(?:,\s*[^,\n]+)*)/i);
+    const mAddr = cleanLine.match(/(?:(?:^|[\s,;])(?:[dđ][iị]a\s*ch[iỉ](?:\s*(?:nh[aậ]n|giao(?:\s*h[aà]ng)?))?|[dđ]c|giao\s*[dđ][eêế]n|giao\s*t[aạ]i|giao\s*qua))\s*[:=-]?\s*([^,\n]+(?:,\s*[^,\n]+)*)/i);
     if (mAddr) {
       let addr = mAddr[1].replace(/,\s*(?:sdt|phone|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*0\d{9,10}.*$/i, '').trim();
       addr = addr.replace(/\b(?:sdt|phone|so\s*dien\s*thoai|sđt)\s*[:=-]?\s*0\d{9,10}.*$/i, '').trim();
       if (addr) {
         fields.address = addr;
-        if (!fields.shipping) fields.shipping = 'Shop book ship';
         continue;
       }
     }
     if (/\b(duong|phuong|quan|p\.|q\.|tp\.|hcm|quan\s*\d+|phuong\s*\d+|ap|xa|huyen|tinh)\b/i.test(normLine) || /^\d+[\w/]*\s+[A-ZÀ-Ỹa-zà-ỹ]/.test(cleanLine)) {
       if (!FLOWER_PATTERN.test(normLine) && !/\b(bank|ck|fullpaid|coc)\b/.test(normLine)) {
         fields.address = cleanLine.replace(/,\s*(?:sdt|phone|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*0\d{9,10}.*$/i, '').trim();
-        if (!fields.shipping) fields.shipping = 'Shop book ship';
         continue;
       }
     }
@@ -776,10 +843,20 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
       }
     }
 
-    // 7. Name detection
-    if (/^[A-ZÀ-Ỹa-zà-ỹ\s]+$/.test(cleanLine) && cleanLine.split(/\s+/).length <= 4) {
-      const stripped = cleanLine.replace(/^(?:chị|anh|em|cô|bác|khách|bạn)\s+/i, '').trim();
-      fields.customer = stripped;
+    // 7. Name detection (ignore common lowercase/photo filler phrases like "góc chụp khác", "ảnh mẫu", "thêm ảnh")
+    const NON_NAME_PHRASE = /\b(anh\s*mau|hinh\s*mau|mau\s*tham\s*khao|tham\s*khao|goc\s*chup|goc\s*khac|them\s*anh|them\s*hinh|bo\s*sung|gui\s*them|hinh\s*khac|anh\s*khac|xem\s*them|cam\s*on|ok|oke|vang|xong)\b/i;
+    const hasHonorific = /^(?:chị|anh|em|cô|bác|khách|bạn)\s+/i.test(cleanLine);
+    const startsCapitalized = /^[A-ZÀ-Ỹ]/.test(cleanLine);
+    if (
+      /^[A-ZÀ-Ỹa-zà-ỹ\s]+$/.test(cleanLine) &&
+      cleanLine.split(/\s+/).length <= 4 &&
+      (hasHonorific || startsCapitalized) &&
+      !NON_NAME_PHRASE.test(normLine)
+    ) {
+      const stripped = hasHonorific
+        ? cleanLine.replace(/^(?:chị|anh|em|cô|bác|khách|bạn)\s+/i, '').trim()
+        : cleanLine;
+      if (stripped) fields.customer = stripped;
       if (!FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|ship|book|lay|ghe|tan\s*noi)\b/.test(normLine)) {
         continue;
       }
@@ -1142,6 +1219,134 @@ export function handleUpdate(opts) {
 export function isBillCaption(caption) {
   if (!caption) return false;
   return /\b(bill|hoa don|hóa đơn)\b/i.test(caption);
+}
+
+/**
+ * Classify how an incoming Telegram photo (+ optional caption) should be routed
+ * relative to existing drafts so two different orders are NEVER silently mixed.
+ *
+ * Returns one of:
+ *   - { action: 'attach_active', parsed }  — clearly belongs to active draft
+ *   - { action: 'create_new', parsed, reason } — clearly a new order (preserve old draft)
+ *   - { action: 'ask_user', parsed, conflicts, reason } — ambiguous; ask operator to pick
+ *   - { action: 'reject_no_draft' | 'reject_submitted' | 'reject_confirming' }
+ */
+export function classifyIncomingPhotoDraft(drafts, caption, isBill = false, options = {}) {
+  const active = activeDraft(drafts);
+  const trimmedCaption = String(caption || '').trim();
+
+  if (isBill) {
+    if (!active) return { action: 'reject_no_draft' };
+    if (active.status === 'confirming') return { action: 'reject_confirming' };
+    if (active.status === 'submitted') return { action: 'reject_submitted' };
+    return { action: 'attach_active', parsed: null };
+  }
+
+  // Probe-parse caption completely in isolation (never inheriting fields from active draft)
+  const probe = trimmedCaption
+    ? applyFields({ id: '__probe__', fields: {}, uncertainFields: {} }, trimmedCaption, options)
+    : { draft: { fields: {}, uncertainFields: {} }, changes: [], warnings: [] };
+  const incoming = probe.draft.fields || {};
+  const incomingUncertain = probe.draft.uncertainFields || {};
+
+  const ORDER_CONCEPT_KEYS = [
+    'customer', 'phone', 'flower', 'flowerTotal', 'date', 'time',
+    'shipping', 'address', 'note', 'paymentState', 'cardText', 'bannerText'
+  ];
+  const hasVal = (obj, k) => obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '';
+  const incomingConcepts = ORDER_CONCEPT_KEYS.filter(k => hasVal(incoming, k));
+  const hasIncomingOrderData = incomingConcepts.length > 0 || Object.keys(incomingUncertain).length > 0;
+
+  // Case 1: No active draft or previous draft already submitted
+  if (!active) {
+    return hasIncomingOrderData
+      ? { action: 'create_new', parsed: probe, reason: 'no_active_draft' }
+      : { action: 'reject_no_draft' };
+  }
+  if (active.status === 'submitted') {
+    return hasIncomingOrderData
+      ? { action: 'create_new', parsed: probe, reason: 'previous_submitted' }
+      : { action: 'reject_submitted' };
+  }
+  if (active.status === 'confirming') {
+    return incomingConcepts.length >= 2
+      ? { action: 'create_new', parsed: probe, reason: 'previous_confirming' }
+      : { action: 'reject_confirming' };
+  }
+
+  // Case 2: Active pending draft is completely empty -> attach cleanly
+  if (isDraftEmpty(active)) {
+    return { action: 'attach_active', parsed: probe };
+  }
+
+  // Case 3: Pure supplementary photo (empty caption or short photo label with zero order fields)
+  if (!hasIncomingOrderData) {
+    return { action: 'attach_active', parsed: probe };
+  }
+
+  // Case 4: Active draft already has data AND incoming photo caption has order fields
+  const existing = active.fields || {};
+  const existingConcepts = ORDER_CONCEPT_KEYS.filter(k => hasVal(existing, k));
+  const normVal = v => String(v || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/\s+/g, ' ');
+  const normName = v => normVal(v).replace(/^(?:chi|anh|em|co|bac|khach|ban)\s+/i, '');
+  const normPhone = v => String(v || '').replace(/\D/g, '');
+
+  const sameCustomer = hasVal(existing, 'customer') && hasVal(incoming, 'customer') &&
+    normName(existing.customer) === normName(incoming.customer);
+  const samePhone = hasVal(existing, 'phone') && hasVal(incoming, 'phone') &&
+    normPhone(existing.phone) === normPhone(incoming.phone);
+
+  const conflicts = [];
+  const customerConflict = hasVal(existing, 'customer') && hasVal(incoming, 'customer') && !sameCustomer;
+  const phoneConflict = hasVal(existing, 'phone') && hasVal(incoming, 'phone') && !samePhone;
+  const addressConflict = hasVal(existing, 'address') && hasVal(incoming, 'address') &&
+    !isPendingAddress(existing.address) && !isPendingAddress(incoming.address) &&
+    normVal(existing.address) !== normVal(incoming.address);
+  const flowerConflict = hasVal(existing, 'flower') && hasVal(incoming, 'flower') &&
+    normVal(existing.flower) !== normVal(incoming.flower);
+  const priceConflict = hasVal(existing, 'flowerTotal') && hasVal(incoming, 'flowerTotal') &&
+    Number(existing.flowerTotal) !== Number(incoming.flowerTotal);
+  const dateConflict = hasVal(existing, 'date') && hasVal(incoming, 'date') &&
+    existing.date !== incoming.date;
+  const timeConflict = hasVal(existing, 'time') && hasVal(incoming, 'time') &&
+    existing.time !== incoming.time;
+  const noteConflict = hasVal(existing, 'note') && hasVal(incoming, 'note') &&
+    normVal(existing.note) !== normVal(incoming.note);
+
+  if (customerConflict) conflicts.push('khách hàng');
+  if (phoneConflict) conflicts.push('SĐT');
+  if (addressConflict) conflicts.push('địa chỉ');
+  if (flowerConflict) conflicts.push('mẫu hoa');
+  if (priceConflict) conflicts.push('giá tiền');
+  if (dateConflict) conflicts.push('ngày nhận');
+  if (timeConflict) conflicts.push('giờ nhận');
+  if (noteConflict) conflicts.push('ghi chú');
+
+  const hasIdentityConflict = customerConflict || phoneConflict;
+  const hasActiveSample = (active.sampleRefs || []).length > 0;
+
+  // Definitely a NEW order: different customer/phone, OR rich new-order caption (>= 3 fields)
+  // while active draft already contains another order's data/photo and doesn't explicitly match identity.
+  if (hasIdentityConflict) {
+    return { action: 'create_new', parsed: probe, conflicts, reason: 'identity_conflict' };
+  }
+  if (!sameCustomer && !samePhone && incomingConcepts.length >= 3 &&
+      (conflicts.length >= 1 || (existingConcepts.length >= 2 && hasActiveSample))) {
+    return { action: 'create_new', parsed: probe, conflicts, reason: 'new_order_caption' };
+  }
+
+  // Ambiguous: conflicting fields without explicit same-customer confirmation,
+  // OR active draft already has a sample photo + >= 2 fields and incoming photo carries >= 2 order fields.
+  if (conflicts.length >= 1 && !sameCustomer && !samePhone) {
+    return { action: 'ask_user', parsed: probe, conflicts, reason: 'conflicting_fields' };
+  }
+  if (!sameCustomer && !samePhone && hasActiveSample && existingConcepts.length >= 2 && incomingConcepts.length >= 2) {
+    return { action: 'ask_user', parsed: probe, conflicts, reason: 'ambiguous_second_photo_caption' };
+  }
+
+  // Otherwise safe to attach as supplementary photo / same-order update
+  return { action: 'attach_active', parsed: probe };
 }
 
 export {
