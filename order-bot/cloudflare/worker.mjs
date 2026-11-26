@@ -62,7 +62,7 @@ import {
 } from './telegram.mjs';
 
 import { callCreateOrder, syncOrderPaymentToOps, fetchOpsOrderRules, getCachedOpsOrderRules } from './ops-client.mjs';
-import { extractFieldsWithGemini, sanitizeAiFields, DEFAULT_GEMINI_MODEL } from './gemini.mjs';
+import { extractFieldsWithGeminiDetailed, sanitizeAiFields, DEFAULT_GEMINI_MODEL } from './gemini.mjs';
 
 const DEFAULT_ALLOWED_USER_ID = 5252724920;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -244,6 +244,27 @@ export default {
         }
 
         const stale = env.DB ? await findStaleConfirming(env.DB) : [];
+        let lastGeminiCall = null;
+        if (env.DB) {
+          try {
+            const gRow = await env.DB.prepare(
+              "SELECT payload_json, created_at FROM bot_audit_logs WHERE action = 'geminiExtract' ORDER BY id DESC LIMIT 1"
+            ).first();
+            if (gRow?.payload_json) {
+              const p = JSON.parse(gRow.payload_json);
+              lastGeminiCall = {
+                model: p.model || null,
+                ok: Boolean(p.ok),
+                status: p.status ?? null,
+                latencyMs: Number(p.latencyMs) || 0,
+                extractedKeys: Array.isArray(p.extractedKeys) ? p.extractedKeys : [],
+                createdAt: gRow.created_at || null
+              };
+            }
+          } catch {
+            // Non-critical diagnostic read
+          }
+        }
         let webhookInfo = null;
         const botToken = env.BOT_TOKEN || env.TELEGRAM_BOT_TOKEN;
         if (botToken) {
@@ -280,6 +301,7 @@ export default {
           webhookSecretConfigured: Boolean(env.TELEGRAM_SECRET_TOKEN),
           geminiConfigured: Boolean(env.GEMINI_API_KEY),
           geminiModel: env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
+          lastGeminiCall,
           webhookInfo: webhookInfo,
           timestamp: new Date().toISOString()
         }), {
@@ -546,7 +568,8 @@ export async function handleTelegramWebhook(request, rawEnv) {
             caption,
             applyFields(drafts[drafts.__active], caption, { rules: opsRules }),
             env,
-            opsRules
+            opsRules,
+            userId
           );
           if (changes && changes.length > 0) {
             drafts[drafts.__active] = updatedDraft;
@@ -717,7 +740,8 @@ export async function handleTelegramWebhook(request, rawEnv) {
       rawText,
       applyFields(draft, rawText, { rules: opsRules }),
       env,
-      opsRules
+      opsRules,
+      userId
     );
 
     if (isOutOfOrder && changes?.length) {
@@ -815,7 +839,7 @@ const isShippingLikeName = val => {
  *   for that edit, while still refusing to overwrite customer with shipping phrases.
  * - Any AI failure/quota error silently falls back to the parser result and preserves the draft.
  */
-export async function mergeAiFallback(baseDraft, text, structured, env, opsRules) {
+export async function mergeAiFallback(baseDraft, text, structured, env, opsRules, userId = null) {
   const result = structured || { draft: baseDraft, changes: [], warnings: [] };
   if (!env?.GEMINI_API_KEY || !text || String(text).trim().length < 5) return result;
   const after = result.draft || baseDraft;
@@ -823,12 +847,30 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
   const stillMissing = AI_FILLABLE_FIELDS.filter(f => isBlankField(after?.fields?.[f]));
   if (result.changes?.length && stillMissing.length === 0 && !explicitEdit) return result;
 
+  let aiRes = null;
   let aiExtracted = null;
   try {
-    aiExtracted = sanitizeAiFields(await extractFieldsWithGemini(env.GEMINI_API_KEY, text, env.GEMINI_MODEL));
+    aiRes = await extractFieldsWithGeminiDetailed(env.GEMINI_API_KEY, text, env.GEMINI_MODEL);
+    aiExtracted = aiRes.ok ? sanitizeAiFields(aiRes.fields) : null;
   } catch {
     return result;
   }
+
+  if (env?.DB && aiRes) {
+    try {
+      await logAudit(env.DB, userId, 'geminiExtract', after?.id || null, null, {
+        model: aiRes.model,
+        ok: aiRes.ok,
+        status: aiRes.status || null,
+        latencyMs: aiRes.latencyMs,
+        error: aiRes.ok ? null : String(aiRes.error || 'UNKNOWN').slice(0, 180),
+        extractedKeys: aiExtracted ? Object.keys(aiExtracted) : []
+      });
+    } catch {
+      // Never block order intake on audit log write failure
+    }
+  }
+
   if (!aiExtracted || !Object.keys(aiExtracted).length) return result;
 
   const touched = new Set((result.changes || []).map(c => c.field));
