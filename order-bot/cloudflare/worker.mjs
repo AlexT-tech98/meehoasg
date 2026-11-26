@@ -62,7 +62,7 @@ import {
   bytesToBase64
 } from './telegram.mjs';
 
-import { callCreateOrder, syncOrderPaymentToOps, fetchOpsOrderRules, getCachedOpsOrderRules } from './ops-client.mjs';
+import { callCreateOrder, syncOrderPaymentToOps, fetchOpsOrderRules, getCachedOpsOrderRules, clearOpsOrderRulesCache } from './ops-client.mjs';
 import {
   extractFieldsWithGeminiDetailed,
   sanitizeAiFields,
@@ -453,6 +453,13 @@ export default {
       return handleAiProbe(request, env);
     }
 
+    // 3b. OPS Acceptance Probe endpoint (POST /ops-probe) — Staging-only authenticated test harness
+    //     Protected strictly by AI_PROBE_TOKEN so agents can verify authenticated OPS RPCs and E2E Form-vs-Bot parity
+    //     while keeping OPS_TOKEN secret inside the Worker and isolating bot_drafts from D1 Staging.
+    if (request.method === 'POST' && path === '/ops-probe') {
+      return handleOpsProbe(request, env);
+    }
+
     // 4. Telegram Webhook endpoint (POST /webhook or POST /)
     if (request.method === 'POST' && (path === '/webhook' || path === '/' || path === '')) {
       return handleTelegramWebhook(request, env);
@@ -673,7 +680,9 @@ function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probe
     }
   };
 
-  const sampleBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff, 0xd9]);
+  const sampleBytes = probeOptions.samplePhotoBytes instanceof Uint8Array && probeOptions.samplePhotoBytes.length > 0
+    ? probeOptions.samplePhotoBytes
+    : new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff, 0xd9]);
   const telegramFetcher = async (url, opts) => {
     const u = String(url);
     if (u.includes('/getFile')) {
@@ -701,6 +710,32 @@ function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probe
     return new Response('Probe Telegram mock: unsupported route', { status: 404 });
   };
 
+  let currentStepIndex = 0;
+  const liveOpsCalls = [];
+  const realOpsFetcher = realEnv.OPS_SERVICE
+    ? realEnv.OPS_SERVICE.fetch.bind(realEnv.OPS_SERVICE)
+    : fetch;
+
+  const forwardRealOps = async (input, init, actionName, bodyObj) => {
+    const res = await realOpsFetcher(input, init);
+    const txt = await res.text();
+    let parsed = null;
+    try { parsed = JSON.parse(txt); } catch {}
+    liveOpsCalls.push({
+      stepIndex: currentStepIndex,
+      action: actionName,
+      orderId: bodyObj?.payload?.orderId || null,
+      httpStatus: res.status,
+      ok: parsed?.ok ?? null,
+      code: parsed?.code || null,
+      createdOrderId: parsed?.orderId || null
+    });
+    return new Response(txt, {
+      status: res.status,
+      headers: { 'Content-Type': res.headers?.get?.('content-type') || 'application/json' }
+    });
+  };
+
   const opsService = {
     async fetch(input, init) {
       let body = {};
@@ -713,13 +748,19 @@ function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probe
       } catch {}
       const name = String(body?.name || '');
       if (name === 'getOrderRules') {
+        if (probeOptions.useLiveOpsRules || probeOptions.allowLiveOpsWrites) {
+          return forwardRealOps(input, init, name, body);
+        }
         return new Response(JSON.stringify({
           ok: true,
           rules: probeOptions.opsRules || DEFAULT_OPS_ORDER_RULES,
           caller: { username: 'cmui', role: 'ADMIN', canAssignDefaultSale: true }
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-      blockedOpsWrites.push({ action: name, at: new Date().toISOString() });
+      if (probeOptions.allowLiveOpsWrites) {
+        return forwardRealOps(input, init, name, body);
+      }
+      blockedOpsWrites.push({ action: name, stepIndex: currentStepIndex, at: new Date().toISOString() });
       return new Response(JSON.stringify({
         ok: false,
         code: 'PROBE_OPS_BLOCKED',
@@ -732,9 +773,9 @@ function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probe
   const isolatedEnv = {
     ...realEnv,
     DB: sandboxDb,
-    MEDIA_R2: sandboxR2,
+    MEDIA_R2: (probeOptions.useRealR2 && realEnv.MEDIA_R2) ? realEnv.MEDIA_R2 : sandboxR2,
     BOT_TOKEN: realEnv.BOT_TOKEN || realEnv.TELEGRAM_BOT_TOKEN || 'probe-bot-token',
-    OPS_TOKEN: realEnv.OPS_TOKEN || 'probe-ops-token',
+    OPS_TOKEN: realEnv.OPS_TOKEN || realEnv.OPS_SERVICE_ROLE_TOKEN || 'probe-ops-token',
     OPS_SERVICE: opsService,
     TELEGRAM_SECRET_TOKEN: probeWebhookSecret,
     ALLOWED_USER_IDS: String(userId),
@@ -749,6 +790,7 @@ function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probe
   return {
     isolatedEnv,
     probeWebhookSecret,
+    setStepIndex: idx => { currentStepIndex = idx; },
     readDraftsState: () => {
       const row = draftRows.get(Number(userId));
       if (!row) return { activeDraftId: null, drafts: {} };
@@ -757,9 +799,99 @@ function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probe
     sandboxAuditLogs,
     telegramReplies,
     blockedOpsWrites,
+    liveOpsCalls,
     r2Keys: () => [...r2Objects.keys()],
     aiCalls
   };
+}
+
+function formatProbeAiCalls(aiCalls = []) {
+  return aiCalls.map(c => ({
+    model: c.model,
+    endpoint: c.endpoint || null,
+    ok: c.ok,
+    status: c.status ?? null,
+    headersMs: c.headersMs ?? null,
+    latencyMs: c.latencyMs,
+    retries: c.retries ?? 0,
+    budgetExhausted: Boolean(c.budgetExhausted),
+    stage: c.stage || null,
+    finishReason: c.finishReason || null,
+    error: c.ok ? null : (c.error || null),
+    attempts: c.attempts || [],
+    extractedFields: c.ok ? sanitizeAiFields(c.fields) : null
+  }));
+}
+
+async function executeProbeSteps(probeCtx, probeUserId, steps, baseUpdateId = 900001, faultInjection = null, firstCaptionText = '') {
+  const globalFaultFetcher = buildProbeFaultFetcher(faultInjection, firstCaptionText);
+  const stepResults = [];
+  const seq = Number(baseUpdateId) || 900001;
+
+  for (let i = 0; i < steps.length; i++) {
+    probeCtx.setStepIndex(i + 1);
+    const s = steps[i];
+    const stepObj = typeof s === 'string' ? { text: s } : (s || {});
+    const updateId = stepObj.update_id ?? (seq + i);
+    const msgId = stepObj.message_id ?? (seq + i);
+    const msgDate = stepObj.date ?? (1795700000 + i * 2);
+
+    const curState = probeCtx.readDraftsState();
+    const curDraft = curState.activeDraftId ? curState.drafts[curState.activeDraftId] : null;
+    const opsOrderId = String(curDraft?.opsOrderId || '');
+    const opsOrderSuffix = opsOrderId ? opsOrderId.slice(-6) : '';
+    const draftId = String(curDraft?.id || curState.activeDraftId || '');
+    const subPlaceholders = str => String(str || '')
+      .replace(/\{OPS_ORDER_ID\}/g, opsOrderId)
+      .replace(/\{OPS_ORDER_SUFFIX\}/g, opsOrderSuffix)
+      .replace(/\{DRAFT_ID\}/g, draftId);
+
+    if (stepObj.faultInjection !== undefined) {
+      const stepCaptionHint = subPlaceholders(stepObj.caption ||
+        (stepObj.text && !String(stepObj.text).trim().startsWith('/') ? stepObj.text : '') ||
+        firstCaptionText);
+      const stepFault = buildProbeFaultFetcher(stepObj.faultInjection, stepCaptionHint);
+      probeCtx.isolatedEnv.GEMINI_FETCHER = stepFault || undefined;
+    } else {
+      probeCtx.isolatedEnv.GEMINI_FETCHER = globalFaultFetcher || undefined;
+    }
+
+    const message = {
+      message_id: msgId,
+      date: msgDate,
+      chat: { id: probeUserId, type: 'private' },
+      from: { id: probeUserId }
+    };
+    if (stepObj.photo) {
+      message.photo = [{ file_id: stepObj.file_id || `probe_photo_${i}`, file_unique_id: stepObj.file_unique_id || `probe_u_${i}` }];
+      if (stepObj.caption !== undefined) message.caption = subPlaceholders(stepObj.caption);
+    } else {
+      message.text = subPlaceholders(stepObj.text);
+    }
+
+    const replyCountBefore = probeCtx.telegramReplies.length;
+    const req = new Request('https://meehoa-order-bot-staging.meehoasg.workers.dev/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Telegram-Bot-Api-Secret-Token': probeCtx.probeWebhookSecret
+      },
+      body: JSON.stringify({ update_id: updateId, message })
+    });
+    const res = await handleTelegramWebhook(req, probeCtx.isolatedEnv);
+    const resText = await res.text();
+    const stepOpsCalls = probeCtx.liveOpsCalls.filter(c => c.stepIndex === (i + 1));
+    stepResults.push({
+      step: i + 1,
+      updateId,
+      httpStatus: res.status,
+      webhookResponse: resText,
+      replies: probeCtx.telegramReplies.slice(replyCountBefore),
+      liveOpsCalls: stepOpsCalls
+    });
+  }
+
+  return stepResults;
 }
 
 async function handleAiProbe(request, env) {
@@ -930,6 +1062,9 @@ async function handleAiProbe(request, env) {
       ? [{ text: String(probeBody?.command || '/reparse') }]
       : [{ photo: probeBody?.withPhoto !== false, caption: singleCaption }]);
 
+  const useLiveOpsRules = Boolean(probeBody?.useLiveOpsRules);
+  if (useLiveOpsRules) clearOpsOrderRulesCache();
+
   const firstCaptionText = singleCaption || String(steps.find(s => typeof s === 'object' && (s.caption || s.text))?.caption || '');
   const globalFaultFetcher = buildProbeFaultFetcher(faultInjection, firstCaptionText);
 
@@ -938,60 +1073,26 @@ async function handleAiProbe(request, env) {
     timeoutMs,
     geminiOptions,
     geminiFetcher: globalFaultFetcher,
-    opsRules: probeBody?.opsRules || null
+    opsRules: probeBody?.opsRules || null,
+    useLiveOpsRules
   });
 
-  const stepResults = [];
-  let seq = Number(probeBody?.baseUpdateId || 900001);
-  for (let i = 0; i < steps.length; i++) {
-    const s = steps[i];
-    const stepObj = typeof s === 'string' ? { text: s } : (s || {});
-    const updateId = stepObj.update_id ?? (seq + i);
-    const msgId = stepObj.message_id ?? (seq + i);
-    const msgDate = stepObj.date ?? (1795700000 + i * 2);
+  if (useLiveOpsRules) {
+    await loadCurrentOpsRules(probeCtx.isolatedEnv, { forceRefresh: true });
+  }
 
-    // Allow per-step faultInjection override so callers can test 503 failure -> /reparse recovery
-    if (stepObj.faultInjection !== undefined) {
-      const stepCaptionHint = stepObj.caption ||
-        (stepObj.text && !String(stepObj.text).trim().startsWith('/') ? stepObj.text : '') ||
-        firstCaptionText;
-      const stepFault = buildProbeFaultFetcher(stepObj.faultInjection, stepCaptionHint);
-      probeCtx.isolatedEnv.GEMINI_FETCHER = stepFault || undefined;
-    } else {
-      probeCtx.isolatedEnv.GEMINI_FETCHER = globalFaultFetcher || undefined;
-    }
-
-    const message = {
-      message_id: msgId,
-      date: msgDate,
-      chat: { id: probeUserId, type: 'private' },
-      from: { id: probeUserId }
-    };
-    if (stepObj.photo) {
-      message.photo = [{ file_id: stepObj.file_id || `probe_photo_${i}`, file_unique_id: stepObj.file_unique_id || `probe_u_${i}` }];
-      if (stepObj.caption !== undefined) message.caption = stepObj.caption;
-    } else {
-      message.text = String(stepObj.text || '');
-    }
-
-    const replyCountBefore = probeCtx.telegramReplies.length;
-    const req = new Request('https://meehoa-order-bot-staging.meehoasg.workers.dev/webhook', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Telegram-Bot-Api-Secret-Token': probeCtx.probeWebhookSecret
-      },
-      body: JSON.stringify({ update_id: updateId, message })
-    });
-    const res = await handleTelegramWebhook(req, probeCtx.isolatedEnv);
-    const resText = await res.text();
-    stepResults.push({
-      step: i + 1,
-      updateId,
-      httpStatus: res.status,
-      webhookResponse: resText,
-      replies: probeCtx.telegramReplies.slice(replyCountBefore)
-    });
+  let stepResults = [];
+  try {
+    stepResults = await executeProbeSteps(
+      probeCtx,
+      probeUserId,
+      steps,
+      probeBody?.baseUpdateId || 900001,
+      faultInjection,
+      firstCaptionText
+    );
+  } finally {
+    if (useLiveOpsRules) clearOpsOrderRulesCache();
   }
 
   let realD1AuditLogged = false;
@@ -1033,21 +1134,7 @@ async function handleAiProbe(request, env) {
     error: latestAi && !latestAi.ok ? latestAi.error : null,
     extractedKeys: latestAi?.ok && latestAi.fields ? Object.keys(sanitizeAiFields(latestAi.fields) || {}) : [],
     extractedFields: latestAi?.ok ? sanitizeAiFields(latestAi.fields) : null,
-    aiCalls: probeCtx.aiCalls.map(c => ({
-      model: c.model,
-      endpoint: c.endpoint || null,
-      ok: c.ok,
-      status: c.status ?? null,
-      headersMs: c.headersMs ?? null,
-      latencyMs: c.latencyMs,
-      retries: c.retries ?? 0,
-      budgetExhausted: Boolean(c.budgetExhausted),
-      stage: c.stage || null,
-      finishReason: c.finishReason || null,
-      error: c.ok ? null : (c.error || null),
-      attempts: c.attempts || [],
-      extractedFields: c.ok ? sanitizeAiFields(c.fields) : null
-    })),
+    aiCalls: formatProbeAiCalls(probeCtx.aiCalls),
     stepResults,
     draftsCount: draftEntries.length,
     activeDraftId: finalState.activeDraftId,
@@ -1082,6 +1169,157 @@ async function handleAiProbe(request, env) {
     },
     isolationNote: 'NO_OPS_WRITE NO_REAL_D1_DRAFT_WRITE NO_REAL_R2_WRITE NO_TELEGRAM_SEND'
   }), { headers: { 'Content-Type': 'application/json' } });
+}
+
+async function handleOpsProbe(request, env) {
+  if (!verifySecretHeader(request, 'x-ai-probe-token', env.AI_PROBE_TOKEN)) {
+    return new Response(JSON.stringify({ ok: false, error: 'UNAUTHORIZED' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  let probeBody;
+  try {
+    probeBody = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ ok: false, error: 'BAD_JSON' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+  const opsToken = env.OPS_TOKEN || env.OPS_SERVICE_ROLE_TOKEN || '';
+  if (!opsToken) {
+    return new Response(JSON.stringify({ ok: false, error: 'OPS_TOKEN_NOT_CONFIGURED' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const action = String(probeBody?.action || '').trim();
+  if (action === 'ops-rpc') {
+    const rpcName = String(probeBody?.rpcName || '').trim();
+    if (!rpcName) {
+      return new Response(JSON.stringify({ ok: false, error: 'RPC_NAME_REQUIRED' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    const rpcPayload = probeBody?.rpcPayload && typeof probeBody.rpcPayload === 'object' ? probeBody.rpcPayload : {};
+    const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
+    const res = await fetcher(opsUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${opsToken}`
+      },
+      body: JSON.stringify({
+        name: rpcName,
+        payload: { ...rpcPayload, token: opsToken }
+      })
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    return new Response(JSON.stringify({
+      ok: true,
+      action: 'ops-rpc',
+      rpcName,
+      httpStatus: res.status,
+      data
+    }), { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  if (action === 'bot-e2e-order') {
+    const steps = Array.isArray(probeBody?.steps) ? probeBody.steps : [];
+    if (!steps.length) {
+      return new Response(JSON.stringify({ ok: false, error: 'STEPS_REQUIRED' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    let samplePhotoBytes = null;
+    if (probeBody?.samplePhotoBase64) {
+      try {
+        const bin = atob(String(probeBody.samplePhotoBase64).trim());
+        samplePhotoBytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i += 1) samplePhotoBytes[i] = bin.charCodeAt(i);
+      } catch {
+        return new Response(JSON.stringify({ ok: false, error: 'BAD_PHOTO_BASE64' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    const probeUserId = Number((env.ALLOWED_USER_IDS || String(DEFAULT_ALLOWED_USER_ID)).split(',')[0].trim()) || DEFAULT_ALLOWED_USER_ID;
+    const probeModel = probeBody?.model ? String(probeBody.model).trim() : null;
+
+    clearOpsOrderRulesCache();
+    const probeCtx = createIsolatedProbeEnv(env, probeUserId, null, {
+      model: probeModel,
+      useLiveOpsRules: true,
+      allowLiveOpsWrites: true,
+      useRealR2: Boolean(env.MEDIA_R2),
+      samplePhotoBytes
+    });
+
+    await loadCurrentOpsRules(probeCtx.isolatedEnv, { forceRefresh: true });
+    let stepResults = [];
+    try {
+      stepResults = await executeProbeSteps(
+        probeCtx,
+        probeUserId,
+        steps,
+        probeBody?.baseUpdateId || 950001,
+        null,
+        ''
+      );
+    } finally {
+      clearOpsOrderRulesCache();
+    }
+
+    const finalState = probeCtx.readDraftsState();
+    const activeDraftObj = finalState.activeDraftId ? finalState.drafts[finalState.activeDraftId] || null : null;
+
+    return new Response(JSON.stringify({
+      ok: stepResults.every(s => s.httpStatus === 200),
+      action: 'bot-e2e-order',
+      geminiModel: probeCtx.isolatedEnv.GEMINI_MODEL,
+      aiCalls: formatProbeAiCalls(probeCtx.aiCalls),
+      stepResults,
+      liveOpsCalls: probeCtx.liveOpsCalls,
+      draftsCount: Object.keys(finalState.drafts || {}).filter(k => !k.startsWith('__')).length,
+      activeDraftId: finalState.activeDraftId,
+      activeDraft: activeDraftObj ? {
+        id: activeDraftObj.id,
+        status: activeDraftObj.status,
+        opsOrderId: activeDraftObj.opsOrderId || null,
+        requestId: activeDraftObj.requestId || null,
+        paymentSynced: activeDraftObj.paymentSynced ?? null,
+        paymentRecordedAmount: activeDraftObj.paymentRecordedAmount ?? null,
+        fields: activeDraftObj.fields || {},
+        sampleCount: (activeDraftObj.sampleRefs || []).length,
+        billCount: (activeDraftObj.draftBillRefs || []).length
+      } : null,
+      executionProof: {
+        workerRuntime: true,
+        handleTelegramWebhookUsed: true,
+        realGeminiSecretUsed: true,
+        realOpsServiceUsed: true,
+        realR2Used: Boolean(env.MEDIA_R2),
+        realD1DraftsMutated: false
+      }
+    }), { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  return new Response(JSON.stringify({ ok: false, error: 'UNSUPPORTED_ACTION' }), {
+    status: 400,
+    headers: { 'Content-Type': 'application/json' }
+  });
 }
 
 /**
