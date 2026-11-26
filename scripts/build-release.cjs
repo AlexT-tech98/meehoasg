@@ -16,7 +16,8 @@ files.push(fourStateMigration);
 const uiV3Migrations=[
   'supabase/migrations/20261125010000_ui_v3_tag_note_soft_delete_server_filter.sql',
   'supabase/migrations/20261125020000_ui_v3_rc3_order_source_and_walkin.sql',
-  'supabase/migrations/20261126010000_ui_v3_final_deletion_policy_override.sql'
+  'supabase/migrations/20261126010000_ui_v3_final_deletion_policy_override.sql',
+  'supabase/migrations/20261126020000_ui_v3_guard_queued_order_trash_compat.sql'
 ];
 for(const m of uiV3Migrations)files.push(m);
 const manifest=[];for(const file of files){const bytes=fs.readFileSync(path.join(root,file)),target=path.join(dest,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,bytes);manifest.push({path:file,bytes:bytes.length,sha256:sha(bytes)});}
