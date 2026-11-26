@@ -2424,7 +2424,10 @@ test('Contract 24: Gemini 4 Hydrogen omits deprecated temperature, uses response
   assert.ok(hBody.generationConfig.responseSchema?.properties?.flowerTotal);
   assert.ok(hBody.generationConfig.responseSchema?.properties?.shipping);
   assert.ok(hBody.generationConfig.responseSchema?.properties?.address);
-  assert.equal(Object.keys(hBody.generationConfig.responseSchema.properties).length, 11);
+  assert.ok(hBody.generationConfig.responseSchema?.properties?.cardQty);
+  assert.ok(hBody.generationConfig.responseSchema?.properties?.bannerQty);
+  assert.ok(hBody.generationConfig.responseSchema?.properties?.shipFee);
+  assert.equal(Object.keys(hBody.generationConfig.responseSchema.properties).length, 14);
 
   const fBody = buildGeminiRequestBody('test text', 'gemini-2.5-flash');
   assert.equal(fBody.generationConfig.temperature, 0.1);
@@ -3122,6 +3125,115 @@ test('Contract 26: Photo with short or ambiguous natural caption opens a new pen
     );
     assert.match(sentMessages[sentMessages.length - 1].text, /Chưa đủ dữ liệu|Còn thiếu/);
     assert.equal(opsCalls, 0);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('Contract 27: Bot-to-OPS sync for bannerQty*35k + cardQty*10k, explicit-only shipFee, Shop book ship missing address reminder, and 0 read/write calls on repeat /confirm', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { clearOpsOrderRulesCache } = await import('../order-bot/cloudflare/ops-client.mjs');
+  const { opsToken, callOpsApi, opsHandler } = await createRealOpsHarness();
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const sentMessages = [];
+  const opsTraffic = [];
+
+  clearOpsOrderRulesCache();
+  const countingOpsService = {
+    async fetch(input, init) {
+      const req = input instanceof Request ? input : new Request(input, init);
+      const clone = req.clone();
+      const body = await clone.json();
+      opsTraffic.push(String(body?.name || 'unknown'));
+      return opsHandler(req);
+    }
+  };
+
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/flower.jpg', file_size: 256 } }));
+    if (u.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]));
+    if (u.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  try {
+    const env = {
+      DB: db,
+      MEDIA_R2: r2,
+      BOT_TOKEN: 'fake_bot_token',
+      OPS_TOKEN: opsToken,
+      OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+      OPS_SERVICE: countingOpsService,
+      TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+      ALLOWED_USER_IDS: '5252724920'
+    };
+    const sendMsg = (id, msg) => handleTelegramWebhook(
+      makeWebhookRequest({ update_id: id, message: { message_id: id, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, ...msg } }),
+      env
+    );
+
+    // 1. Order with 2 banners + 3 cards + Shop book ship WITHOUT address & WITHOUT shipFee -> reminder only, allows /confirm!
+    await sendMsg(99901, {
+      photo: [{ file_id: 'p_rule_1', file_unique_id: 'u_rule_1' }],
+      caption: 'Khách: Thảo Nguyên\nhoa: Kệ chúc mừng 500k\nngày: 2026-12-29\ngiờ: 15:00\nship: Shop book ship\n2 banner: Khai trương hồng phát\n3 thiệp: Chúc mừng phát tài\ncọc: 250k'
+    });
+    const summaryReply = sentMessages[sentMessages.length - 1].text;
+    assert.ok(summaryReply.includes('💡 Nhắc bổ sung: địa chỉ giao hàng (Shop book ship)'));
+    assert.ok(summaryReply.includes('💌 Thiệp (3): Chúc mừng phát tài (+30.000 đ)'));
+    assert.ok(summaryReply.includes('🎀 Banner (2): Khai trương hồng phát (+70.000 đ)'));
+    assert.ok(!summaryReply.includes('Phí ship'));
+
+    await sendMsg(99902, { text: '/confirm' });
+    const draftsAfterConfirm = await loadDrafts(db, 5252724920);
+    const d1 = draftsAfterConfirm[draftsAfterConfirm.__active];
+    assert.equal(d1.status, 'submitted');
+    assert.ok(d1.opsOrderId);
+
+    const ops1 = (await callOpsApi('getOrder', { orderId: d1.opsOrderId })).order;
+    assert.equal(ops1.cardQty, 3);
+    assert.equal(ops1.cardFee, 30000);
+    assert.equal(ops1.bannerQty, 2);
+    assert.equal(ops1.bannerFee, 70000);
+    assert.equal(ops1.accessoryTotal, 100000);
+    assert.equal(ops1.shipFee, 0);
+    assert.equal(ops1.shipConfirmed, false);
+    assert.equal(ops1.shipFeePending, true);
+    assert.equal(ops1.totalDue, 600000);
+    assert.equal(ops1.paid, 250000);
+    assert.equal(ops1.debt, 350000);
+
+    // 2. Repeated /confirm on already-submitted & paymentSynced draft -> ZERO OPS reads and ZERO OPS writes!
+    const opsCountBeforeRepeat = opsTraffic.length;
+    await sendMsg(99903, { text: '/confirm' });
+    assert.equal(opsTraffic.length, opsCountBeforeRepeat, 'Repeat /confirm must make 0 OPS calls (both read and write)');
+    assert.ok(sentMessages[sentMessages.length - 1].text.includes('đã được tạo'));
+
+    // 3. Order with explicit shipFee ("phí ship 45k") -> OPS saves shipConfirmed=true & shipFee=45000
+    await sendMsg(99904, { text: '/new' });
+    await sendMsg(99905, {
+      photo: [{ file_id: 'p_rule_2', file_unique_id: 'u_rule_2' }],
+      caption: 'Khách: Minh Quân\nhoa: Bó hồng 400k\nngày: 2026-12-29\ngiờ: 16:00\nship: Shop book ship\nđịa chỉ: 88 Võ Văn Tần, Q3\nphí ship 45k\n1 banner: Happy Birthday\ncọc: 200k'
+    });
+    await sendMsg(99906, { text: '/confirm' });
+    const drafts2 = await loadDrafts(db, 5252724920);
+    const d2 = drafts2[drafts2.__active];
+    assert.equal(d2.status, 'submitted');
+    const ops2 = (await callOpsApi('getOrder', { orderId: d2.opsOrderId })).order;
+    assert.equal(ops2.bannerQty, 1);
+    assert.equal(ops2.bannerFee, 35000);
+    assert.equal(ops2.shipFee, 45000);
+    assert.equal(ops2.shipConfirmed, true);
+    assert.equal(ops2.shipFeePending, false);
+    assert.equal(ops2.totalDue, 480000);
+    assert.equal(ops2.paid, 200000);
+    assert.equal(ops2.debt, 280000);
   } finally {
     globalThis.fetch = origFetch;
   }

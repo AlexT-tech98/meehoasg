@@ -880,13 +880,19 @@ async function executeProbeSteps(probeCtx, probeUserId, steps, baseUpdateId = 90
     });
     const res = await handleTelegramWebhook(req, probeCtx.isolatedEnv);
     const resText = await res.text();
+    const READ_OPS_ACTIONS = new Set(['getOrderRules', 'getOrder', 'getOrders', 'getDashboardSummary', 'getDebtReview', 'getKpi', 'getProductionOrders']);
     const stepOpsCalls = probeCtx.liveOpsCalls.filter(c => c.stepIndex === (i + 1));
+    const opsReadCallsCount = stepOpsCalls.filter(c => READ_OPS_ACTIONS.has(c.action)).length;
+    const opsWriteCallsCount = stepOpsCalls.filter(c => !READ_OPS_ACTIONS.has(c.action)).length;
     stepResults.push({
       step: i + 1,
       updateId,
       httpStatus: res.status,
       webhookResponse: resText,
       replies: probeCtx.telegramReplies.slice(replyCountBefore),
+      opsCallsCount: stepOpsCalls.length,
+      opsReadCallsCount,
+      opsWriteCallsCount,
       liveOpsCalls: stepOpsCalls
     });
   }
@@ -1285,12 +1291,19 @@ async function handleOpsProbe(request, env) {
     const finalState = probeCtx.readDraftsState();
     const activeDraftObj = finalState.activeDraftId ? finalState.drafts[finalState.activeDraftId] || null : null;
 
+    const READ_OPS_ACTIONS = new Set(['getOrderRules', 'getOrder', 'getOrders', 'getDashboardSummary', 'getDebtReview', 'getKpi', 'getProductionOrders']);
+    const totalReadCallsCount = probeCtx.liveOpsCalls.filter(c => READ_OPS_ACTIONS.has(c.action)).length;
+    const totalWriteCallsCount = probeCtx.liveOpsCalls.filter(c => !READ_OPS_ACTIONS.has(c.action)).length;
+
     return new Response(JSON.stringify({
       ok: stepResults.every(s => s.httpStatus === 200),
       action: 'bot-e2e-order',
       geminiModel: probeCtx.isolatedEnv.GEMINI_MODEL,
       aiCalls: formatProbeAiCalls(probeCtx.aiCalls),
       stepResults,
+      opsCallsCount: probeCtx.liveOpsCalls.length,
+      opsReadCallsCount: totalReadCallsCount,
+      opsWriteCallsCount: totalWriteCallsCount,
       liveOpsCalls: probeCtx.liveOpsCalls,
       draftsCount: Object.keys(finalState.drafts || {}).filter(k => !k.startsWith('__')).length,
       activeDraftId: finalState.activeDraftId,
@@ -2142,6 +2155,12 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       `ℹ️ Đơn ${draft.opsOrderId} đã được tạo trên OPS (không tạo đơn trùng). Đang đồng bộ lại trạng thái thanh toán...`
     );
     await handleRetryPaymentCommand(drafts, draft.opsOrderId, env, userId, chatId);
+    return;
+  }
+
+  // Already submitted and payment already synced -> reject immediately with zero OPS read/write calls
+  if (draft.status === 'submitted') {
+    await replyTg(env, chatId, '⚠️ Đơn này đã được tạo trong OPS rồi.');
     return;
   }
 

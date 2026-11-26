@@ -449,7 +449,7 @@ export const DEFAULT_BOT_SALE = 'cmui';
 export const DEFAULT_BOT_SALE_NAME = 'C Mụi';
 
 export const DEFAULT_OPS_ORDER_RULES = {
-  schemaVersion: '2026-11-26.v2',
+  schemaVersion: '2026-11-26.v3',
   saleDefault: DEFAULT_BOT_SALE,
   saleDefaultName: DEFAULT_BOT_SALE_NAME,
   required: ['customer', 'flower', 'date', 'time', 'shipping', 'flowerTotal'],
@@ -457,9 +457,14 @@ export const DEFAULT_OPS_ORDER_RULES = {
   minFlowerTotal: 1,
   minDepositRatio: 0.5,
   depositBase: 'flowerTotal',
-  conditionalRequired: [
+  conditionalRequired: [],
+  conditionalReminders: [
     { field: 'address', when: { field: 'shipping', equals: 'Shop book ship' }, rejectPending: true }
   ],
+  accessoryPrices: {
+    cardUnitFee: 10000,
+    bannerUnitFee: 35000
+  },
   enums: {
     shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'],
     statuses: ['Chờ bó', 'Đã bó', 'Đã giao']
@@ -467,6 +472,8 @@ export const DEFAULT_OPS_ORDER_RULES = {
   supportedRuleFeatures: [
     'required_fields',
     'conditional_required',
+    'conditional_reminders',
+    'accessory_unit_pricing',
     'min_deposit_ratio',
     'flower_total_required',
     'shipping_enum',
@@ -592,15 +599,23 @@ export function draftSummary(draft, rules = DEFAULT_OPS_ORDER_RULES) {
   if (f.address) {
     const pendingTag = isPendingAddress(f.address) ? ' (chờ bổ sung)' : '';
     lines.push(`📍 Địa chỉ: ${f.address}${pendingTag}`);
+  } else if (f.shipping === 'Shop book ship') {
+    lines.push(`📍 Địa chỉ: — (chưa có — nhớ bổ sung)`);
   }
   if (f.note) lines.push(`📝 Ghi chú: ${f.note}`);
 
-  if (f.cardText) lines.push(`💌 Thiệp (${f.cardQty || 1}): ${f.cardText}`);
-  if (f.bannerText) lines.push(`🎀 Banner (${f.bannerQty || 1}): ${f.bannerText}`);
+  const cQty = Math.max(1, Number(f.cardQty) || 1);
+  const bQty = Math.max(1, Number(f.bannerQty) || 1);
+  if (f.card || f.cardText) lines.push(`💌 Thiệp (${cQty}): ${f.cardText || '(chưa ghi nội dung)'} (+${(cQty * 10000).toLocaleString('vi')} đ)`);
+  if (f.banner || f.bannerText) lines.push(`🎀 Banner (${bQty}): ${f.bannerText || '(chưa ghi nội dung)'} (+${(bQty * 35000).toLocaleString('vi')} đ)`);
   if (f.charmFee) lines.push(`✨ Phí charm: ${Number(f.charmFee).toLocaleString('vi')} đ${f.charmText ? ' (' + f.charmText + ')' : ''}`);
   if (f.paperFee) lines.push(`📜 Phí giấy: ${Number(f.paperFee).toLocaleString('vi')} đ${f.paperText ? ' (' + f.paperText + ')' : ''}`);
   if (f.vat) lines.push(`🧾 VAT: ${Number(f.vat).toLocaleString('vi')} đ`);
-  if (f.shipFee) lines.push(`🛵 Phí ship: ${Number(f.shipFee).toLocaleString('vi')} đ`);
+  if (Number(f.shipFee) > 0) lines.push(`🛵 Phí ship: ${Number(f.shipFee).toLocaleString('vi')} đ`);
+  const totalDuePreview = computeDraftTotal(f);
+  if (f.flowerTotal && totalDuePreview > Number(f.flowerTotal)) {
+    lines.push(`🧮 Tổng đơn (gồm phụ kiện/ship/VAT): ${totalDuePreview.toLocaleString('vi')} đ`);
+  }
 
   const sampleCount = (draft.sampleRefs || []).length;
   const billCount = (draft.draftBillRefs || []).length;
@@ -619,6 +634,9 @@ export function draftSummary(draft, rules = DEFAULT_OPS_ORDER_RULES) {
   }
   if (validation.missing.length) {
     lines.push(`\n⚠️ Còn thiếu: ${validation.missing.join(', ')}`);
+  }
+  if (validation.reminders?.length) {
+    lines.push(`\n💡 Nhắc bổ sung: ${validation.reminders.join(', ')}`);
   }
   if (validation.ruleErrors.length) {
     lines.push(`\n⛔ Quy tắc OPS chưa đạt:`);
@@ -652,6 +670,7 @@ export function validateOrderAgainstRules(draft, rules = DEFAULT_OPS_ORDER_RULES
   const effectiveRules = rules || DEFAULT_OPS_ORDER_RULES;
   const f = draft?.fields || {};
   const missing = [];
+  const reminders = [];
   const ruleErrors = [];
   const unsupportedRules = [];
 
@@ -710,6 +729,19 @@ export function validateOrderAgainstRules(draft, rules = DEFAULT_OPS_ORDER_RULES
     }
   }
 
+  for (const rem of effectiveRules.conditionalReminders || []) {
+    const remField = rem?.field;
+    const whenField = rem?.when?.field;
+    const whenEquals = rem?.when?.equals;
+    if (!remField || !whenField) continue;
+    if (String(f[whenField] || '') === String(whenEquals || '')) {
+      if (!hasFieldValue(remField, Boolean(rem.rejectPending))) {
+        const label = `${FIELD_LABELS_VI[remField] || remField} (${whenEquals})`;
+        if (!reminders.includes(label)) reminders.push(label);
+      }
+    }
+  }
+
   const allowedShipping = effectiveRules.enums?.shipping;
   if (f.shipping && Array.isArray(allowedShipping) && allowedShipping.length && !allowedShipping.includes(f.shipping)) {
     ruleErrors.push(`Hình thức ship "${f.shipping}" chưa khớp danh sách OPS (${allowedShipping.join(', ')}).`);
@@ -748,6 +780,7 @@ export function validateOrderAgainstRules(draft, rules = DEFAULT_OPS_ORDER_RULES
   return {
     ok: unsupportedRules.length === 0 && missing.length === 0 && ruleErrors.length === 0 && !hasUncertain,
     missing,
+    reminders,
     ruleErrors,
     unsupportedRules
   };
@@ -985,11 +1018,43 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
       }
     }
 
-    // 4. Explicit shipping detection
+    // 4. Explicit shipping detection & explicit shipping fee detection (NEVER guess shipFee when unstated)
     if (/\b(shop\s*book|shop\s*ship|shop\s*giao|giao\s*tan\s*noi|khach\s*tu\s*book|tu\s*book|aha|grab|ghe\s*lay|tai\s*tiem|tu\s*qua\s*lay|tu\s*lay)\b/i.test(normLine)) {
       if (/shop\s*book|shop\s*ship|shop\s*giao|giao\s*tan\s*noi/.test(normLine)) fields.shipping = 'Shop book ship';
       else if (/khach\s*tu\s*book|tu\s*book|aha|grab/.test(normLine)) fields.shipping = 'Khách tự book';
       else if (/ghe\s*lay|tai\s*tiem|tu\s*qua\s*lay|tu\s*lay/.test(normLine)) fields.shipping = 'Ghé lấy';
+    }
+    const mShipFee = normLine.match(/(?:phi\s*ship|tien\s*ship|cuoc\s*ship)\s*[:=-]?\s*(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*(?:k|tr|trieu|ngan|nghin|d)?)/i);
+    if (mShipFee) {
+      const feeNorm = normalizeMoney(mShipFee[1].replace(/\s*(?:ngan|nghin)\b/gi, 'k'));
+      if (/^\d+$/.test(feeNorm) && Number(feeNorm) > 0) {
+        fields.shipFee = feeNorm;
+      }
+      if (!FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|duong|phuong|quan|banner|thiep)\b/.test(normLine) && !hasDate && !hasTime && !mPhone) {
+        continue;
+      }
+    }
+
+    // 4b. Natural banner / card extraction (placed BEFORE address check so "2 banner ..." is never mistaken for a street number)
+    const mNatBanner = cleanLine.match(/^(?:(?:thêm|them|kèm|kem|lấy|lay|đặt|dat)\s+)?(?:(\d{1,2})\s*(?:cái|cai|tấm|tam)?\s+)?banner(?:\s+(\d{1,2})\s*(?:cái|cai|tấm|tam)?)?(?:\s*(?:nội\s*dung|noi\s*dung|nd)\b)?\s*[:=-]?\s*(.+)$/i);
+    if (mNatBanner && mNatBanner[3]?.trim()) {
+      const bQty = Number(mNatBanner[1] || mNatBanner[2] || 1);
+      if (Number.isInteger(bQty) && bQty >= 1 && bQty <= 99) {
+        fields.banner = true;
+        fields.bannerQty = bQty;
+        fields.bannerText = mNatBanner[3].trim();
+        continue;
+      }
+    }
+    const mNatCard = cleanLine.match(/^(?:(?:thêm|them|kèm|kem|lấy|lay|đặt|dat)\s+)?(?:(\d{1,2})\s*(?:cái|cai|tấm|tam)?\s+)?(?:thiệp|thiep)(?:\s+(\d{1,2})\s*(?:cái|cai|tấm|tam)?)?(?:\s*(?:nội\s*dung|noi\s*dung|nd)\b)?\s*[:=-]?\s*(.+)$/i);
+    if (mNatCard && mNatCard[3]?.trim()) {
+      const cQty = Number(mNatCard[1] || mNatCard[2] || 1);
+      if (Number.isInteger(cQty) && cQty >= 1 && cQty <= 99) {
+        fields.card = true;
+        fields.cardQty = cQty;
+        fields.cardText = mNatCard[3].trim();
+        continue;
+      }
     }
 
     // 5. Address detection (NEVER auto-guesses shipping when shipping method is not stated)
@@ -1181,6 +1246,26 @@ function applyFieldLine(draft, line) {
   } else if (field === 'cardQty' || field === 'bannerQty') {
     const n = parseInt(rawVal, 10);
     value = Number.isInteger(n) && n >= 1 && n <= 99 ? n : 1;
+  } else if (field === 'card' || field === 'banner') {
+    const normBool = rawVal.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').trim();
+    if (/^(?:khong|no|false|0|huy|bo)$/.test(normBool)) {
+      value = false;
+    } else if (/^(?:co|yes|true|1)$/.test(normBool)) {
+      value = true;
+    } else {
+      const mWithQty = rawVal.match(/^(\d{1,2})\s*(?:cái|cai|tấm|tam)?\s*[-:,]?\s*(.+)$/i);
+      const itemQty = mWithQty && Number(mWithQty[1]) >= 1 && Number(mWithQty[1]) <= 99 ? Number(mWithQty[1]) : 1;
+      const itemText = (mWithQty && mWithQty[2]?.trim()) ? mWithQty[2].trim() : rawVal;
+      const targetTextField = field === 'card' ? 'cardText' : 'bannerText';
+      const targetQtyField = field === 'card' ? 'cardQty' : 'bannerQty';
+      return {
+        field: targetTextField,
+        value: itemText,
+        isUncertain: false,
+        reason: '',
+        extra: { [field]: true, [targetQtyField]: itemQty }
+      };
+    }
   }
 
   return { field, value, isUncertain, reason, extra };
@@ -1219,8 +1304,26 @@ function applyFields(draft, text, options = {}) {
         if (extra.depositAmount !== undefined) newFields.depositAmount = extra.depositAmount;
         if (extra.flowerTotal) newFields.flowerTotal = String(extra.flowerTotal);
         if (extra.reportedPaidAmount !== undefined) newFields.reportedPaidAmount = extra.reportedPaidAmount;
+        if (extra.card !== undefined) newFields.card = extra.card;
+        if (extra.cardQty !== undefined) newFields.cardQty = extra.cardQty;
+        if (extra.banner !== undefined) newFields.banner = extra.banner;
+        if (extra.bannerQty !== undefined) newFields.bannerQty = extra.bannerQty;
       }
 
+      if (field === 'card' && value === false) {
+        newFields.cardQty = 0;
+        delete newFields.cardText;
+      }
+      if (field === 'banner' && value === false) {
+        newFields.bannerQty = 0;
+        delete newFields.bannerText;
+      }
+      if (field === 'cardQty' && Number(value) >= 1 && newFields.cardText) {
+        newFields.card = true;
+      }
+      if (field === 'bannerQty' && Number(value) >= 1 && newFields.bannerText) {
+        newFields.banner = true;
+      }
       if (field === 'cardText' && value) {
         newFields.card = true;
         if (!newFields.cardQty) newFields.cardQty = 1;

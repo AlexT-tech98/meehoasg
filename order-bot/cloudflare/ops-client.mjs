@@ -152,10 +152,10 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
         paperText: String(f.paperText || '').trim(),
         paper_text: String(f.paperText || '').trim(),
         vat: Number(f.vat) || 0,
-        shipFee: Number(f.shipFee) || 0,
-        ship_fee: Number(f.shipFee) || 0,
+        shipFee: (f.shipping === 'Shop book ship' && Number(f.shipFee) > 0) ? Number(f.shipFee) : 0,
+        ship_fee: (f.shipping === 'Shop book ship' && Number(f.shipFee) > 0) ? Number(f.shipFee) : 0,
         shipFeeActive: (f.shipping === 'Shop book ship' && Number(f.shipFee) > 0) ? '1' : '0',
-        ship_confirmed: false,
+        ship_confirmed: f.shipping === 'Shop book ship' && Number(f.shipFee) > 0,
         // STRICT INVARIANT: No auto-full-paid without OPS bill verification
         fullPaidRequested: false,
         imageFiles: sampleFiles,
@@ -293,9 +293,11 @@ export async function callUpdateOrderPayment(opsUrl, opsToken, orderId, currentO
         sale: String(currentOrder.saleUsername || currentOrder.sale || DEFAULT_BOT_SALE).trim(),
         card: Boolean(currentOrder.card),
         cardQty: currentOrder.card ? Math.max(1, Number(currentOrder.cardQty) || 1) : 0,
+        card_qty: currentOrder.card ? Math.max(1, Number(currentOrder.cardQty) || 1) : 0,
         cardText: String(currentOrder.cardText || '').trim(),
         banner: Boolean(currentOrder.banner),
         bannerQty: currentOrder.banner ? Math.max(1, Number(currentOrder.bannerQty) || 1) : 0,
+        banner_qty: currentOrder.banner ? Math.max(1, Number(currentOrder.bannerQty) || 1) : 0,
         bannerText: String(currentOrder.bannerText || '').trim(),
         charmFee: Number(currentOrder.charmFee) || 0,
         charmText: String(currentOrder.charmText || '').trim(),
@@ -304,6 +306,7 @@ export async function callUpdateOrderPayment(opsUrl, opsToken, orderId, currentO
         vat: Number(currentOrder.vat) || 0,
         shipFee: Number(currentOrder.shipFee) || 0,
         shipFeeActive,
+        ship_confirmed: shipFeeActive === '1',
         fullPaidRequested: false
       }
     }

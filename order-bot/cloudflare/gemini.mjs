@@ -21,9 +21,13 @@ Quy tắc trích xuất:
 9. note: Ghi chú lời dặn của khách (chuỗi).
 10. cardText: Nội dung viết thiệp chúc mừng (chuỗi).
 11. bannerText: Nội dung in banner/dải ruy băng (chuỗi).
+12. cardQty: Số lượng thiệp chúc mừng (số nguyên từ 1-99, CHỈ trả khi có đề cập thiệp; mặc định null nếu không có thiệp).
+13. bannerQty: Số lượng banner (số nguyên từ 1-99, CHỈ trả khi có đề cập banner; mặc định null nếu không có banner).
+14. shipFee: Phí ship theo VNĐ (số nguyên > 0, ví dụ 45k -> 45000) CHỈ KHI tin nhắn/ghi chú nêu rõ phí ship/tiền ship; nếu không nêu rõ phí ship thì BẮT BUỘC để null, tuyệt đối không tự đoán.
 
 QUY TẮC BẢO MẬT & CHÍNH XÁC:
-- TUYỆT ĐỐI KHÔNG tự bịa hoặc suy đoán bất kỳ trường quan trọng nào (tên khách, SĐT, ngày, giờ, địa chỉ, hình thức ship, giá tiền). Trường nào không có trong tin nhắn thì để null.
+- TUYỆT ĐỐI KHÔNG tự bịa hoặc suy đoán bất kỳ trường quan trọng nào (tên khách, SĐT, ngày, giờ, địa chỉ, hình thức ship, giá tiền, phí ship). Trường nào không có trong tin nhắn thì để null.
+- Không tự gán shipFee nếu khách không ghi rõ số tiền phí ship.
 - TUYỆT ĐỐI KHÔNG trích xuất hoặc thay đổi trạng thái thanh toán, công nợ, full paid, quyền admin hoặc vai trò hệ thống.
 - KHÔNG đoán mẫu hoa từ ảnh; flower chỉ lấy khi tin nhắn mô tả rõ mẫu/loại hoa.
 - Cụm "Shop book ship", "ship", "giao", "book ship" là hình thức giao nhận, KHÔNG phải tên khách.
@@ -42,7 +46,10 @@ export const ALLOWED_AI_FIELDS = new Set([
   'flowerTotal',
   'note',
   'cardText',
-  'bannerText'
+  'bannerText',
+  'cardQty',
+  'bannerQty',
+  'shipFee'
 ]);
 
 const PLACEHOLDER_VALUES = new Set([
@@ -78,6 +85,18 @@ export function sanitizeAiFields(parsed) {
     const cleaned = String(v).replace(/[\r\n]+/g, ' ').trim();
     if (!cleaned) continue;
     if (PLACEHOLDER_VALUES.has(cleaned.toLowerCase())) continue;
+    if (k === 'cardQty' || k === 'bannerQty') {
+      const qty = Math.floor(Number(cleaned));
+      if (!Number.isInteger(qty) || qty < 1 || qty > 99) continue;
+      result[k] = qty;
+      continue;
+    }
+    if (k === 'shipFee') {
+      const fee = Math.round(Number(cleaned));
+      if (!Number.isFinite(fee) || fee <= 0) continue;
+      result[k] = fee;
+      continue;
+    }
     result[k] = typeof v === 'number' ? v : cleaned;
   }
   return Object.keys(result).length ? result : null;
@@ -141,7 +160,10 @@ export const ORDER_EXTRACTION_RESPONSE_SCHEMA = {
     flowerTotal: { type: 'INTEGER', nullable: true },
     note: { type: 'STRING', nullable: true },
     cardText: { type: 'STRING', nullable: true },
-    bannerText: { type: 'STRING', nullable: true }
+    bannerText: { type: 'STRING', nullable: true },
+    cardQty: { type: 'INTEGER', nullable: true },
+    bannerQty: { type: 'INTEGER', nullable: true },
+    shipFee: { type: 'INTEGER', nullable: true }
   }
 };
 

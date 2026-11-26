@@ -1475,8 +1475,8 @@ test('Kiểm tra đối soát nợ và thanh toán OPS cho 4 trạng thái theo 
   }
 });
 
-test('Kiểm tra địa chỉ bổ sung sau: chặn /confirm khi Shop book ship thiếu địa chỉ, cho phép Ghé lấy không cần địa chỉ', async () => {
-  const { isPendingAddress, requiredMissing, isConfirmable, cmdConfirm, cmdNew, applyFields, draftSummary } = await import('../order-bot/core.mjs');
+test('Kiểm tra địa chỉ bổ sung sau: Shop book ship thiếu địa chỉ chỉ nhắc bổ sung (vẫn cho /confirm), Ghé lấy không nhắc', async () => {
+  const { isPendingAddress, requiredMissing, isConfirmable, validateOrderAgainstRules, cmdConfirm, cmdNew, applyFields, draftSummary } = await import('../order-bot/core.mjs');
 
   // 1. Kiểm tra nhận diện địa chỉ chưa cung cấp
   assert.equal(isPendingAddress('Địa chỉ bsung sau'), true);
@@ -1487,7 +1487,7 @@ test('Kiểm tra địa chỉ bổ sung sau: chặn /confirm khi Shop book ship 
   assert.equal(isPendingAddress(null), true);
   assert.equal(isPendingAddress('123 Lê Lợi, P. Bến Nghé, Quận 1'), false);
 
-  // 2. Kịch bản Shop book ship + Địa chỉ bsung sau: bắt buộc có địa chỉ giao hàng, CHẶN /confirm
+  // 2. Kịch bản Shop book ship + Địa chỉ bsung sau: KHÔNG chặn /confirm, hiển thị dòng nhắc bổ sung
   let drafts = {};
   const rNew1 = cmdNew(drafts);
   drafts = rNew1.drafts;
@@ -1507,32 +1507,35 @@ Ship: Shop book ship
   assert.equal(drafts[d1].fields.address, 'Địa chỉ báo sau');
   assert.equal(drafts[d1].fields.shipping, 'Shop book ship');
 
-  // draftSummary gắn cờ chờ bổ sung và cảnh báo còn thiếu địa chỉ giao hàng
+  // draftSummary gắn cờ chờ bổ sung và hiện dòng nhắc bổ sung (không chặn)
   const summary1 = draftSummary(drafts[d1]);
   assert.ok(summary1.includes('📍 Địa chỉ: Địa chỉ báo sau (chờ bổ sung)'));
-  assert.ok(summary1.includes('⚠️ Còn thiếu: địa chỉ giao hàng'));
+  assert.ok(summary1.includes('💡 Nhắc bổ sung: địa chỉ giao hàng (Shop book ship)'));
+  assert.ok(!summary1.includes('⚠️ Còn thiếu: địa chỉ giao hàng'));
 
-  // requiredMissing phải chứa 'địa chỉ giao hàng'
-  const missing1 = requiredMissing(drafts[d1]);
-  assert.ok(missing1.includes('địa chỉ giao hàng'), 'Shop book ship bắt buộc có địa chỉ giao hàng thực tế');
-  assert.equal(isConfirmable(drafts[d1]), false, 'Chặn confirm khi thiếu địa chỉ giao hàng');
+  // requiredMissing rỗng, reminders có địa chỉ, isConfirmable = true và /confirm cho phép tạo đơn
+  const val1 = validateOrderAgainstRules(drafts[d1]);
+  assert.deepEqual(val1.missing, []);
+  assert.ok(val1.reminders.includes('địa chỉ giao hàng (Shop book ship)'));
+  assert.equal(isConfirmable(drafts[d1]), true, 'Cho phép /confirm khi Shop book ship thiếu địa chỉ nhưng đủ các trường bắt buộc khác');
 
   const confirmRes1 = cmdConfirm(drafts);
-  assert.ok(confirmRes1.reply.includes('❌ Chưa đủ dữ liệu'));
-  assert.ok(confirmRes1.reply.includes('địa chỉ giao hàng'));
+  assert.equal(confirmRes1.reply, '__CONFIRM__');
 
-  // 3. Bổ sung địa chỉ ở tin nhắn tiếp theo: /confirm thành công
+  // 3. Bổ sung địa chỉ thực tế: hết dòng nhắc bổ sung
   const rSupp1 = applyFields(drafts[d1], 'Địa chỉ: 456 Hai Bà Trưng, P. Tân Định, Quận 1');
   drafts[d1] = rSupp1.draft;
 
   assert.equal(drafts[d1].fields.address, '456 Hai Bà Trưng, P. Tân Định, Quận 1');
   assert.equal(isPendingAddress(drafts[d1].fields.address), false);
-  assert.deepEqual(requiredMissing(drafts[d1]), []);
-  assert.equal(isConfirmable(drafts[d1]), true);
+  const valSupp = validateOrderAgainstRules(drafts[d1]);
+  assert.deepEqual(valSupp.missing, []);
+  assert.deepEqual(valSupp.reminders, []);
+  assert.ok(!draftSummary(drafts[d1]).includes('💡 Nhắc bổ sung'));
   const confirmResSupp = cmdConfirm(drafts);
   assert.equal(confirmResSupp.reply, '__CONFIRM__');
 
-  // 4. Kịch bản Ghé lấy + Địa chỉ bsung sau (hoặc không có địa chỉ): OPS không yêu cầu, CHO PHÉP /confirm
+  // 4. Kịch bản Ghé lấy + Địa chỉ bsung sau: không chặn và cũng không nhắc địa chỉ
   let draftsPickup = {};
   const rNew2 = cmdNew(draftsPickup);
   draftsPickup = rNew2.drafts;
@@ -1549,8 +1552,8 @@ Ship: Ghé lấy
   draftsPickup[d2] = rApplied2.draft;
 
   assert.equal(draftsPickup[d2].fields.shipping, 'Ghé lấy');
-  // Ghé lấy không bắt buộc địa chỉ giao hàng
   assert.deepEqual(requiredMissing(draftsPickup[d2]), []);
+  assert.deepEqual(validateOrderAgainstRules(draftsPickup[d2]).reminders, []);
   assert.equal(isConfirmable(draftsPickup[d2]), true);
 
   const confirmRes2 = cmdConfirm(draftsPickup);
