@@ -26,3 +26,8 @@ verify_jwt = false
 
 [functions.meehoasg-settlement-ingest]
 verify_jwt = false
+
+# Controlled R2 copy/verify tool authenticates with SUPABASE_SECRET_KEYS.default.
+[functions.meehoasg-r2-copy]
+entrypoint = "./functions/meehoasg-r2-copy/index.js"
+verify_jwt = false
