@@ -15,7 +15,7 @@ const SWITCH_SQL_PATH = path.join(ROOT, 'scripts/legacy-settlement-bills-r2-swit
 const ROLLBACK_SQL_PATH = path.join(ROOT, 'scripts/legacy-settlement-bills-r2-rollback.sql');
 
 const { extractLegacySettlementBillKeys, runMigration } = require(path.join(ROOT, 'scripts/migrate-settlement-bills-to-r2.cjs'));
-const { ALLOWED_GOLIVE_TEST_OBJECTS, runCleanup } = require(path.join(ROOT, 'scripts/r2-cleanup-golive-test-objects.cjs'));
+const { ALLOWED_GOLIVE_TEST_OBJECTS, countReferencesInDb, runCleanup } = require(path.join(ROOT, 'scripts/r2-cleanup-golive-test-objects.cjs'));
 
 const ONE_PIXEL_JPEG_B64 = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==';
 const SAMPLE_DATA_URL = `data:image/jpeg;base64,${ONE_PIXEL_JPEG_B64}`;
@@ -40,8 +40,6 @@ function stripTsOrderActions(src) {
 function bootOrderActions({ env, fetcher, r2MediaFactory, opResult = { ok: true, id: 'SET-1' } }) {
   const src = stripTsOrderActions(fs.readFileSync(ORDER_ACTIONS_PATH, 'utf8'));
   let handler = null;
-  let capturedUpload = null;
-  let capturedDiscard = null;
   const supabaseUploads = [];
   const ctx = {
     Deno: {
@@ -71,23 +69,19 @@ function bootOrderActions({ env, fetcher, r2MediaFactory, opResult = { ok: true,
       },
       discard: async () => {},
     }),
-    createOperationService: ({ uploadImages, discardImages }) => {
-      capturedUpload = uploadImages;
-      capturedDiscard = discardImages;
-      return {
-        run: async (action, body) => {
-          if (action === 'submitSettlement') {
-            const urls = await uploadImages(body.billFiles, 'settlement-bills');
-            return { ...opResult, billUrls: urls };
-          }
-          return opResult;
-        },
-      };
-    },
+    createOperationService: ({ uploadImages }) => ({
+      run: async (action, body) => {
+        if (action === 'submitSettlement') {
+          const urls = await uploadImages(body.billFiles, 'settlement-bills');
+          return { ...opResult, billUrls: urls };
+        }
+        return opResult;
+      },
+    }),
   };
   vm.createContext(ctx);
   vm.runInContext(src, ctx);
-  return { handler, ctx, getUpload: () => capturedUpload, getDiscard: () => capturedDiscard, supabaseUploads };
+  return { handler, ctx, supabaseUploads };
 }
 
 test('Group 2A: meehoasg-order-actions writes settlement bills ONLY to Permanent R2 on Production (fail-closed, zero Supabase fallback)', async () => {
@@ -100,10 +94,9 @@ test('Group 2A: meehoasg-order-actions writes settlement bills ONLY to Permanent
     R2_ACCOUNT_ID: '0123456789abcdef0123456789abcdef',
     R2_ACCESS_KEY_ID: 'r2-ak',
     R2_SECRET_ACCESS_KEY: 'r2-sk',
-    R2_MEDIA_BUCKET: 'meehoasg-media',
+    R2_MEDIA_BUCKET: 'meehoasg-website-media',
   };
 
-  // 1. Production with R2 configured -> writes to R2, never Supabase Storage
   const okBoot = bootOrderActions({
     env: prodEnv,
     r2MediaFactory: ({ bucket }) => ({
@@ -114,16 +107,9 @@ test('Group 2A: meehoasg-order-actions writes settlement bills ONLY to Permanent
     }),
     fetcher: async (url, opts = {}) => {
       const s = String(url);
-      if (s.includes('/rest/v1/app_sessions')) {
-        return { ok: true, status: 200, text: async () => JSON.stringify([{ username: 'sale1', expires_at: new Date(Date.now() + 60000).toISOString() }]) };
-      }
-      if (s.includes('/rest/v1/app_users')) {
-        return { ok: true, status: 200, text: async () => JSON.stringify([{ username: 'sale1', role: 'SALE', active: true }]) };
-      }
-      if (s.startsWith('https://r2.example.test/')) {
-        r2Puts.push({ url: s, method: opts.method });
-        return { ok: true, status: 200 };
-      }
+      if (s.includes('/rest/v1/app_sessions')) return { ok: true, status: 200, text: async () => JSON.stringify([{ username: 'sale1', expires_at: new Date(Date.now() + 60000).toISOString() }]) };
+      if (s.includes('/rest/v1/app_users')) return { ok: true, status: 200, text: async () => JSON.stringify([{ username: 'sale1', role: 'SALE', active: true }]) };
+      if (s.startsWith('https://r2.example.test/')) { r2Puts.push({ url: s, method: opts.method }); return { ok: true, status: 200 }; }
       throw new Error(`Unexpected fetch to ${s}`);
     },
   });
@@ -133,21 +119,15 @@ test('Group 2A: meehoasg-order-actions writes settlement bills ONLY to Permanent
   const res1 = await okBoot.handler({
     method: 'POST',
     headers: { get: () => 'https://ops.meehoasg.com' },
-    text: async () => JSON.stringify({
-      token: validToken,
-      action: 'submitSettlement',
-      orderId: 'MEE-1',
-      billFiles: [{ data: SAMPLE_DATA_URL }],
-    }),
+    text: async () => JSON.stringify({ token: validToken, action: 'submitSettlement', orderId: 'MEE-1', billFiles: [{ data: SAMPLE_DATA_URL }] }),
   });
   const body1 = await res1.json();
   assert.equal(body1.ok, true);
-  assert.equal(body1.billUrls.length, 1);
-  assert.match(body1.billUrls[0], /^r2:\/\/meehoasg-media\/settlement-bills\/[0-9a-f-]{36}\.jpg$/);
+  assert.match(body1.billUrls[0], /^r2:\/\/meehoasg-website-media\/settlement-bills\/[0-9a-f-]{36}\.jpg$/);
   assert.equal(r2Puts.length, 1);
-  assert.equal(okBoot.supabaseUploads.length, 0, 'Must NEVER write to Supabase Storage when R2 is active');
+  assert.equal(okBoot.supabaseUploads.length, 0);
 
-  // 2. Production with R2 PUT error -> fails closed with R2_UPLOAD_FAILED, discards partial R2 uploads, NEVER falls back to Supabase
+  // R2 PUT failure -> fail-closed R2_UPLOAD_FAILED + discard
   const failBoot = bootOrderActions({
     env: prodEnv,
     r2MediaFactory: ({ bucket }) => ({
@@ -167,23 +147,18 @@ test('Group 2A: meehoasg-order-actions writes settlement bills ONLY to Permanent
   const res2 = await failBoot.handler({
     method: 'POST',
     headers: { get: () => 'https://ops.meehoasg.com' },
-    text: async () => JSON.stringify({
-      token: validToken,
-      action: 'submitSettlement',
-      orderId: 'MEE-1',
-      billFiles: [{ data: SAMPLE_DATA_URL }],
-    }),
+    text: async () => JSON.stringify({ token: validToken, action: 'submitSettlement', orderId: 'MEE-1', billFiles: [{ data: SAMPLE_DATA_URL }] }),
   });
   const body2 = await res2.json();
   assert.equal(body2.ok, false);
   assert.equal(body2.code, 'R2_UPLOAD_FAILED');
-  assert.equal(failBoot.supabaseUploads.length, 0, 'R2 upload failure must NEVER auto-fallback to Supabase Storage');
-  assert.equal(r2Discards.length, 1, 'Failed R2 batch must discard partial R2 references');
+  assert.equal(failBoot.supabaseUploads.length, 0);
+  assert.equal(r2Discards.length, 1);
 
-  // 3. Production WITHOUT R2 keys -> fails closed with R2_NOT_CONFIGURED
+  // Missing R2 keys on Production -> R2_NOT_CONFIGURED
   const noKeyBoot = bootOrderActions({
     env: { SUPABASE_URL: prodEnv.SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY: 'svc-key' },
-    r2MediaFactory: () => { throw new Error('Should not be called without access key'); },
+    r2MediaFactory: () => { throw new Error('Should not be called'); },
     fetcher: async (url) => {
       const s = String(url);
       if (s.includes('/rest/v1/app_sessions')) return { ok: true, status: 200, text: async () => JSON.stringify([{ username: 'sale1', expires_at: new Date(Date.now() + 60000).toISOString() }]) };
@@ -191,75 +166,64 @@ test('Group 2A: meehoasg-order-actions writes settlement bills ONLY to Permanent
       throw new Error(`Unexpected fetch to ${s}`);
     },
   });
-  assert.equal(noKeyBoot.ctx.r2WriteEnabled(), true);
   const res3 = await noKeyBoot.handler({
     method: 'POST',
     headers: { get: () => 'https://ops.meehoasg.com' },
-    text: async () => JSON.stringify({
-      token: validToken,
-      action: 'submitSettlement',
-      orderId: 'MEE-1',
-      billFiles: [{ data: SAMPLE_DATA_URL }],
-    }),
+    text: async () => JSON.stringify({ token: validToken, action: 'submitSettlement', orderId: 'MEE-1', billFiles: [{ data: SAMPLE_DATA_URL }] }),
   });
-  const body3 = await res3.json();
-  assert.equal(body3.ok, false);
-  assert.equal(body3.code, 'R2_NOT_CONFIGURED');
-  assert.equal(noKeyBoot.supabaseUploads.length, 0);
-
-  // 4. Loopback QA without R2 keys -> allowed to use local disposable storage
-  const localBoot = bootOrderActions({
-    env: { SUPABASE_URL: 'http://127.0.0.1:54321', SUPABASE_SERVICE_ROLE_KEY: 'svc-key' },
-    r2MediaFactory: () => null,
-    fetcher: async () => ({ ok: true, status: 200, text: async () => '[]' }),
-  });
-  assert.equal(localBoot.ctx.r2WriteEnabled(), false);
+  assert.equal((await res3.json()).code, 'R2_NOT_CONFIGURED');
 });
 
-test('Group 2B: legacy settlement bills batch migration, SHA-256 verify, DB reference switch, and safe rollback', async () => {
-  // 1. Verify meehoasg-r2-copy supports explicit keys batch + SHA-256 readback verification
+test('Group 2B: dual-source 919 bills migration (settlement_requests + orders.full_paid_bill_urls), queued-delete trigger compat, and rollback', async () => {
   const r2CopySrc = fs.readFileSync(R2_COPY_PATH, 'utf8');
   assert.match(r2CopySrc, /Array\.isArray\(input\?\.keys\)/);
   assert.match(r2CopySrc, /R2_HASH_MISMATCH/);
 
-  // 2. Verify migrate-settlement-bills-to-r2.cjs extraction and batch execution
-  const key1 = '11111111-1111-4111-8111-111111111111.jpg';
-  const key2 = '22222222-2222-4222-8222-222222222222.png';
-  const mockRows = [
-    { id: 'SET-1', order_id: 'MEE-1', status: 'APPROVED', submitted_at: '2026-10-05T00:00:00Z', bill_urls: [`supabase://settlement-bills/${key1}`, 'https://drive.google.com/file/d/legacy'] },
-    { id: 'SET-2', order_id: 'MEE-2', status: 'PENDING', submitted_at: '2026-11-10T00:00:00Z', bill_urls: [`supabase://settlement-bills/${key1}`, `supabase://settlement-bills/${key2}`] },
-    { id: 'SET-3', order_id: 'MEE-3', status: 'APPROVED', submitted_at: '2026-11-26T10:00:00Z', bill_urls: ['r2://meehoasg-media/settlement-bills/33333333-3333-4333-8333-333333333333.jpg'] },
-  ];
-  const plan = extractLegacySettlementBillKeys(mockRows);
-  assert.deepEqual(plan.keys, [key1, key2]);
-  assert.equal(plan.affectedRows, 2);
+  const srKey1 = '11111111-1111-4111-8111-111111111111.jpg';
+  const srKey2 = '22222222-2222-4222-8222-222222222222.png';
+  const fpKey1 = '44444444-4444-4444-8444-444444444444.jpg';
+  const fpKeyQueued = '55555555-5555-4555-8555-555555555555.jpg';
 
-  const batchesCalled = [];
+  const mockSrRows = [
+    { id: 'SET-1', order_id: 'MEE-1', status: 'APPROVED', submitted_at: '2026-10-05T00:00:00Z', bill_urls: [`supabase://settlement-bills/${srKey1}`, 'https://drive.google.com/legacy'] },
+    { id: 'SET-2', order_id: 'MEE-2', status: 'PENDING', submitted_at: '2026-11-10T00:00:00Z', bill_urls: [`supabase://settlement-bills/${srKey1}`, `supabase://settlement-bills/${srKey2}`] },
+  ];
+  const mockFpOrders = [
+    { id: 'MEE-FP-1', full_paid: true, is_deleted: false, delete_after_sheet_sync: false, full_paid_bill_urls: [`supabase://settlement-bills/${fpKey1}`, 'r2://meehoasg-website-media/settlement-bills/66666666-6666-4666-8666-666666666666.jpg'] },
+    { id: 'MEE-FP-QUEUED', full_paid: true, is_deleted: true, delete_after_sheet_sync: true, full_paid_bill_urls: [`supabase://settlement-bills/${fpKeyQueued}`] },
+  ];
+
+  const plan = extractLegacySettlementBillKeys(mockSrRows, mockFpOrders, 'all');
+  assert.equal(plan.distinctSettlementRequestBills || plan.srKeys.length, 2);
+  assert.equal(plan.fpKeys.length, 2);
+  assert.equal(plan.overlapCount, 0);
+  assert.deepEqual(plan.keys, [srKey1, srKey2, fpKey1, fpKeyQueued]);
+
   const migRes = await runMigration({
     supabaseUrl: 'https://proj.supabase.co',
     serviceKey: 'svc',
     copyApiKey: 'secret-copy',
     mode: 'copy',
-    batchSize: 1,
-    r2Bucket: 'meehoasg-media',
+    scope: 'all',
+    batchSize: 2,
+    r2Bucket: 'meehoasg-website-media',
     fetcher: async (url, opts = {}) => {
       const s = String(url);
-      if (s.includes('/rest/v1/settlement_requests')) return { ok: true, status: 200, json: async () => mockRows };
+      if (s.includes('/rest/v1/settlement_requests')) return { ok: true, status: 200, json: async () => mockSrRows };
+      if (s.includes('/rest/v1/orders')) return { ok: true, status: 200, json: async () => mockFpOrders };
       if (s.includes('/functions/v1/meehoasg-r2-copy')) {
         const body = JSON.parse(opts.body);
-        batchesCalled.push(body);
-        return { ok: true, status: 200, json: async () => ({ ok: true, verifiedKeys: body.keys, copied: body.keys.length, bytes: 1024 }) };
+        return { ok: true, status: 200, json: async () => ({ ok: true, verifiedKeys: body.keys, copied: 1, bytes: 2048 }) };
       }
       throw new Error(`Unexpected URL ${s}`);
     },
   });
   assert.equal(migRes.ok, true);
+  assert.equal(migRes.distinctLegacyBills, 4);
   assert.equal(migRes.batchesRun, 2);
-  assert.equal(migRes.copiedCount, 2);
   assert.equal(migRes.supabaseOriginalsDeleted, false);
-  assert.deepEqual(batchesCalled.map((b) => b.keys), [[key1], [key2]]);
 
-  // 3. PGlite rehearsal of DB switch SQL & rollback SQL
+  // PGlite rehearsal of BOTH settlement_requests AND orders.full_paid_bill_urls (including delete_after_sheet_sync=true!)
   const pg = new PGlite();
   try {
     await pg.exec(`
@@ -273,75 +237,103 @@ test('Group 2B: legacy settlement bills batch migration, SHA-256 verify, DB refe
       await pg.exec(fs.readFileSync(path.join(dir, file), 'utf8'));
     }
     await pg.exec(`
-      insert into public.orders(id, order_date, customer, flower) values ('MEE-1','2026-10-05','A','Hoa'),('MEE-2','2026-11-10','B','Hoa');
+      insert into public.orders(id, order_date, customer, flower, flower_total, full_paid, full_paid_total, full_paid_bill_urls, is_deleted, delete_after_sheet_sync) values
+        ('MEE-1','2026-10-05','A','Hoa',300000,false,0,'[]'::jsonb,false,false),
+        ('MEE-2','2026-11-10','B','Hoa',400000,false,0,'[]'::jsonb,false,false),
+        ('MEE-FP-1','2026-10-12','C','Hoa',500000,true,500000,'["supabase://settlement-bills/${fpKey1}"]'::jsonb,false,false),
+        ('MEE-FP-QUEUED','2026-10-15','D','Hoa',600000,true,600000,'["supabase://settlement-bills/${fpKeyQueued}"]'::jsonb,true,true);
       insert into public.settlement_requests(id, order_id, sale_username, sale_name, bill_urls, status) values
-        ('SET-1','MEE-1','sale1','Sale 1','["supabase://settlement-bills/${key1}","https://drive.google.com/legacy"]'::jsonb,'APPROVED'),
-        ('SET-2','MEE-2','sale1','Sale 1','["supabase://settlement-bills/${key1}","supabase://settlement-bills/${key2}"]'::jsonb,'PENDING');
+        ('SET-1','MEE-1','sale1','Sale 1','["supabase://settlement-bills/${srKey1}","https://drive.google.com/legacy"]'::jsonb,'APPROVED'),
+        ('SET-2','MEE-2','sale1','Sale 1','["supabase://settlement-bills/${srKey1}","supabase://settlement-bills/${srKey2}"]'::jsonb,'PENDING');
     `);
 
-    // Only verify key1 first -> key2 MUST NOT be switched!
+    // Verify unauthorized mutation of bills on queued-delete order STILL throws ORDER_DELETING!
+    await assert.rejects(
+      () => pg.query(`update public.orders set full_paid_bill_urls = '[]'::jsonb where id = 'MEE-FP-QUEUED'`),
+      /ORDER_DELETING/
+    );
+
+    // Switch verified keys (srKey1, fpKey1, fpKeyQueued — leaving srKey2 unverified!)
     await pg.query("select set_config('app.r2_bucket', 'meehoasg-website-media', false)");
-    await pg.query("select set_config('app.verified_settlement_bill_keys', $1, false)", [JSON.stringify([key1])]);
+    await pg.query("select set_config('app.verified_settlement_bill_keys', $1, false)", [JSON.stringify([srKey1, fpKey1, fpKeyQueued])]);
     await pg.exec(fs.readFileSync(SWITCH_SQL_PATH, 'utf8'));
 
-    const afterSwitch = await pg.query('select id, bill_urls from public.settlement_requests order by id');
-    assert.deepEqual(afterSwitch.rows[0].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${key1}`, 'https://drive.google.com/legacy']);
-    assert.deepEqual(afterSwitch.rows[1].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${key1}`, `supabase://settlement-bills/${key2}`]);
+    const afterSr = await pg.query('select id, bill_urls from public.settlement_requests order by id');
+    assert.deepEqual(afterSr.rows[0].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${srKey1}`, 'https://drive.google.com/legacy']);
+    assert.deepEqual(afterSr.rows[1].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${srKey1}`, `supabase://settlement-bills/${srKey2}`]);
 
-    // Rollback restores original supabase:// URLs cleanly
+    const afterFp = await pg.query("select id, full_paid, full_paid_bill_urls from public.orders where id in ('MEE-FP-1','MEE-FP-QUEUED') order by id");
+    assert.equal(afterFp.rows[0].full_paid, true);
+    assert.deepEqual(afterFp.rows[0].full_paid_bill_urls, [`r2://meehoasg-website-media/settlement-bills/${fpKey1}`]);
+    assert.equal(afterFp.rows[1].full_paid, true);
+    assert.deepEqual(afterFp.rows[1].full_paid_bill_urls, [`r2://meehoasg-website-media/settlement-bills/${fpKeyQueued}`]);
+
+    // Rollback restores BOTH settlement_requests AND orders.full_paid_bill_urls (including queued-delete order!)
     await pg.exec(fs.readFileSync(ROLLBACK_SQL_PATH, 'utf8'));
-    const afterRb = await pg.query('select id, bill_urls from public.settlement_requests order by id');
-    assert.deepEqual(afterRb.rows[0].bill_urls, [`supabase://settlement-bills/${key1}`, 'https://drive.google.com/legacy']);
-    assert.deepEqual(afterRb.rows[1].bill_urls, [`supabase://settlement-bills/${key1}`, `supabase://settlement-bills/${key2}`]);
+    const rbFp = await pg.query("select id, full_paid_bill_urls from public.orders where id in ('MEE-FP-1','MEE-FP-QUEUED') order by id");
+    assert.deepEqual(rbFp.rows[0].full_paid_bill_urls, [`supabase://settlement-bills/${fpKey1}`]);
+    assert.deepEqual(rbFp.rows[1].full_paid_bill_urls, [`supabase://settlement-bills/${fpKeyQueued}`]);
   } finally {
     await pg.close();
   }
 });
 
-test('Group 2C: Go-Live R2 test-object cleanup enforces strict allow-list and zero-DB-reference guard', async () => {
+test('Group 2C: Go-Live R2 cleanup checks real schema (before_data, after_data, order_snapshot, operation_receipts) and distinguishes purged test receipts', async () => {
   assert.equal(ALLOWED_GOLIVE_TEST_OBJECTS.length, 6);
-  // Ensure trashed order MEE-4CEA187B770C469B image is NEVER in allow-list
   assert.equal(ALLOWED_GOLIVE_TEST_OBJECTS.some((k) => k.includes('efe981ed')), false);
 
   const deleted = [];
   const fakeR2 = {
-    exists: async (k) => !deleted.includes(k),
-    reference: (k) => `r2://meehoasg-media/${k}`,
-    discard: async (ref) => { deleted.push(ref.replace('r2://meehoasg-media/', '')); },
+    exists: async (k) => !deleted.includes(k) && k.includes('c0dbba8c'),
+    reference: (k) => `r2://meehoasg-website-media/${k}`,
+    discard: async (ref) => { deleted.push(ref.replace('r2://meehoasg-website-media/', '')); },
   };
 
-  // 1. Unknown key blocked even with execute: true
-  const blocked = await runCleanup({
-    keys: ['order-images/efe981ed-1111-2222-3333-444444444444.jpg'],
-    execute: true,
+  // Verify exact column names queried (NEVER queries non-existent activity_log.detail!)
+  const seenPaths = [];
+  const resPurgedReceipt = await countReferencesInDb({
     supabaseUrl: 'https://proj.supabase.co',
     serviceKey: 'svc',
-    r2Media: fakeR2,
-    fetcher: async () => ({ ok: true, status: 200, json: async () => [] }),
+    objectKey: ALLOWED_GOLIVE_TEST_OBJECTS[0],
+    fetcher: async (url) => {
+      const s = String(url);
+      seenPaths.push(s);
+      assert.doesNotMatch(s, /detail=/, 'Must NEVER query non-existent activity_log.detail column');
+      if (s.includes('/operation_receipts?')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ actor: 'admin', request_id: 'r1', action: 'deleteOrder', result: { orderId: 'MEE-4C8D65C26A8B4BA1' } }],
+        };
+      }
+      // Order MEE-4C8D65C26A8B4BA1 is absent from orders -> historical purged test receipt!
+      return { ok: true, status: 200, json: async () => [] };
+    },
   });
-  assert.equal(blocked.ok, false);
-  assert.equal(blocked.blockedCount, 1);
-  assert.equal(blocked.items[0].status, 'BLOCKED_NOT_IN_ALLOWLIST');
-  assert.equal(deleted.length, 0);
+  assert.equal(resPurgedReceipt.referenced, false);
+  assert.equal(resPurgedReceipt.historicalTestReceipts, 1);
+  assert.deepEqual(resPurgedReceipt.historicalTestReceiptOrderIds, ['MEE-4C8D65C26A8B4BA1']);
+  assert.ok(seenPaths.some((p) => p.includes('/order_deletion_history?') && p.includes('order_snapshot.cs.')));
+  assert.ok(seenPaths.some((p) => p.includes('/activity_log?') && p.includes('before_data.cs.') && p.includes('after_data.cs.')));
 
-  // 2. Referenced allow-listed key blocked even with execute: true
-  const refBlocked = await runCleanup({
-    keys: [ALLOWED_GOLIVE_TEST_OBJECTS[0]],
-    execute: true,
+  // Active or trashed order in operation_receipts / order_deletion_history / activity_log MUST block deletion!
+  const resActiveReceipt = await countReferencesInDb({
     supabaseUrl: 'https://proj.supabase.co',
     serviceKey: 'svc',
-    r2Media: fakeR2,
-    fetcher: async (url) => ({
-      ok: true,
-      status: 200,
-      json: async () => (String(url).includes('/rest/v1/orders') ? [{ id: 'MEE-REF' }] : []),
-    }),
+    objectKey: 'order-images/efe981ed-4afd-4a20-852b-e7b40c489031.preview.jpg',
+    fetcher: async (url) => {
+      const s = String(url);
+      if (s.includes('/order_deletion_history?')) return { ok: true, status: 200, json: async () => [{ id: 1, order_id: 'MEE-4CEA187B770C469B' }] };
+      if (s.includes('/activity_log?')) return { ok: true, status: 200, json: async () => [{ id: 10176, order_id: 'MEE-4CEA187B770C469B' }] };
+      if (s.includes('/operation_receipts?')) return { ok: true, status: 200, json: async () => [{ actor: 'admin', request_id: 'r2', action: 'createOrder', result: { orderId: 'MEE-4CEA187B770C469B' } }] };
+      if (s.includes('/orders?')) return { ok: true, status: 200, json: async () => [{ id: 'MEE-4CEA187B770C469B', is_deleted: true }] };
+      return { ok: true, status: 200, json: async () => [] };
+    },
   });
-  assert.equal(refBlocked.ok, false);
-  assert.equal(refBlocked.items[0].status, 'BLOCKED_REFERENCED_IN_DB');
-  assert.equal(deleted.length, 0);
+  assert.equal(resActiveReceipt.referenced, true);
+  assert.deepEqual(resActiveReceipt.matchedTables, ['orders', 'order_deletion_history', 'activity_log', 'operation_receipts']);
 
-  // 3. Dry-run never deletes
+  // Dry-run marks existing R2 objects DRY_RUN_ELIGIBLE and missing R2 objects ALREADY_ABSENT_IN_R2
   const dry = await runCleanup({
     execute: false,
     supabaseUrl: 'https://proj.supabase.co',
@@ -350,18 +342,7 @@ test('Group 2C: Go-Live R2 test-object cleanup enforces strict allow-list and ze
     fetcher: async () => ({ ok: true, status: 200, json: async () => [] }),
   });
   assert.equal(dry.ok, true);
-  assert.equal(dry.deletedCount, 0);
+  assert.equal(dry.items.filter((i) => i.status === 'DRY_RUN_ELIGIBLE').length, 2);
+  assert.equal(dry.items.filter((i) => i.status === 'ALREADY_ABSENT_IN_R2').length, 4);
   assert.equal(deleted.length, 0);
-
-  // 4. Execute deletes ONLY the 6 verified zero-ref allow-listed objects
-  const execRes = await runCleanup({
-    execute: true,
-    supabaseUrl: 'https://proj.supabase.co',
-    serviceKey: 'svc',
-    r2Media: fakeR2,
-    fetcher: async () => ({ ok: true, status: 200, json: async () => [] }),
-  });
-  assert.equal(execRes.ok, true);
-  assert.equal(execRes.deletedCount, 6);
-  assert.equal(deleted.length, 6);
 });

@@ -2,16 +2,20 @@
 'use strict';
 
 /**
- * MEEHOA OPS V3.1 — Controlled Batch Migration for Legacy Settlement Bills (~430 bills)
+ * MEEHOA OPS V3.1 — Controlled Batch Migration for All 919 Legacy Bills
+ * Covers BOTH Owner-approved sources:
+ *   1. `public.settlement_requests.bill_urls` (430 distinct bills)
+ *   2. `public.orders.full_paid_bill_urls`    (489 distinct bills, 0 overlap -> 919 total)
+ *
  * Default mode is DRY-RUN (strictly read-only).
  * Never deletes Supabase Storage originals; cleanup requires a separate Owner approval after verification.
  *
  * Usage:
- *   Dry-run inventory:
+ *   Dry-run inventory (all 919 bills by default; pass `--scope=settlement_requests` or `--scope=full_paid_orders` if needed):
  *     SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/migrate-settlement-bills-to-r2.cjs
  *   Controlled copy + SHA-256 & R2 GET verify (does NOT switch DB references yet):
  *     SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... R2_COPY_API_KEY=... \
- *       node scripts/migrate-settlement-bills-to-r2.cjs --copy --batch-size=20
+ *       node scripts/migrate-settlement-bills-to-r2.cjs --copy --batch-size=20 --report=artifacts/r2-919-verified.json
  *   Verify-only pass (re-reads every key from R2 and compares SHA-256 against Supabase):
  *     SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... R2_COPY_API_KEY=... \
  *       node scripts/migrate-settlement-bills-to-r2.cjs --verify --batch-size=20
@@ -23,12 +27,22 @@ const path = require('node:path');
 const VALID_KEY = /^[0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp)$/;
 
 function parseArgs(argv) {
-  const args = { mode: 'dry-run', batchSize: 20, r2Bucket: process.env.R2_MEDIA_BUCKET || 'meehoasg-website-media', reportPath: '' };
+  const args = {
+    mode: 'dry-run',
+    scope: 'all', // 'all' (919) | 'settlement_requests' (430) | 'full_paid_orders' (489)
+    batchSize: 20,
+    r2Bucket: process.env.R2_MEDIA_BUCKET || 'meehoasg-website-media',
+    reportPath: '',
+  };
   for (const token of argv) {
     if (token === '--copy') args.mode = 'copy';
     else if (token === '--verify') args.mode = 'verify';
     else if (token === '--dry-run') args.mode = 'dry-run';
-    else if (token.startsWith('--batch-size=')) args.batchSize = Math.max(1, Math.min(50, Number(token.split('=')[1]) || 20));
+    else if (token.startsWith('--scope=')) {
+      const sc = token.split('=')[1];
+      if (['all', 'settlement_requests', 'full_paid_orders'].includes(sc)) args.scope = sc;
+      else throw new Error(`Invalid --scope=${sc}`);
+    } else if (token.startsWith('--batch-size=')) args.batchSize = Math.max(1, Math.min(50, Number(token.split('=')[1]) || 20));
     else if (token.startsWith('--bucket=')) args.r2Bucket = token.split('=')[1] || args.r2Bucket;
     else if (token.startsWith('--report=')) args.reportPath = token.split('=')[1] || '';
   }
@@ -52,41 +66,114 @@ async function fetchAllSettlementRequests({ supabaseUrl, serviceKey, fetcher = f
   return rows;
 }
 
-function extractLegacySettlementBillKeys(rows) {
-  const keySet = new Set();
-  const invalid = [];
-  let affectedRows = 0;
-  for (const row of rows || []) {
-    const urls = Array.isArray(row.bill_urls) ? row.bill_urls : [];
-    let rowHasSupabase = false;
-    for (const raw of urls) {
-      const m = String(raw || '').match(/^supabase:\/\/settlement-bills\/(.+)$/);
-      if (!m) continue;
-      rowHasSupabase = true;
-      if (!VALID_KEY.test(m[1])) invalid.push({ settlementId: row.id, raw });
-      else keySet.add(m[1]);
-    }
-    if (rowHasSupabase) affectedRows += 1;
+async function fetchOrdersWithFullPaidBills({ supabaseUrl, serviceKey, fetcher = fetch }) {
+  const rows = [];
+  for (let offset = 0; ; offset += 1000) {
+    const url = new URL(`${supabaseUrl}/rest/v1/orders`);
+    url.searchParams.set('select', 'id,full_paid,is_deleted,delete_after_sheet_sync,full_paid_bill_urls');
+    url.searchParams.set('full_paid_bill_urls', 'neq.[]');
+    url.searchParams.set('order', 'id.asc');
+    url.searchParams.set('limit', '1000');
+    url.searchParams.set('offset', String(offset));
+    const res = await fetcher(url, { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } });
+    if (!res.ok) throw new Error(`REST orders(full_paid_bill_urls) ${res.status}`);
+    const page = await res.json();
+    rows.push(...page);
+    if (page.length < 1000) break;
   }
-  return { keys: [...keySet].sort(), invalid, affectedRows, totalRows: (rows || []).length };
+  return rows;
 }
 
-async function runMigration({ supabaseUrl, serviceKey, copyApiKey, mode, batchSize, r2Bucket, fetcher = fetch }) {
-  const rows = await fetchAllSettlementRequests({ supabaseUrl, serviceKey, fetcher });
-  const plan = extractLegacySettlementBillKeys(rows);
+function extractLegacySettlementBillKeys(settlementRows = [], fullPaidOrderRows = [], scope = 'all') {
+  const srKeySet = new Set();
+  const fpKeySet = new Set();
+  const invalid = [];
+  let affectedSettlementRequests = 0;
+  let affectedFullPaidOrders = 0;
+
+  if (scope === 'all' || scope === 'settlement_requests') {
+    for (const row of settlementRows || []) {
+      const urls = Array.isArray(row.bill_urls) ? row.bill_urls : [];
+      let rowHasSupabase = false;
+      for (const raw of urls) {
+        const m = String(raw || '').match(/^supabase:\/\/settlement-bills\/(.+)$/);
+        if (!m) continue;
+        rowHasSupabase = true;
+        if (!VALID_KEY.test(m[1])) invalid.push({ source: 'settlement_requests', id: row.id, raw });
+        else srKeySet.add(m[1]);
+      }
+      if (rowHasSupabase) affectedSettlementRequests += 1;
+    }
+  }
+
+  if (scope === 'all' || scope === 'full_paid_orders') {
+    for (const row of fullPaidOrderRows || []) {
+      const urls = Array.isArray(row.full_paid_bill_urls) ? row.full_paid_bill_urls : [];
+      let rowHasSupabase = false;
+      for (const raw of urls) {
+        const m = String(raw || '').match(/^supabase:\/\/settlement-bills\/(.+)$/);
+        if (!m) continue;
+        rowHasSupabase = true;
+        if (!VALID_KEY.test(m[1])) invalid.push({ source: 'orders.full_paid_bill_urls', id: row.id, raw });
+        else fpKeySet.add(m[1]);
+      }
+      if (rowHasSupabase) affectedFullPaidOrders += 1;
+    }
+  }
+
+  let overlapCount = 0;
+  for (const k of srKeySet) {
+    if (fpKeySet.has(k)) overlapCount += 1;
+  }
+  const combined = new Set([...srKeySet, ...fpKeySet]);
+  return {
+    keys: [...combined].sort(),
+    srKeys: [...srKeySet].sort(),
+    fpKeys: [...fpKeySet].sort(),
+    overlapCount,
+    invalid,
+    affectedRows: affectedSettlementRequests + affectedFullPaidOrders,
+    affectedSettlementRequests,
+    affectedFullPaidOrders,
+    totalSettlementRequests: (settlementRows || []).length,
+    totalFullPaidCandidateOrders: (fullPaidOrderRows || []).length,
+  };
+}
+
+async function runMigration({
+  supabaseUrl,
+  serviceKey,
+  copyApiKey,
+  mode = 'dry-run',
+  scope = 'all',
+  batchSize = 20,
+  r2Bucket = 'meehoasg-website-media',
+  fetcher = fetch,
+}) {
+  const [srRows, fpRows] = await Promise.all([
+    scope === 'full_paid_orders' ? Promise.resolve([]) : fetchAllSettlementRequests({ supabaseUrl, serviceKey, fetcher }),
+    scope === 'settlement_requests' ? Promise.resolve([]) : fetchOrdersWithFullPaidBills({ supabaseUrl, serviceKey, fetcher }),
+  ]);
+  const plan = extractLegacySettlementBillKeys(srRows, fpRows, scope);
   if (plan.invalid.length) {
-    throw new Error(`Found ${plan.invalid.length} unexpected settlement bill key(s): ${JSON.stringify(plan.invalid.slice(0, 5))}`);
+    throw new Error(`Found ${plan.invalid.length} unexpected bill key(s): ${JSON.stringify(plan.invalid.slice(0, 5))}`);
   }
   const summary = {
     mode,
+    scope,
     r2Bucket,
-    totalSettlementRequests: plan.totalRows,
-    affectedSettlementRequests: plan.affectedRows,
+    totalSettlementRequests: plan.totalSettlementRequests,
+    affectedSettlementRequests: plan.affectedSettlementRequests,
+    distinctSettlementRequestBills: plan.srKeys.length,
+    affectedFullPaidOrders: plan.affectedFullPaidOrders,
+    distinctFullPaidOrderBills: plan.fpKeys.length,
+    overlapCount: plan.overlapCount,
     distinctLegacyBills: plan.keys.length,
     batchSize,
     batchesRun: 0,
     verifiedKeys: [],
     copiedCount: 0,
+    alreadyOnR2VerifiedCount: 0,
     verifiedBytes: 0,
     failed: [],
     supabaseOriginalsDeleted: false,
@@ -107,8 +194,11 @@ async function runMigration({ supabaseUrl, serviceKey, copyApiKey, mode, batchSi
       summary.failed.push(...(Array.isArray(data.failed) ? data.failed : [{ batchStart: i, error: data.error || `HTTP ${res.status}` }]));
       break;
     }
-    summary.verifiedKeys.push(...(data.verifiedKeys || slice));
-    summary.copiedCount += Number(data.copied || 0);
+    const batchVerified = data.verifiedKeys || slice;
+    const batchCopied = Number(data.copied || 0);
+    summary.verifiedKeys.push(...batchVerified);
+    summary.copiedCount += batchCopied;
+    summary.alreadyOnR2VerifiedCount += Math.max(0, batchVerified.length - batchCopied);
     summary.verifiedBytes += Number(data.bytes || 0);
   }
   summary.ok = summary.failed.length === 0 && summary.verifiedKeys.length === plan.keys.length;
