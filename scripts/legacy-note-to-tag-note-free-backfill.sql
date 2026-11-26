@@ -28,7 +28,7 @@ ALTER TABLE public.legacy_note_migration_backup ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.legacy_note_migration_backup FROM PUBLIC, anon, authenticated;
 GRANT ALL ON public.legacy_note_migration_backup TO service_role;
 
-WITH candidates AS (
+WITH candidates AS MATERIALIZED (
   SELECT
     o.id,
     o.note AS orig_note,
@@ -45,12 +45,14 @@ WITH candidates AS (
     AND nullif(trim(coalesce(o.tag_note_free, '')), '') IS NULL
     AND coalesce(o.is_deleted, false) = false
     AND coalesce(o.delete_after_sheet_sync, false) = false
+    AND NOT EXISTS (SELECT 1 FROM public.legacy_note_migration_backup b WHERE b.order_id = o.id)
     AND coalesce(o.note, '') !~ 'Meehoa_Manage[[:space:]]*·'
     AND coalesce(o.note, '') !~ '\[ĐÃ XÓA'
     AND coalesce(o.note, '') !~* '(^|[^[:alpha:]])(thiệp|thiep|banner)([^[:alpha:]]|$)'
     AND coalesce(o.note, '') !~* '(bổ[[:space:]]*sung[[:space:]]*sau|bo[[:space:]]*sung[[:space:]]*sau|bsung[[:space:]]*sau)'
     AND coalesce(o.note, '') !~* '((^|[^[:alpha:]])(cọc|full[[:space:]]*paid|fullpaid|bank[[:space:]]*full|bankfull|cod)([^[:alpha:]]|$)|thu[[:space:]]*hộ|hóa[[:space:]]*đơn|xuất[[:space:]]*hđ|bù[[:space:]]*tiền|giảm[[:space:]]*giá)'
     AND coalesce(o.note, '') !~* '((^|[^[:alpha:]])(ship|shipper|zalo|zaloo|grab|ahamove|sđt|sdt|test)([^[:alpha:]]|$)|(^|[^[:alpha:]])aha([^[:alnum:]_]|$)|giao[[:space:]]*(thứ|ngày|lúc|trước|sau|trong|đến|tới|qua|hàng|hoa|giúp|nhanh|gấp|đúng)|khi[[:space:]]*giao|liên[[:space:]]*hệ|(ko|không|khỏi|đừng|cần|nhớ|shop|nhân[[:space:]]*viên)[[:space:]]*(cần[[:space:]]*)?gọi|gọi[[:space:]]*(trước|trc|xác[[:space:]]*nhận|sđt|sdt|số|người[[:space:]]*nhận|ng[[:space:]]*đặt|khách)|chụp[[:space:]]*(hình|ảnh|trước)|gửi[[:space:]]*ảnh|gửi[[:space:]]*kèm|check[[:space:]]*(hình|ảnh|hoa)|cẩn[[:space:]]*thận|nhẹ[[:space:]]*tay|đúng[[:space:]]*giờ|báo[[:space:]]*trước|địa[[:space:]]*chỉ|lấy[[:space:]]*thêm|bó[[:space:]]*gấp|(^|[^[:alpha:]])gấp([^[:alpha:]]|$)|trước[[:space:]]+[0-9]|sau[[:space:]]+[0-9]|đổi[[:space:]]*hoa|đổi[[:space:]]*giấy[[:space:]]*gói|ghé[[:space:]]*lấy|mới[[:space:]]*book|tự[[:space:]]*book|book[[:space:]]*(ship|grab|aha)|(mình|sốp|shop)[[:space:]]*tự[[:space:]]*(viết|ghi)[[:space:]]*(thư|chúc)|qua[[:space:]]*viết[[:space:]]*sau|đợt[[:space:]]*1|kiểm[[:space:]]*thử)'
+  FOR UPDATE OF o SKIP LOCKED
 ),
 backed_up AS (
   INSERT INTO public.legacy_note_migration_backup (
@@ -67,8 +69,13 @@ SET
   tag_note_free = trim(c.orig_note),
   note = ''
 FROM candidates c
+JOIN backed_up b ON b.order_id = c.id
 WHERE o.id = c.id
-  AND nullif(trim(coalesce(o.tag_note_free, '')), '') IS NULL;
+  AND o.note = c.orig_note
+  AND o.updated_at = c.orig_updated_at
+  AND nullif(trim(coalesce(o.tag_note_free, '')), '') IS NULL
+  AND coalesce(o.is_deleted, false) = false
+  AND coalesce(o.delete_after_sheet_sync, false) = false;
 
 SELECT
   (SELECT count(*) FROM public.legacy_note_migration_backup) AS total_backed_up_and_migrated,

@@ -43,6 +43,16 @@ verified AS (
   FROM cfg, jsonb_array_elements_text(cfg.verified_json) AS value
   WHERE value ~ '^[0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp)$'
 ),
+locked_sr AS MATERIALIZED (
+  SELECT
+    sr.id,
+    sr.order_id,
+    sr.bill_urls
+  FROM public.settlement_requests sr
+  WHERE jsonb_typeof(coalesce(sr.bill_urls, '[]'::jsonb)) = 'array'
+    AND sr.bill_urls::text LIKE '%supabase://settlement-bills/%'
+  FOR UPDATE OF sr SKIP LOCKED
+),
 rewritten AS (
   SELECT
     sr.id AS settlement_id,
@@ -64,10 +74,8 @@ rewritten AS (
       FROM jsonb_array_elements_text(coalesce(sr.bill_urls, '[]'::jsonb)) WITH ORDINALITY AS u(elem, ord)
     ) AS new_bill_urls,
     cfg.bucket AS r2_bucket
-  FROM public.settlement_requests sr
+  FROM locked_sr sr
   CROSS JOIN cfg
-  WHERE jsonb_typeof(coalesce(sr.bill_urls, '[]'::jsonb)) = 'array'
-    AND sr.bill_urls::text LIKE '%supabase://settlement-bills/%'
 ),
 changed AS (
   SELECT *
@@ -80,13 +88,20 @@ backed_up AS (
   )
   SELECT settlement_id, order_id, orig_bill_urls, new_bill_urls, r2_bucket
   FROM changed
-  ON CONFLICT (settlement_id) DO NOTHING
+  ON CONFLICT (settlement_id) DO UPDATE
+  SET
+    new_bill_urls = EXCLUDED.new_bill_urls,
+    r2_bucket = EXCLUDED.r2_bucket,
+    migrated_at = now()
+  WHERE public.legacy_settlement_bills_r2_backup.new_bill_urls = EXCLUDED.orig_bill_urls
   RETURNING settlement_id
 )
 UPDATE public.settlement_requests sr
 SET bill_urls = c.new_bill_urls
 FROM changed c
-WHERE sr.id = c.settlement_id;
+JOIN backed_up b ON b.settlement_id = c.settlement_id
+WHERE sr.id = c.settlement_id
+  AND sr.bill_urls = c.orig_bill_urls;
 
 -- 2. Switch `public.orders.full_paid_bill_urls` ONLY for verified keys
 WITH cfg AS (
@@ -98,6 +113,16 @@ verified AS (
   SELECT DISTINCT value AS object_name
   FROM cfg, jsonb_array_elements_text(cfg.verified_json) AS value
   WHERE value ~ '^[0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp)$'
+),
+locked_orders AS MATERIALIZED (
+  SELECT
+    o.id,
+    o.full_paid_bill_urls,
+    o.updated_at
+  FROM public.orders o
+  WHERE jsonb_typeof(coalesce(o.full_paid_bill_urls, '[]'::jsonb)) = 'array'
+    AND o.full_paid_bill_urls::text LIKE '%supabase://settlement-bills/%'
+  FOR UPDATE OF o SKIP LOCKED
 ),
 rewritten_orders AS (
   SELECT
@@ -120,10 +145,8 @@ rewritten_orders AS (
       FROM jsonb_array_elements_text(coalesce(o.full_paid_bill_urls, '[]'::jsonb)) WITH ORDINALITY AS u(elem, ord)
     ) AS new_full_paid_bill_urls,
     cfg.bucket AS r2_bucket
-  FROM public.orders o
+  FROM locked_orders o
   CROSS JOIN cfg
-  WHERE jsonb_typeof(coalesce(o.full_paid_bill_urls, '[]'::jsonb)) = 'array'
-    AND o.full_paid_bill_urls::text LIKE '%supabase://settlement-bills/%'
 ),
 changed_orders AS (
   SELECT *
@@ -136,13 +159,21 @@ backed_up_orders AS (
   )
   SELECT order_id, orig_full_paid_bill_urls, new_full_paid_bill_urls, orig_updated_at, r2_bucket
   FROM changed_orders
-  ON CONFLICT (order_id) DO NOTHING
+  ON CONFLICT (order_id) DO UPDATE
+  SET
+    new_full_paid_bill_urls = EXCLUDED.new_full_paid_bill_urls,
+    r2_bucket = EXCLUDED.r2_bucket,
+    migrated_at = now()
+  WHERE public.legacy_full_paid_bills_r2_backup.new_full_paid_bill_urls = EXCLUDED.orig_full_paid_bill_urls
   RETURNING order_id
 )
 UPDATE public.orders o
 SET full_paid_bill_urls = c.new_full_paid_bill_urls
 FROM changed_orders c
-WHERE o.id = c.order_id;
+JOIN backed_up_orders b ON b.order_id = c.order_id
+WHERE o.id = c.order_id
+  AND o.full_paid_bill_urls = c.orig_full_paid_bill_urls
+  AND o.updated_at = c.orig_updated_at;
 
 SELECT
   (SELECT count(*) FROM public.legacy_settlement_bills_r2_backup) AS total_backed_up_settlement_requests,

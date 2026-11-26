@@ -244,7 +244,8 @@ test('Group 2B: dual-source 919 bills migration (settlement_requests + orders.fu
         ('MEE-FP-QUEUED','2026-10-15','D','Hoa',600000,true,600000,'["supabase://settlement-bills/${fpKeyQueued}"]'::jsonb,true,true);
       insert into public.settlement_requests(id, order_id, sale_username, sale_name, bill_urls, status) values
         ('SET-1','MEE-1','sale1','Sale 1','["supabase://settlement-bills/${srKey1}","https://drive.google.com/legacy"]'::jsonb,'APPROVED'),
-        ('SET-2','MEE-2','sale1','Sale 1','["supabase://settlement-bills/${srKey1}","supabase://settlement-bills/${srKey2}"]'::jsonb,'PENDING');
+        ('SET-2','MEE-2','sale1','Sale 1','["supabase://settlement-bills/${srKey1}","supabase://settlement-bills/${srKey2}"]'::jsonb,'PENDING'),
+        ('SET-3','MEE-2','sale1','Sale 1','["supabase://settlement-bills/${srKey1}"]'::jsonb,'REJECTED');
     `);
 
     // Verify unauthorized mutation of bills on queued-delete order STILL throws ORDER_DELETING!
@@ -253,14 +254,15 @@ test('Group 2B: dual-source 919 bills migration (settlement_requests + orders.fu
       /ORDER_DELETING/
     );
 
-    // Switch verified keys (srKey1, fpKey1, fpKeyQueued — leaving srKey2 unverified!)
+    // Batch 1: switch verified keys (srKey1, fpKey1, fpKeyQueued — leaving srKey2 unverified!)
     await pg.query("select set_config('app.r2_bucket', 'meehoasg-website-media', false)");
     await pg.query("select set_config('app.verified_settlement_bill_keys', $1, false)", [JSON.stringify([srKey1, fpKey1, fpKeyQueued])]);
     await pg.exec(fs.readFileSync(SWITCH_SQL_PATH, 'utf8'));
 
-    const afterSr = await pg.query('select id, bill_urls from public.settlement_requests order by id');
-    assert.deepEqual(afterSr.rows[0].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${srKey1}`, 'https://drive.google.com/legacy']);
-    assert.deepEqual(afterSr.rows[1].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${srKey1}`, `supabase://settlement-bills/${srKey2}`]);
+    const afterSr1 = await pg.query('select id, bill_urls from public.settlement_requests order by id');
+    assert.deepEqual(afterSr1.rows[0].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${srKey1}`, 'https://drive.google.com/legacy']);
+    assert.deepEqual(afterSr1.rows[1].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${srKey1}`, `supabase://settlement-bills/${srKey2}`]);
+    assert.deepEqual(afterSr1.rows[2].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${srKey1}`]);
 
     const afterFp = await pg.query("select id, full_paid, full_paid_bill_urls from public.orders where id in ('MEE-FP-1','MEE-FP-QUEUED') order by id");
     assert.equal(afterFp.rows[0].full_paid, true);
@@ -268,11 +270,59 @@ test('Group 2B: dual-source 919 bills migration (settlement_requests + orders.fu
     assert.equal(afterFp.rows[1].full_paid, true);
     assert.deepEqual(afterFp.rows[1].full_paid_bill_urls, [`r2://meehoasg-website-media/settlement-bills/${fpKeyQueued}`]);
 
-    // Rollback restores BOTH settlement_requests AND orders.full_paid_bill_urls (including queued-delete order!)
+    // Batch 2: switch remaining key [srKey2] on multi-bill row SET-2; backup MUST preserve original supabase:// array!
+    await pg.query("select set_config('app.verified_settlement_bill_keys', $1, false)", [JSON.stringify([srKey2])]);
+    await pg.exec(fs.readFileSync(SWITCH_SQL_PATH, 'utf8'));
+
+    const afterSr2 = await pg.query("select id, bill_urls from public.settlement_requests where id = 'SET-2'");
+    assert.deepEqual(afterSr2.rows[0].bill_urls, [
+      `r2://meehoasg-website-media/settlement-bills/${srKey1}`,
+      `r2://meehoasg-website-media/settlement-bills/${srKey2}`,
+    ]);
+    const set2Backup = await pg.query("select orig_bill_urls, new_bill_urls from public.legacy_settlement_bills_r2_backup where settlement_id = 'SET-2'");
+    assert.deepEqual(set2Backup.rows[0].orig_bill_urls, [
+      `supabase://settlement-bills/${srKey1}`,
+      `supabase://settlement-bills/${srKey2}`,
+    ]);
+    assert.deepEqual(set2Backup.rows[0].new_bill_urls, [
+      `r2://meehoasg-website-media/settlement-bills/${srKey1}`,
+      `r2://meehoasg-website-media/settlement-bills/${srKey2}`,
+    ]);
+
+    // Post-switch manual edit protection: simulate manual edit on SET-3 -> rollback must NOT overwrite it
+    await pg.query(`update public.settlement_requests set bill_urls = '["https://drive.google.com/manual-override"]'::jsonb where id = 'SET-3'`);
+
+    // Per-batch rollback: set app.rollback_settlement_bill_keys to [fpKeyQueued] -> ONLY MEE-FP-QUEUED reverts
+    await pg.query("select set_config('app.rollback_settlement_bill_keys', $1, false)", [JSON.stringify([fpKeyQueued])]);
     await pg.exec(fs.readFileSync(ROLLBACK_SQL_PATH, 'utf8'));
-    const rbFp = await pg.query("select id, full_paid_bill_urls from public.orders where id in ('MEE-FP-1','MEE-FP-QUEUED') order by id");
-    assert.deepEqual(rbFp.rows[0].full_paid_bill_urls, [`supabase://settlement-bills/${fpKey1}`]);
-    assert.deepEqual(rbFp.rows[1].full_paid_bill_urls, [`supabase://settlement-bills/${fpKeyQueued}`]);
+
+    const afterBatchRbFp = await pg.query("select id, full_paid_bill_urls from public.orders where id in ('MEE-FP-1','MEE-FP-QUEUED') order by id");
+    assert.deepEqual(afterBatchRbFp.rows[0].full_paid_bill_urls, [`r2://meehoasg-website-media/settlement-bills/${fpKey1}`]);
+    assert.deepEqual(afterBatchRbFp.rows[1].full_paid_bill_urls, [`supabase://settlement-bills/${fpKeyQueued}`]);
+    const afterBatchRbSr = await pg.query('select id, bill_urls from public.settlement_requests order by id');
+    assert.deepEqual(afterBatchRbSr.rows[0].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${srKey1}`, 'https://drive.google.com/legacy']);
+    assert.deepEqual(afterBatchRbSr.rows[1].bill_urls, [`r2://meehoasg-website-media/settlement-bills/${srKey1}`, `r2://meehoasg-website-media/settlement-bills/${srKey2}`]);
+    assert.deepEqual(afterBatchRbSr.rows[2].bill_urls, ['https://drive.google.com/manual-override']);
+    const fpBackupRemaining = await pg.query('select order_id from public.legacy_full_paid_bills_r2_backup order by order_id');
+    assert.deepEqual(fpBackupRemaining.rows.map((r) => r.order_id), ['MEE-FP-1']);
+
+    // Full rollback: clear app.rollback_settlement_bill_keys -> SET-1, SET-2 (both bills!), and MEE-FP-1 revert & clean backups; SET-3 stays protected
+    await pg.query("select set_config('app.rollback_settlement_bill_keys', '', false)");
+    await pg.exec(fs.readFileSync(ROLLBACK_SQL_PATH, 'utf8'));
+
+    const finalSr = await pg.query('select id, bill_urls from public.settlement_requests order by id');
+    assert.deepEqual(finalSr.rows[0].bill_urls, [`supabase://settlement-bills/${srKey1}`, 'https://drive.google.com/legacy']);
+    assert.deepEqual(finalSr.rows[1].bill_urls, [`supabase://settlement-bills/${srKey1}`, `supabase://settlement-bills/${srKey2}`]);
+    assert.deepEqual(finalSr.rows[2].bill_urls, ['https://drive.google.com/manual-override']);
+
+    const finalFp = await pg.query("select id, full_paid_bill_urls from public.orders where id in ('MEE-FP-1','MEE-FP-QUEUED') order by id");
+    assert.deepEqual(finalFp.rows[0].full_paid_bill_urls, [`supabase://settlement-bills/${fpKey1}`]);
+    assert.deepEqual(finalFp.rows[1].full_paid_bill_urls, [`supabase://settlement-bills/${fpKeyQueued}`]);
+
+    const remSrBackup = await pg.query('select settlement_id from public.legacy_settlement_bills_r2_backup order by settlement_id');
+    assert.deepEqual(remSrBackup.rows.map((r) => r.settlement_id), ['SET-3']);
+    const remFpBackup = await pg.query('select count(*)::int as c from public.legacy_full_paid_bills_r2_backup');
+    assert.equal(remFpBackup.rows[0].c, 0);
   } finally {
     await pg.close();
   }

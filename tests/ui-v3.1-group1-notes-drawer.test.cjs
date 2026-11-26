@@ -118,16 +118,50 @@ test('Group 1A: legacy note -> tag_note_free dry-run, idempotent backfill, mid-s
     const backup2 = await pg.query('select count(*)::int as c from public.legacy_note_migration_backup');
     assert.equal(backup2.rows[0].c, 4);
 
-    // 4. Simulate post-migration manual edit; rollback must NOT overwrite user edit
+    // 4. Simulate post-migration manual edits:
+    //    - MEE-LEG-EXPLICIT has tag_note_free edited by Admin
+    //    - MEE-SAFE-S1 has tag_note_free cleared and a new note entered by staff
+    //    Re-running backfill must NOT wipe staff's new note or corrupt backup row.
     await pg.query(`update public.orders set tag_note_free = 'Admin sửa sau migration' where id = 'MEE-LEG-EXPLICIT'`);
+    await pg.query(`update public.orders set tag_note_free = '', note = 'Nhân viên nhập note mới sau migration' where id = 'MEE-SAFE-S1'`);
+    await pg.exec(backfillSql);
+    const afterStaffEdit = await pg.query(`select id, note, tag_note_free from public.orders where id = 'MEE-SAFE-S1'`);
+    assert.equal(afterStaffEdit.rows[0].note, 'Nhân viên nhập note mới sau migration');
+    assert.equal(afterStaffEdit.rows[0].tag_note_free, '');
+    const s1Backup = await pg.query(`select orig_note from public.legacy_note_migration_backup where order_id = 'MEE-SAFE-S1'`);
+    assert.equal(s1Backup.rows[0].orig_note, 'Note trống tự ghi');
 
-    // 5. Execute rollback
+    // 5. Execute rollback: unmodified orders roll back & clear backup; edited rows are preserved
     await pg.exec(fs.readFileSync(ROLLBACK_SQL, 'utf8'));
-    const afterRollback = await pg.query('select id, note, tag_note_free from public.orders where id in ($1, $2) order by id', ['MEE-LEG-CLEAN', 'MEE-LEG-EXPLICIT']);
+    const afterRollback = await pg.query(
+      'select id, note, tag_note_free from public.orders where id in ($1, $2, $3, $4) order by id',
+      ['MEE-LEG-CLEAN', 'MEE-LEG-EXPLICIT', 'MEE-SAFE-S1', 'MEE-SAFE-S2']
+    );
     const rbById = Object.fromEntries(afterRollback.rows.map((r) => [r.id, r]));
     assert.equal(rbById['MEE-LEG-CLEAN'].note, 'Happy Anniversary 3 Years');
     assert.equal(rbById['MEE-LEG-CLEAN'].tag_note_free, '');
+    assert.match(rbById['MEE-SAFE-S2'].note, /scholarship/);
+    assert.equal(rbById['MEE-SAFE-S2'].tag_note_free, '');
     assert.equal(rbById['MEE-LEG-EXPLICIT'].tag_note_free, 'Admin sửa sau migration');
+    assert.equal(rbById['MEE-SAFE-S1'].note, 'Nhân viên nhập note mới sau migration');
+    assert.equal(rbById['MEE-SAFE-S1'].tag_note_free, '');
+
+    // 6. Re-running backfill after rollback cleanly re-migrates unmodified orders without touching edited rows
+    await pg.exec(backfillSql);
+    const afterReBackfill = await pg.query(
+      'select id, note, tag_note_free from public.orders where id in ($1, $2, $3, $4) order by id',
+      ['MEE-LEG-CLEAN', 'MEE-LEG-EXPLICIT', 'MEE-SAFE-S1', 'MEE-SAFE-S2']
+    );
+    const reById = Object.fromEntries(afterReBackfill.rows.map((r) => [r.id, r]));
+    assert.equal(reById['MEE-LEG-CLEAN'].tag_note_free, 'Happy Anniversary 3 Years');
+    assert.equal(reById['MEE-LEG-CLEAN'].note, '');
+    assert.match(reById['MEE-SAFE-S2'].tag_note_free, /scholarship/);
+    assert.equal(reById['MEE-SAFE-S2'].note, '');
+    assert.equal(reById['MEE-LEG-EXPLICIT'].tag_note_free, 'Admin sửa sau migration');
+    assert.equal(reById['MEE-SAFE-S1'].note, 'Nhân viên nhập note mới sau migration');
+    assert.equal(reById['MEE-SAFE-S1'].tag_note_free, '');
+    const backupFinal = await pg.query('select count(*)::int as c from public.legacy_note_migration_backup');
+    assert.equal(backupFinal.rows[0].c, 4);
   } finally {
     await pg.close();
   }
