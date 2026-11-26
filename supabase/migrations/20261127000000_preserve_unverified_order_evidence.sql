@@ -183,7 +183,7 @@ begin
      if p_action='createOrder' then
        insert into public.orders(id,request_id,customer,phone,order_date,order_time,flower,note,tag_note_free,order_source,order_type,walk_in_payment_method,created_by,
          shipping,address,flower_total,payment,sale,status,
-         card,card_qty,card_text,banner,banner_qty,banner_text,charm_fee,charm_text,paper_fee,paper_text,vat,image_urls,unverified_bill_urls,
+         card,card_qty,card_text,banner,banner_qty,banner_text,charm_fee,charm_text,paper_fee,paper_text,vat,image_urls,
          ship_fee,ship_confirmed,ship_fee_updated_by,ship_fee_updated_role,ship_fee_updated_at,updated_at)
        values(v_id,p_request_id,n.customer,'',n.order_date,n.order_time,n.flower,n.note,'',v_order_source,'WALK_IN',v_walkin_pay,u.username,
          'Ghé lấy','',n.flower_total,n.payment,v_sale,'Đã giao',
