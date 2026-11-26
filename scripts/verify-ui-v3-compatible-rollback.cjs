@@ -44,14 +44,23 @@ function copyDirSync(src, dest) {
 function buildCompatibleBackendArtifact() {
   fs.rmSync(BACKEND_OUT, { recursive: true, force: true });
   fs.mkdirSync(BACKEND_OUT, { recursive: true });
-  // Compatible rollback core retains all UI-V3 SQL/API safety invariants:
-  // is_deleted filtering, WALK_IN isolation from Production/KPI/CMS, and preservation of tag_note_free/order_source on V2 edits.
+  // Compatible rollback core retains all UI-V3 SQL/API safety invariants AND Permanent R2:
+  // is_deleted filtering, WALK_IN isolation from Production/KPI/CMS, preservation of tag_note_free/order_source on V2 edits,
+  // and Permanent R2 read/write across both meehoasg-api-core and meehoasg-api.
   // Layout mirrors supabase/functions so relative imports (../_shared/*) resolve exactly as in deployment.
   const coreSrc = fs.readFileSync(path.join(ROOT, 'supabase/functions/meehoasg-api-core/index.js'), 'utf8');
+  const apiSrc = fs.readFileSync(path.join(ROOT, 'supabase/functions/meehoasg-api/index.js'), 'utf8');
   const fnDir = path.join(BACKEND_OUT, 'functions');
   fs.mkdirSync(path.join(fnDir, 'meehoasg-api-core'), { recursive: true });
+  fs.mkdirSync(path.join(fnDir, 'meehoasg-api'), { recursive: true });
   fs.writeFileSync(path.join(fnDir, 'meehoasg-api-core', 'index.js'), coreSrc);
+  fs.writeFileSync(path.join(fnDir, 'meehoasg-api', 'index.js'), apiSrc);
   copyDirSync(path.join(ROOT, 'supabase/functions/_shared'), path.join(fnDir, '_shared'));
+  assert.ok(fs.existsSync(path.join(fnDir, '_shared/r2-image-reader.js')), 'rollback artifact includes _shared/r2-image-reader.js');
+  assert.match(coreSrc, /const R2_UPLOADS_ENABLED=true;/, 'rollback core preserves permanent R2 uploads');
+  assert.match(coreSrc, /const R2_READS_ENABLED=true;/, 'rollback core preserves permanent R2 reads');
+  assert.match(coreSrc, /function r2BackupEnabled\(\)\{return false\}/, 'rollback core disables 72h trial dual-backup');
+  assert.match(apiSrc, /createR2ImageReader/, 'rollback fallback API preserves permanent R2 image reader');
 
   // Runnable local harness (loopback port only) without modifying the deployable index.js
   const harnessSrc = coreSrc.replace('Deno.serve(', "Deno.serve({hostname:'127.0.0.1',port:4185},");

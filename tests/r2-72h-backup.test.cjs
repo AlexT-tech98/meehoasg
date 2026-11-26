@@ -5,6 +5,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const {webcrypto}=require('node:crypto');
 
+const readerSource=fs.readFileSync('supabase/functions/_shared/r2-image-reader.js','utf8').replace(/^export /gm,'');
 const coreSource=fs.readFileSync('supabase/functions/meehoasg-api-core/index.js','utf8').replace(/^import .*\n/gm,'');
 const htmlSource=fs.readFileSync('html','utf8');
 const uploadBegin=htmlSource.indexOf('async function uploadOrderEvidence(state)');
@@ -17,15 +18,15 @@ const jpeg=new Uint8Array([255,216,255,217]);
 const enc=Buffer.from(jpeg).toString('base64');
 const data='data:image/jpeg;base64,'+enc;
 
-function make({now=start+1000,trial=true,reads=true,uploads=true,trialStart=new Date(start).toISOString()}={}){
+function make({now=start+1000,supabaseUrl='https://supabase.local',accessKey='qa-key',trial=true,reads=false,uploads=false,trialStart=new Date(start).toISOString()}={}){
   const supabase=new Map(),r2=new Map(),events=[],discarded=[];
   const vars={
-    SUPABASE_URL:'https://supabase.local',
+    SUPABASE_URL:supabaseUrl,
     SUPABASE_SERVICE_ROLE_KEY:'qa-only',
     R2_MEDIA_BUCKET:'meehoa-test',
     R2_ACCOUNT_ID:'a'.repeat(32),
-    R2_ACCESS_KEY_ID:'qa-key',
-    R2_SECRET_ACCESS_KEY:'qa-secret',
+    R2_ACCESS_KEY_ID:accessKey,
+    R2_SECRET_ACCESS_KEY:accessKey?'qa-secret':'',
     R2_TRIAL_BACKUP_ENABLED:String(trial),
     R2_TRIAL_START_AT:trialStart,
     R2_READS_ENABLED:String(reads),
@@ -42,7 +43,7 @@ function make({now=start+1000,trial=true,reads=true,uploads=true,trialStart=new 
     key:(kind,path)=>(kind==='sample'?'order-images':'settlement-bills')+'/'+path,
     reference:key=>'r2://meehoa-test/'+key,
     parseReference:value=>String(value).startsWith('r2://meehoa-test/')?String(value).slice('r2://meehoa-test/'.length):null,
-    signedUrl:async(method,key)=>'https://r2.local/'+method+'/'+key,
+    signedUrl:async(method,key)=>'https://r2.local/'+method+'/'+key+'?X-Amz-Signature=deadbeef',
     exists:async key=>r2.has(key),
     verifyUpload:async key=>{if(!r2.has(key))throw Error('R2_UPLOAD_NOT_READY');return r2.get(key).length},
     discard:async ref=>{const key=media.parseReference(ref);discarded.push(ref);r2.delete(key)}
@@ -77,7 +78,7 @@ function make({now=start+1000,trial=true,reads=true,uploads=true,trialStart=new 
     fetch:fetcher
   };
   vm.createContext(context);
-  vm.runInContext(coreSource,context);
+  vm.runInContext(readerSource+'\n'+coreSource,context);
   vm.runInContext("requireUser=async()=>({username:'sale1',role:'SALE',display_name:'Sale 1'})",context);
   const evaluate=expr=>vm.runInContext(expr,context);
   return {context,evaluate,media,supabase,r2,events,discarded,fetcher,response,vars,now};
@@ -90,106 +91,93 @@ async function tickets(h,{samples=1,bills=1,requestId='test-request'}={}){
   return h.evaluate('prepareOrderUploads('+JSON.stringify({requestId,samples,bills})+')');
 }
 
-test('72h trial: sample, preview and bill each receive R2 and same-key private Supabase backup tickets',async()=>{
- const h=make(),out=await tickets(h);
+test('Permanent R2: sample, preview and bill receive R2-only tickets without Supabase trial backup',async()=>{
+ const h=make({now:start+30*24*3600*1000,trial:true,reads:false,uploads:false});
+ const out=await tickets(h);
  assert.equal(out.ok,true);assert.equal(out.tickets.length,2);
  for(const t of [out.tickets[0],out.tickets[0].preview,out.tickets[1]]){
-   assert.equal(t.storage,'r2');assert.equal(t.backup.storage,'supabase');
-   assert.equal(t.path,t.backup.path);
-   assert.ok(t.expiresAt<=start+72*3600*1000);
+   assert.equal(t.storage,'r2');
+   assert.equal(t.backup,undefined);
    assert.match(t.uploadUrl,/r2\.local\/PUT\//);
-   assert.match(t.backup.uploadUrl,/supabase\.local\/storage\/v1\/object\/upload\/sign\//);
  }
  assert.equal(out.tickets[0].kind,'sample');assert.equal(out.tickets[1].kind,'bill');
+ assert.equal(h.events.some(x=>x.url.includes('supabase.local')),false);
 });
 
-test('trial requires signed backup evidence and verifies both stores before order commit',async()=>{
+test('Permanent R2 never reverts to Supabase after 72h or when legacy trial env vars are empty/false',async()=>{
+ for(const opts of [
+   {now:start+72*3600*1000+1,trial:true,trialStart:new Date(start).toISOString(),uploads:false,reads:false},
+   {now:start+200*3600*1000,trial:true,trialStart:'',uploads:false,reads:false},
+   {now:start+1000,trial:false,trialStart:'',uploads:false,reads:false},
+ ]){
+   const h=make(opts);
+   const out=await tickets(h,{samples:1,bills:1});
+   assert.equal(out.tickets[0].storage,'r2');
+   assert.equal(out.tickets[0].backup,undefined);
+   assert.equal(out.tickets[1].storage,'r2');
+   const result=await h.evaluate("uploadEvidenceImages([{data:"+JSON.stringify(data)+"}],'settlement-bills')");
+   assert.match(result[0],/^r2:\/\/meehoa-test\/settlement-bills\//);
+   assert.equal(h.supabase.size,0);
+ }
+});
+
+test('Production fails closed with R2_NOT_CONFIGURED instead of silently reverting to Supabase when R2 key missing',async()=>{
+ const h=make({supabaseUrl:'https://zxnfhshnavbmvdthrmrd.supabase.co',accessKey:''});
+ await assert.rejects(tickets(h,{samples:1,bills:0}),/R2_NOT_CONFIGURED/);
+ await assert.rejects(h.evaluate("uploadEvidenceImages([{data:"+JSON.stringify(data)+"}],'order-images')"),/R2_NOT_CONFIGURED/);
+});
+
+test('Loopback QA without R2 keys uses local disposable Storage cleanly',async()=>{
+ const h=make({supabaseUrl:'http://127.0.0.1:54321',accessKey:''});
+ const out=await tickets(h,{samples:1,bills:1});
+ assert.equal(out.ok,true);
+ assert.equal(out.tickets[0].storage,'supabase');
+ assert.equal(out.tickets[1].storage,'supabase');
+});
+
+test('verifyStagedUploads validates R2 sample, preview and bill without requiring Supabase backup',async()=>{
  const h=make(),out=await tickets(h);
  for(const t of [out.tickets[0],out.tickets[0].preview,out.tickets[1]]){
    const key=(t===out.tickets[1]?'settlement-bills':'order-images')+'/'+t.path;
-   h.r2.set(key,jpeg);h.supabase.set(key,jpeg);
+   h.r2.set(key,jpeg);
  }
  const claim=claims(out.tickets[0]),bill=claims(out.tickets[1]);
  const q={actor:'sale1',requestId:'test-request',samples:[claim],bills:[bill]};
  const result=await h.evaluate('verifyStagedUploads('+JSON.stringify(q)+')');
  assert.equal(result.samples.length,1);assert.equal(result.previews.length,1);assert.equal(result.bills.length,1);
- assert.match(result.samples[0],/^r2:\/\//);
- await assert.rejects(h.evaluate('verifyStagedUploads('+JSON.stringify({...q,samples:[{...claim,backup:undefined}]})+')'),/R2_TRIAL_BACKUP_REQUIRED/);
- h.supabase.delete('settlement-bills/'+out.tickets[1].path);
- await assert.rejects(h.evaluate('verifyStagedUploads('+JSON.stringify(q)+')'),/UPLOAD_NOT_READY/);
+ assert.match(result.samples[0],/^r2:\/\/meehoa-test\/order-images\//);
+ assert.match(result.bills[0],/^r2:\/\/meehoa-test\/settlement-bills\//);
+ h.r2.delete('settlement-bills/'+out.tickets[1].path);
+ await assert.rejects(h.evaluate('verifyStagedUploads('+JSON.stringify(q)+')'),/R2_UPLOAD_NOT_READY/);
 });
 
-test('bad backup signature or mismatched size does not pass final verification',async()=>{
- const h=make(),out=await tickets(h,{bills:0});const t=out.tickets[0];
- for(const x of [t,t.preview]){h.r2.set('order-images/'+x.path,jpeg);h.supabase.set('order-images/'+x.path,jpeg)}
- const q={actor:'sale1',requestId:'test-request',samples:[claims(t)],bills:[]};
- await assert.rejects(h.evaluate('verifyStagedUploads('+JSON.stringify({...q,samples:[{...q.samples[0],backup:{...q.samples[0].backup,proof:'0'.repeat(64)}}]})+')'),/UPLOAD_BACKUP_CLAIM_INVALID/);
- h.supabase.set('order-images/'+t.path,new Uint8Array([1,2]));
- await assert.rejects(h.evaluate('verifyStagedUploads('+JSON.stringify(q)+')'),/R2_BACKUP_SIZE_MISMATCH/);
-});
-
-test('R2 off: trial image and bill references resolve to signed private Supabase backup URLs',async()=>{
- const h=make({reads:false,uploads:false});
- const ref='r2://meehoa-test/order-images/'+uid+'.jpg';
- const signed=await h.evaluate('signedImageUrl('+JSON.stringify(ref)+')');
- assert.match(signed,/supabase\.local\/storage\/v1\/object\/sign\/order-images\//);
- assert.equal(h.events.some(x=>x.url.includes('r2.local')),false);
- const bill='r2://meehoa-test/settlement-bills/'+uid+'.jpg';
- const sb=await h.evaluate('signedImageUrl('+JSON.stringify(bill)+')');
- assert.match(sb,/object\/sign\/settlement-bills\//);
-});
-
-test('R2 read errors or missing migrated objects fall back to signed Supabase URLs',async()=>{
- const h=make({reads:true});
- const ref='r2://meehoa-test/order-images/'+uid+'.jpg';
- const signed=await h.evaluate('signedImageUrl('+JSON.stringify(ref)+')');
- assert.match(signed,/supabase\.local/);
- const h2=make({reads:true});h2.r2.set('order-images/'+uid+'.jpg',jpeg);
- const s2=await h2.evaluate('signedImageUrl('+JSON.stringify(ref)+')');
- assert.match(s2,/^https:\/\/r2\.local\/GET\//);
-});
-
-test('after 72h no automatic R2-only switch: new tickets and direct images return to Supabase',async()=>{
- const h=make({now:start+72*3600*1000+1});
- const out=await tickets(h,{samples:0,bills:1});
- assert.equal(out.tickets[0].storage,'supabase');assert.equal(out.tickets[0].backup,undefined);
- const result=await h.evaluate("uploadEvidenceImages([{data:"+JSON.stringify(data)+"}],'settlement-bills')");
- assert.match(result[0],/^supabase:\/\//);
- const noStart=make({trialStart:''}),ticketsNoStart=await tickets(noStart,{samples:0,bills:1});
- assert.equal(ticketsNoStart.tickets[0].storage,'supabase');
-});
-
-test('direct legacy image upload also stages and checks R2+Supabase while trial active',async()=>{
+test('R2 image reader signs r2:// directly via R2 and legacy supabase:// via Supabase Storage',async()=>{
  const h=make();
- const result=await h.evaluate("uploadEvidenceImages([{data:"+JSON.stringify(data)+"}],'settlement-bills')");
- assert.equal(result.length,1);
- assert.match(result[0],/^r2:\/\//);
- const key=result[0].split('meehoa-test/')[1];
- assert.ok(h.r2.has(key));assert.ok(h.supabase.has(key));
- assert.equal(h.r2.get(key).length,h.supabase.get(key).length);
+ const r2Sample='r2://meehoa-test/order-images/'+uid+'.jpg';
+ const r2Bill='r2://meehoa-test/settlement-bills/'+uid+'.jpg';
+ const sbSample='supabase://order-images/'+uid+'.jpg';
+ const sbBill='supabase://settlement-bills/'+uid+'.jpg';
+ assert.match(await h.evaluate('signedImageUrl('+JSON.stringify(r2Sample)+')'),/^https:\/\/r2\.local\/GET\/order-images\//);
+ assert.match(await h.evaluate('signedImageUrl('+JSON.stringify(r2Bill)+')'),/^https:\/\/r2\.local\/GET\/settlement-bills\//);
+ assert.equal(h.events.some(x=>x.url.includes('supabase.local')),false);
+ assert.match(await h.evaluate('signedImageUrl('+JSON.stringify(sbSample)+')'),/supabase\.local\/storage\/v1\/object\/sign\/order-images\//);
+ assert.match(await h.evaluate('signedImageUrl('+JSON.stringify(sbBill)+')'),/supabase\.local\/storage\/v1\/object\/sign\/settlement-bills\//);
 });
 
-test('browser uploads original, preview and each temporary backup without putting service credentials in UI',async()=>{
+test('browser uploads original, preview and bill directly to R2 without exposing service credentials',async()=>{
  const h=make(),out=await tickets(h);
- const front={...h.context,gas:async(name,payload)=>{assert.equal(name,'prepareOrderUploads');return out}};
+ const front={...h.context,gas:async(name)=>{assert.equal(name,'prepareOrderUploads');return out}};
  vm.createContext(front);
  vm.runInContext(browserSource,front);
  const state={requestId:'test-request',prepared:[[{data,previewData:data}],[{data}]]};
  const result=await vm.runInContext('uploadOrderEvidence',front)(state);
  assert.equal(result.samples.length,1);assert.equal(result.bills.length,1);
- assert.ok(result.samples[0].backup);assert.ok(result.samples[0].preview.backup);
- assert.ok(result.bills[0].backup);
- const expected=[out.tickets[0],out.tickets[0].preview,out.tickets[1]];
- for(const t of expected){const key=(t===out.tickets[1]?'settlement-bills':'order-images')+'/'+t.path;assert.ok(h.r2.has(key));assert.ok(h.supabase.has(key))}
+ assert.equal(result.samples[0].storage,'r2');assert.equal(result.samples[0].backup,undefined);
+ assert.equal(result.bills[0].storage,'r2');assert.equal(result.bills[0].backup,undefined);
+ for(const t of [out.tickets[0],out.tickets[0].preview,out.tickets[1]]){
+   const key=(t===out.tickets[1]?'settlement-bills':'order-images')+'/'+t.path;
+   assert.ok(h.r2.has(key));
+   assert.equal(h.supabase.has(key),false);
+ }
  assert.ok(!browserSource.includes('SUPABASE_SERVICE_ROLE_KEY'));
-});
-
-test('without trial flag, R2 write behavior remains unchanged and no Supabase backup is minted',async()=>{
- const h=make({trial:false});const out=await tickets(h);
- assert.equal(out.tickets[0].storage,'r2');assert.equal(out.tickets[0].backup,undefined);
-});
-
-test('without R2 write flag, unchanged Supabase-only signed upload path is used',async()=>{
- const h=make({uploads:false});const out=await tickets(h);
- assert.equal(out.tickets[0].storage,'supabase');assert.equal(out.tickets[0].backup,undefined);
 });

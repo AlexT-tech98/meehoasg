@@ -438,7 +438,7 @@ test('TC-14/TC-18: Edge core getDeletedOrders auth, soft-delete exclusion across
     const c = {
       console, TextEncoder, URL, Date, Intl, crypto: webcrypto,
       createOperationService: () => ({ run: async () => ({ ok: true }) }),
-      createOperationStorage: () => ({}),
+      createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage: () => ({}),
       Deno: { env: { get: () => '' }, serve() {} }
     };
     vm.createContext(c);
@@ -649,7 +649,7 @@ test('RC2 Ownership Hardening: duplicate display_name fails closed & sale reassi
   const c = {
     console, TextEncoder, URL, Date, Intl, crypto: webcrypto,
     createOperationService: () => ({ run: async () => ({ ok: true }) }),
-    createOperationStorage: () => ({}),
+    createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage: () => ({}),
     Deno: { env: { get: () => '' }, serve() {} }
   };
   vm.createContext(c);

@@ -158,7 +158,7 @@ function loadCoreHarness(pg, user) {
     crypto: crypto.webcrypto,
     URL, TextEncoder, Intl, Date, console,
     fetch: async () => ({ ok: true, status: 200, text: async () => '[]', json: async () => ({}) }),
-    createOperationStorage: () => ({ uploadImages: async () => [], discard: async () => {} }),
+    createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage: () => ({ uploadImages: async () => [], discard: async () => {} }),
     createOperationService: (opts) => createOperationService({ ...opts, db: queryDb, one: queryOne }),
     createR2Media: () => null
   };
@@ -188,7 +188,7 @@ function loadLegacyHarness(pg, user) {
     crypto: crypto.webcrypto,
     URL, TextEncoder, Intl, Date, console,
     fetch: async () => ({ ok: true, status: 200, text: async () => '[]', json: async () => ({}) }),
-    createOperationStorage: () => ({ uploadImages: async () => [], discard: async () => {} }),
+    createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage: () => ({ uploadImages: async () => [], discard: async () => {} }),
     createOperationService: (opts) => createOperationService({ ...opts, db: queryDb, one: queryOne })
   };
   vm.createContext(ctx);

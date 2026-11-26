@@ -2,12 +2,15 @@ import { AwsClient } from './vendor/aws4fetch.esm.mjs';
 
 const PATH = /^(order-images|settlement-bills)\/[0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp)$/;
 
-export function createR2Media({accountId,accessKeyId,secretAccessKey,bucket,fetcher=fetch}) {
+export function createR2Media({accountId,accessKeyId,secretAccessKey,bucket,endpointUrl='',fetcher=fetch}) {
   if (!/^[0-9a-f]{32}$/.test(accountId || '') || !/^[a-z0-9-]+$/.test(bucket || '') || !accessKeyId || !secretAccessKey) {
     throw new Error('R2_NOT_CONFIGURED');
   }
   const signer = new AwsClient({service:'s3',region:'auto',accessKeyId,secretAccessKey});
-  const base = `https://${accountId}.r2.cloudflarestorage.com/${bucket}/`;
+  const loopbackEndpoint = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/?$/.test(endpointUrl || '')
+    ? `${endpointUrl.replace(/\/+$/, '')}/${bucket}/`
+    : '';
+  const base = loopbackEndpoint || `https://${accountId}.r2.cloudflarestorage.com/${bucket}/`;
 
   function key(kind,path) {
     const prefix = kind === 'sample' ? 'order-images' : kind === 'bill' ? 'settlement-bills' : '';

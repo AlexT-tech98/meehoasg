@@ -1,3 +1,4 @@
+import {createR2ImageReader} from '../_shared/r2-image-reader.js';
 import {createOperationStorage} from '../_shared/storage.js';
 import {createOperationService} from '../_shared/operations.js';
 import {createR2Media} from '../_shared/r2-media.js';
@@ -12,17 +13,13 @@ const PASSWORD_SALT=Deno.env.get('LEGACY_PASSWORD_SALT')||'MEE-FLOWER-V4';
 const SESSION_MS=30*24*60*60*1000;
 const LEGACY_API=`${SUPABASE_URL}/functions/v1/meehoasg-api`;
 const ALLOWED=['https://ops.meehoasg.com','http://ops.meehoasg.com','https://meehoasg.com','http://meehoasg.com'];
-const R2_UPLOADS_ENABLED=Deno.env.get('R2_UPLOADS_ENABLED')==='true';
-const R2_READS_ENABLED=Deno.env.get('R2_READS_ENABLED')==='true';
-const r2Media=(R2_UPLOADS_ENABLED||R2_READS_ENABLED)&&Deno.env.get('R2_ACCESS_KEY_ID')?createR2Media({accountId:Deno.env.get('R2_ACCOUNT_ID'),accessKeyId:Deno.env.get('R2_ACCESS_KEY_ID'),secretAccessKey:Deno.env.get('R2_SECRET_ACCESS_KEY'),bucket:Deno.env.get('R2_MEDIA_BUCKET')}):null;
-const R2_TRIAL_BACKUP_ENABLED=Deno.env.get('R2_TRIAL_BACKUP_ENABLED')==='true';
-const R2_TRIAL_START_AT=Deno.env.get('R2_TRIAL_START_AT')||'';
-const R2_TRIAL_START_MS=Date.parse(R2_TRIAL_START_AT);
-const R2_TRIAL_END_MS=R2_TRIAL_START_MS+72*60*60*1000;
-// After 72h, trial uploads revert to Supabase; they never become R2-only without another approval.
-function r2TrialActive(now=Date.now()){return R2_TRIAL_BACKUP_ENABLED&&Number.isFinite(R2_TRIAL_START_MS)&&now>=R2_TRIAL_START_MS&&now<R2_TRIAL_END_MS}
-function r2WriteEnabled(){return R2_UPLOADS_ENABLED&&(!R2_TRIAL_BACKUP_ENABLED||r2TrialActive())}
-function r2BackupEnabled(){return R2_UPLOADS_ENABLED&&r2TrialActive()}
+const IS_LOOPBACK_QA=/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/.test(SUPABASE_URL||'');
+const R2_UPLOADS_ENABLED=true;
+const R2_READS_ENABLED=true;
+const r2Media=(R2_UPLOADS_ENABLED||R2_READS_ENABLED)&&Deno.env.get('R2_ACCESS_KEY_ID')?createR2Media({accountId:Deno.env.get('R2_ACCOUNT_ID'),accessKeyId:Deno.env.get('R2_ACCESS_KEY_ID'),secretAccessKey:Deno.env.get('R2_SECRET_ACCESS_KEY'),bucket:Deno.env.get('R2_MEDIA_BUCKET'),endpointUrl:Deno.env.get('R2_ENDPOINT_URL')||''}):null;
+// Permanent R2 writes approved on 21 November 2026; never depends on 72h trial and never reverts to Supabase on Production.
+function r2WriteEnabled(){return !(IS_LOOPBACK_QA&&!r2Media)}
+function r2BackupEnabled(){return false}
 
 function clean(v){return String(v??'').trim()}
 function num(v){if(typeof v==='number')return Number.isFinite(v)?v:0;let raw=String(v??'0').replace(/[^\d.,-]/g,'');if(raw.includes(',')&&raw.includes('.'))raw=raw.replaceAll('.','').replace(',','.');else if(/^-?\d{1,3}(?:[.,]\d{3})+$/.test(raw))raw=raw.replace(/[.,]/g,'');else raw=raw.replace(',','.');const n=Number(raw);return Number.isFinite(n)?n:0}
@@ -60,41 +57,7 @@ function orderTotal(row){const ship=norm(row?.shipping).includes('shop')&&row?.s
 function paidAmount(payment,base,settled){if(settled>0)return settled;const text=norm(payment);if(!text||/chua/.test(text))return 0;if(/full|da tt|da thanh toan (?:du|toan bo)|thanh toan du/.test(text))return base;const m=text.replace(/\s/g,'').match(/([0-9.,]+)(k|tr|trieu)?/);if(!m)return /da thanh toan/.test(text)?base:0;let a=num(m[1]);if(m[2]==='tr'||m[2]==='trieu')a*=1000000;else if(m[2]==='k'||(a>0&&a<=1000&&!/\d\s*(?:đ|d|vn[dđ])(?:$|[\s),.])/i.test(text)))a*=1000;return Math.max(0,a)}
 function contactFields(row){const contact=clean(row.address);const p=contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);return {phone:clean(row.phone)||(p?clean(p[1]):''),address:contact.replace(/(?:SĐT|SDT)\s*:\s*[^\n]+\n?/i,'').replace(/^Địa chỉ\s*:\s*/i,'').trim()}}
 const signedImageUrls=new Map();
-async function signedImageUrl(url){
- const value=String(url);
- const m=value.match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
- // A private R2 reference uses the same object key as its Supabase trial backup.
- const r2=value.match(/^r2:\/\/([a-z0-9-]+)\/(order-images|settlement-bills)\/([0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp))$/);
- const fallback=r2&&r2[1]===Deno.env.get('R2_MEDIA_BUCKET')?[r2[2],r2[3]]:(m?[m[1],m[2]]:null);
- if(!fallback)return url;
- const now=Date.now(),cached=signedImageUrls.get(url);
- if(cached&&cached.expiresAt>now)return cached.value;
- if(cached?.pending)return cached.pending;
- const pending=(async()=>{
-  const r2Key=r2Media?.parseReference(value);
-  const objectKey=r2Key||fallback.join('/');
-  if(R2_READS_ENABLED&&r2Media){
-   try{
-    if(await r2Media.exists(objectKey)){
-      const signed=await r2Media.signedUrl('GET',objectKey,{expiresSeconds:3600});
-      if(signedImageUrls.size>=500)signedImageUrls.clear();
-      signedImageUrls.set(url,{value:signed,expiresAt:Date.now()+45*60*1000});
-      return signed;
-    }
-   }catch(error){console.warn('R2_READ_FALLBACK_TO_SUPABASE',String(error?.message||error).slice(0,80))}
-  }
-  const r=await fetch(SUPABASE_URL+'/storage/v1/object/sign/'+fallback[0]+'/'+fallback[1],{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY,'Content-Type':'application/json'},body:JSON.stringify({expiresIn:3600})});
-  if(!r.ok)return null;
-  const data=await r.json();
-  const signed=SUPABASE_URL+'/storage/v1'+data.signedURL;
-  if(signedImageUrls.size>=500)signedImageUrls.clear();
-  signedImageUrls.set(url,{value:signed,expiresAt:Date.now()+45*60*1000});
-  return signed;
- })();
- signedImageUrls.set(url,{pending});
- try{return await pending}catch(error){signedImageUrls.delete(url);throw error}
- finally{if(signedImageUrls.get(url)?.pending===pending)signedImageUrls.delete(url)}
-}
+var signedImageUrl=createR2ImageReader({media:r2Media,source:SUPABASE_URL,serviceKey:SERVICE_KEY});
 async function displayUrls(urls){const out=[];const values=urls||[];for(let offset=0;offset<values.length;offset+=3){const batch=await Promise.all(values.slice(offset,offset+3).map(signedImageUrl));out.push(...batch.filter(u=>u!==null))}return out}
 function previewSource(url){
  const value=String(url);
@@ -136,7 +99,7 @@ async function prepareOrderUploads(payload){
       if(!r2Media)throw Error('R2_NOT_CONFIGURED');
       const backup=r2BackupEnabled()?await signSupabase(bucket,path):null;
       const objectKey=r2Media.key(bucket==='order-images'?'sample':'bill',path);
-      const r2ExpiresAt=backup?Math.min(Date.now()+14*60*1000,R2_TRIAL_END_MS):Date.now()+14*60*1000;
+      const r2ExpiresAt=Date.now()+14*60*1000;
       const ttl=Math.max(1,Math.floor((r2ExpiresAt-Date.now())/1000));
       return {path,storage:'r2',expiresAt:r2ExpiresAt,proof:await evidenceSignature(user.username,requestId,bucket,path,r2ExpiresAt,backup?'r2-backup':'r2'),uploadUrl:await r2Media.signedUrl('PUT',objectKey,{expiresSeconds:ttl,contentType:'image/jpeg'}),...(backup?{backup}:{})};
     }
@@ -289,7 +252,7 @@ async function fastOrder(payload){
  const rawImages=row.image_urls||[],previewSources=rawImages.map(previewSource),hasDistinctPreview=previewSources.some((u,i)=>u!==rawImages[i]);
  const index=Number(payload.refreshPreviewIndex),original=Number.isInteger(index)&&index>=0&&index<rawImages.length?rawImages[index]:'';
  const preview=/^(?:supabase:\/\/order-images|r2:\/\/[a-z0-9-]+\/order-images)\/[0-9a-f-]{36}\.jpg$/.test(String(original||''))?previewSource(original):'';
- if(preview)signedImageUrls.delete(preview);
+ if(preview){signedImageUrls.delete(preview);if(typeof signedImageUrl.invalidate==='function')signedImageUrl.invalidate(preview);}
  const [dir,sm,images,bills,previews,freshPreview]=await Promise.all([saleDirectory(),settlementMap([id]),displayUrls(rawImages),displayUrls(row.full_paid_bill_urls||[]),hasDistinctPreview?displayUrls(previewSources):Promise.resolve(null),preview?signedImageUrl(preview):Promise.resolve('')]);
  const shown=decorate({...row,image_urls:images},user,sm[id],dir);shown.fullPaidBillUrls=bills;
  shown.driveUrls=rawImages;

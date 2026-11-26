@@ -1,3 +1,5 @@
+import {createR2Media} from '../_shared/r2-media.js';
+import {createR2ImageReader} from '../_shared/r2-image-reader.js';
 import {createOperationStorage} from '../_shared/storage.js';
 import {createOperationService} from '../_shared/operations.js';
 // Supabase Edge Function replacing google.script.run. Platform JWT verification
@@ -149,7 +151,7 @@ function decorate(row, user, settlement) {
     flower: row.flower, imageUrls: row.image_urls || [], driveUrls: row.image_urls || [],
     note: row.note, orderType, walkInPaymentMethod, shipping: row.shipping, address: contact.address,
     flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
-    fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),paymentVerified:verified,settled: row.settled, status: fulfillmentStatus(row), shipFee: num(row.ship_fee),
+    fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),fullPaidBillUrls:row.full_paid_bill_urls||[],paymentVerified:verified,settled: row.settled, status: fulfillmentStatus(row), shipFee: num(row.ship_fee),
     shipConfirmed: row.ship_confirmed, shipFeePending: norm(row.shipping).includes('shop') && !row.ship_confirmed,
     card: row.card, cardQty:row.card?Math.max(1,Math.min(99,Math.floor(num(row.card_qty)||1))):0, cardText: row.card_text, banner: row.banner, bannerText: row.banner_text,
     charmFee: num(row.charm_fee), charmText: row.charm_text, paperFee: num(row.paper_fee),
@@ -251,29 +253,63 @@ async function options() {
 }
 function newId(prefix) { return prefix + '-' + crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase(); }
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
-const uploadImages=operationStorage.uploadImages;
-async function billDisplayUrls(urls) {
-  const values = urls || [];
-  const out = [];
-  for (let i = 0; i < values.length; i += 3) {
-    const batch = await Promise.all(values.slice(i, i + 3).map(async url => {
-      const match = String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
-      if (!match) return url;
-      const bucket = match[1], path = match[2];
-      const response = await fetch(SUPABASE_URL + '/storage/v1/object/sign/' + bucket + '/' + path, {
-        method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600 })
-      });
-      if (!response.ok) return '';
-      const signed = await response.json();
-      return SUPABASE_URL + '/storage/v1' + signed.signedURL;
-    }));
-    out.push(...batch.filter(Boolean));
+const IS_LOOPBACK_QA=/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/.test(SUPABASE_URL||'');
+const r2Media=Deno.env.get('R2_ACCESS_KEY_ID')?createR2Media({accountId:Deno.env.get('R2_ACCOUNT_ID'),accessKeyId:Deno.env.get('R2_ACCESS_KEY_ID'),secretAccessKey:Deno.env.get('R2_SECRET_ACCESS_KEY'),bucket:Deno.env.get('R2_MEDIA_BUCKET'),endpointUrl:Deno.env.get('R2_ENDPOINT_URL')||''}):null;
+const resolveImage=createR2ImageReader({media:r2Media,source:SUPABASE_URL,serviceKey:SERVICE_KEY});
+// Permanent R2 writes approved on 21 November 2026; never depends on 72h trial and never reverts to Supabase on Production.
+function r2WriteEnabled(){return !(IS_LOOPBACK_QA&&!r2Media)}
+function r2BackupEnabled(){return false}
+async function uploadEvidenceImages(files,bucket){
+  if(!r2WriteEnabled())return operationStorage.uploadImages(files,bucket);
+  if(!r2Media)throw Error('R2_NOT_CONFIGURED');
+  const kind=bucket==='order-images'?'sample':bucket==='settlement-bills'?'bill':null;
+  if(!kind)throw Error('IMAGE_INVALID');
+  const backupEnabled=r2BackupEnabled();
+  const images=(files||[]).map(file=>{
+    const match=String(file?.data||'').match(/^data:(image\/(?:jpeg|png|webp));base64,([\s\S]+)$/);
+    if(!match)throw Error('File ảnh không hợp lệ.');
+    const bytes=Uint8Array.from(atob(match[2]),c=>c.charCodeAt(0));
+    if(!bytes.length||bytes.length>5*1024*1024)throw Error('Mỗi ảnh cần dung lượng 1 byte–5 MB.');
+    const extension=match[1]==='image/jpeg'?'jpg':match[1].split('/')[1];
+    const objectKey=r2Media.key(kind,crypto.randomUUID()+'.'+extension);
+    return {bytes,type:match[1],objectKey,ref:r2Media.reference(objectKey)};
+  });
+  const uploaded=[],backups=[];
+  try{
+    for(let offset=0;offset<images.length;offset+=3){
+      const results=await Promise.allSettled(images.slice(offset,offset+3).map(async image=>{
+        if(backupEnabled){
+          const backupRef='supabase://'+image.objectKey;
+          backups.push(backupRef);
+          const resp=await fetch(SUPABASE_URL+'/storage/v1/object/'+image.objectKey,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY,'Content-Type':image.type,'x-upsert':'false'},body:image.bytes});
+          if(!resp.ok)throw Error('R2_TRIAL_BACKUP_WRITE_FAILED');
+        }
+        uploaded.push(image.ref);
+        const uploadUrl=await r2Media.signedUrl('PUT',image.objectKey,{expiresSeconds:900,contentType:image.type});
+        const response=await fetch(uploadUrl,{method:'PUT',headers:{'Content-Type':image.type},body:image.bytes});
+        if(!response.ok)throw Error('Không lưu được ảnh.');
+        if(backupEnabled){
+          const [r2Size,backupResponse]=await Promise.all([r2Media.verifyUpload(image.objectKey),fetch(SUPABASE_URL+'/storage/v1/object/authenticated/'+image.objectKey,{method:'HEAD',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY}})]);
+          if(!backupResponse.ok||Number(backupResponse.headers.get('content-length'))!==r2Size)throw Error('R2_TRIAL_BACKUP_VERIFY_FAILED');
+        }
+      }));
+      const failed=results.find(x=>x.status==='rejected');if(failed)throw failed.reason;
+    }
+    return images.map(x=>x.ref);
+  }catch(error){
+    await Promise.allSettled([...(uploaded.map(ref=>r2Media.discard(ref))),operationStorage.discard(backups)]);
+    throw error;
   }
-  return out;
 }
+
+const uploadImages=uploadEvidenceImages;
+async function billDisplayUrls(urls){return (await Promise.all((urls||[]).map(resolveImage))).filter(Boolean)}
 async function visibleOrder(row) {
-  const image_urls = await billDisplayUrls(row.image_urls || []);
-  return { ...row, image_urls };
+  const [image_urls, full_paid_bill_urls] = await Promise.all([
+    billDisplayUrls(row.image_urls || []),
+    billDisplayUrls(row.full_paid_bill_urls || [])
+  ]);
+  return { ...row, image_urls, full_paid_bill_urls };
 }
 async function getOrder(payload, user) {
   const row = await one('orders', { id: 'eq.' + clean(payload.orderId) });
@@ -282,7 +318,7 @@ async function getOrder(payload, user) {
   const settlement = (await settlementMap([row.id]))[row.id];
   return { ok: true, order: decorate(await visibleOrder(row), user, settlement) };
 }
-const operations=createOperationService({db,one,uploadImages,discardImages:operationStorage.discard,sha256,newId});
+const operations=createOperationService({db,one,uploadImages,discardImages:async urls=>{await operationStorage.discard(urls);if(r2Media)await Promise.all((urls||[]).map(url=>r2Media.discard(url)))},sha256,newId});
 async function atomicWrite(action,payload,user){
   const result=await operations.run(action,payload,user);if(!result?.ok)return result;
   const output={...result};delete output.row;

@@ -73,7 +73,9 @@ export function privateImageIdentity(value){
     // the saved order's own image allow-list remains the ownership check.
     try{
       const url=new URL(s);
-      if(url.protocol==='https:'&&/^[0-9a-f]{32}\.r2\.cloudflarestorage\.com$/i.test(url.hostname)&&url.searchParams.has('X-Amz-Signature'))
+      const isR2Host=url.protocol==='https:'&&/^[0-9a-f]{32}\.r2\.cloudflarestorage\.com$/i.test(url.hostname);
+      const isLoopbackS3=(url.protocol==='http:'||url.protocol==='https:')&&/^(?:127\.0\.0\.1|localhost)$/i.test(url.hostname);
+      if((isR2Host||isLoopbackS3)&&url.searchParams.has('X-Amz-Signature'))
         m=url.pathname.match(/^\/[a-z0-9-]+\/(order-images|settlement-bills)\/([0-9a-f-]{36}(?:\.preview)?\.(?:jpg|png|webp))$/i);
     }catch(_){/* Preserve unknown image identity; do not bypass ownership. */}
   }

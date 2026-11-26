@@ -45,7 +45,7 @@ function harness({ role = 'ADMIN', active = true, session = 'valid', order = fix
     console: { error() {}, warn() {}, log() {} },
     // Imported operation factories are irrelevant to these reads. Any accidental
     // operation/storage execution must fail; authentication itself is never stubbed.
-    createOperationStorage: () => ({
+    createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage: () => ({
       uploadImages: async () => refuse('Unexpected image upload'),
       discard: async () => refuse('Unexpected image discard')
     }),

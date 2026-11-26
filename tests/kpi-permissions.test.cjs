@@ -90,7 +90,7 @@ function createHarness(user) {
         text: async () => JSON.stringify([])
       };
     },
-    createOperationStorage: () => ({ uploadImages: async () => [], discard: async () => {} }),
+    createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage: () => ({ uploadImages: async () => [], discard: async () => {} }),
     createOperationService: () => ({ run: async () => ({ ok: true }) })
   };
 
@@ -154,7 +154,7 @@ test('KPI Permissions: Non-admin users cannot call saveKpiOperation', async () =
       return null;
     },
     db: async () => ({ rows: [] }),
-    createOperationStorage: () => ({ uploadImages: async () => [], discard: async () => {} }),
+    createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage: () => ({ uploadImages: async () => [], discard: async () => {} }),
     createOperationService: () => ({ run: async () => ({ ok: true }) })
   };
   vm.createContext(freshContext);

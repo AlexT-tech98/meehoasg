@@ -7,7 +7,7 @@ const { webcrypto } = require('node:crypto');
 const source = fs.readFileSync('supabase/functions/meehoasg-api/index.js', 'utf8').replace(/^import .*\n/gm, '');
 const context = vm.createContext({
   Deno: { env: { get: () => 'test' }, serve: () => {} },
-  crypto: webcrypto, TextEncoder, URL, Request, Response, Intl, Date, console, createOperationStorage:()=>({uploadImages:async()=>[],discard:async()=>{}}), createOperationService:()=>({run:async()=>({ok:true})}),
+  crypto: webcrypto, TextEncoder, URL, Request, Response, Intl, Date, console, createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage:()=>({uploadImages:async()=>[],discard:async()=>{}}), createOperationService:()=>({run:async()=>({ok:true})}),
 });
 vm.runInContext(source, context);
 
@@ -117,7 +117,7 @@ test('meehoasg-ingest handles getOrdersForSheet and recordSheetPositions', async
   const ingestSource = fs.readFileSync('supabase/functions/meehoasg-ingest/index.js', 'utf8');
   const ingestContext = vm.createContext({
     Deno: { env: { get: () => 'test' }, serve: () => {} },
-    crypto: webcrypto, TextEncoder, URL, Request, Response, Intl, Date, console, createOperationStorage:()=>({uploadImages:async()=>[],discard:async()=>{}}), createOperationService:()=>({run:async()=>({ok:true})}),
+    crypto: webcrypto, TextEncoder, URL, Request, Response, Intl, Date, console, createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage:()=>({uploadImages:async()=>[],discard:async()=>{}}), createOperationService:()=>({run:async()=>({ok:true})}),
   });
   vm.runInContext(ingestSource, ingestContext);
   ingestContext.rest = async (table, query) => {

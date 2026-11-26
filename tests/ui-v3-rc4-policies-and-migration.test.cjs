@@ -70,7 +70,7 @@ function loadCoreHarness(pg, user) {
     Date,
     console,
     fetch: async () => ({ ok: true, status: 200, text: async () => '[]', json: async () => ({}) }),
-    createOperationStorage: () => ({ uploadImages: async () => [], discard: async () => {} }),
+    createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage: () => ({ uploadImages: async () => [], discard: async () => {} }),
     createOperationService: () => ({ run: async () => ({ ok: true }) }),
     createR2Media: () => null
   };
