@@ -42,6 +42,7 @@ async function main(){
     else data={ok:false,code:'FIXTURE_UNHANDLED',message:'Unhandled fixture route: '+name};
     return route.fulfill({status:200,headers:{'access-control-allow-origin':'*','content-type':'application/json'},body:JSON.stringify({...data,build})});
    }
+   if(url.hostname==='img.vietqr.io')return route.fulfill({status:200,headers:{'access-control-allow-origin':'*','content-type':'image/png'},body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6dT8AAAAASUVORK5CYII=','base64')});
    return route.abort();
   });
   const started=performance.now();await page.goto(origin);
@@ -86,6 +87,20 @@ async function main(){
   await page.evaluate(()=>MEEOPS7.closeOverlay());
   await page.evaluate(()=>MEEOPS7.openDrawer('FIXTURE-0'));await page.locator('#overlay').getByText('Banner ×3',{exact:true}).waitFor();
   assert.equal(await page.locator('#overlay [data-mee-delete-order]').count(),role==='ADMIN'?1:0,'admin delete must be rendered by drawer owner for authorized role only');
+  if(width===390&&role==='SALE'){
+   let popups=0;page.on('popup',()=>popups++);
+   await page.locator('[data-mee-print-invoice]').click();
+   await page.locator('#meeInvoicePreview .mee-invoice-card').waitFor();
+   assert.equal(popups,0,'mobile invoice stays in the same tab');
+   assert.doesNotMatch(await page.locator('#meeInvoicePreview').innerText(),/Nội dung chuyển khoản/);
+   assert.doesNotMatch(await page.locator('#meeInvoicePreview img').getAttribute('src'),/addInfo=/);
+   assert.match(await page.locator('#meeInvoicePreview').innerText(),/vui lòng gửi ảnh bill/);
+   const size=await page.locator('#meeInvoicePreview .mee-invoice-card').boundingBox();assert.ok(Math.abs(size.width/size.height-.75)<.03,'invoice preview uses 3:4 aspect ratio');
+   await page.screenshot({path:path.join(out,'invoice-mobile-preview.png')});
+   const download=page.waitForEvent('download');await page.locator('[data-invoice-download]').click();assert.match((await download).suggestedFilename(),/^Meehoa-FIXTURE-0\.png$/);
+   await page.evaluate(()=>{window.__invoicePrinted=false;window.print=()=>{window.__invoicePrinted=true}});await page.locator('[data-invoice-print]').click();assert.equal(await page.evaluate(()=>window.__invoicePrinted),true,'print action runs in the same tab');
+   await page.locator('[data-invoice-close]').click();assert.equal(await page.locator('#meeInvoicePreview').count(),0);assert.equal(await page.locator('#overlay .drawer').count(),1,'closing invoice returns to order drawer');
+  }
   await page.evaluate(()=>MEEOPS7.closeOverlay());
   await page.waitForFunction(()=>!document.body.classList.contains('mee-overlay-open-v364')&&!document.body.classList.contains('mee-menu-open'));
   await page.waitForFunction(()=>{window.scrollTo(0,1000);return window.scrollY>500;});

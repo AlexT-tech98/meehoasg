@@ -17,7 +17,8 @@ const cssFiles = [
   'meehoa-v361.css',
   'meehoa-v362.css',
   'meehoa-v364.css',
-  'meehoa-v365.css'
+  'meehoa-v365.css',
+  'meehoa-ui-v3.css'
 ];
 
 const jsFiles = [
@@ -28,7 +29,8 @@ const jsFiles = [
   'meehoa-v362.js',
   'meehoa-v364.js',
   'meehoa-v366.js',
-  'meehoa-order-actions.js'
+  'meehoa-order-actions.js',
+  'meehoa-ui-v3.js'
 ];
 
 const forbiddenRuntimeNames = /(?:fix|hotfix|runtime-fix|ops-hotfix|scroll-contract)/i;

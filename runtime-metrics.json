@@ -8,7 +8,8 @@
     "meehoa-v361.css",
     "meehoa-v362.css",
     "meehoa-v364.css",
-    "meehoa-v365.css"
+    "meehoa-v365.css",
+    "meehoa-ui-v3.css"
   ],
   "jsFiles": [
     "meehoa-v3.js",
@@ -18,14 +19,15 @@
     "meehoa-v362.js",
     "meehoa-v364.js",
     "meehoa-v366.js",
-    "meehoa-order-actions.js"
+    "meehoa-order-actions.js",
+    "meehoa-ui-v3.js"
   ],
-  "sourceRequestsBefore": 15,
+  "sourceRequestsBefore": 17,
   "runtimeRequestsAfter": 2,
-  "sourceCssBytes": 125866,
-  "sourceJsBytes": 68774,
-  "coreCssBytes": 126241,
-  "coreJsBytes": 69185,
+  "sourceCssBytes": 147403,
+  "sourceJsBytes": 102927,
+  "coreCssBytes": 147814,
+  "coreJsBytes": 103373,
   "sourceMutationObservers": 0,
   "nativeMutationObserversAfter": 0
 }

@@ -1,300 +1,31 @@
-/* MEEHOA V3.4 — order form personality + drawer image visibility */
-
-/* Drawer reference gallery: target only known gallery containers.
-   Avoid wildcard [class*=thumb] rules that can resize unrelated components. */
-.drawer .gallery,
-.drawer .image-grid,
-.drawer .thumbs{
-  display:grid!important;
-  grid-template-columns:repeat(2,minmax(0,1fr))!important;
-  gap:10px!important;
-  width:100%!important;
-  min-width:0!important;
-  overflow:hidden!important;
-}
-.drawer .gallery a,
-.drawer .image-grid a,
-.drawer .thumbs a{
-  display:block!important;
-  min-width:0!important;
-  overflow:hidden!important;
-  border-radius:14px!important;
-}
-.drawer .gallery img,
-.drawer .image-grid img,
-.drawer .thumbs img{
-  display:block!important;
-  box-sizing:border-box!important;
-  width:100%!important;
-  height:132px!important;
-  min-width:0!important;
-  max-width:100%!important;
-  min-height:132px!important;
-  max-height:132px!important;
-  object-fit:contain!important;
-  object-position:center!important;
-  background:linear-gradient(145deg,#fffaf4,#f7fbf8)!important;
-  padding:6px!important;
-  border:1px solid rgba(89,65,56,.08)!important;
-  border-radius:14px!important;
-}
-
-/* ORDER FORM — cheerful flower-studio layout */
-#orderForm.mee-order-form{
-  box-sizing:border-box!important;
-  width:min(820px,calc(100vw - 28px))!important;
-  max-height:94dvh!important;
-  padding:0 0 20px!important;
-  overflow-x:hidden!important;
-  overflow-y:auto!important;
-  overscroll-behavior:contain!important;
-  -webkit-overflow-scrolling:touch!important;
-  background:
-    radial-gradient(circle at 100% 0,rgba(255,217,109,.16),transparent 18rem),
-    radial-gradient(circle at 0 72%,rgba(176,227,202,.18),transparent 20rem),
-    linear-gradient(180deg,#fffdfb 0%,#fff8f8 42%,#f4fbf7 100%)!important;
-  border:1px solid rgba(91,65,57,.08)!important;
-  border-radius:28px!important;
-}
-#orderForm.mee-order-form .modal-head{
-  top:0!important;
-  margin:0!important;
-  padding:20px 22px 16px!important;
-  border-bottom:0!important;
-  background:linear-gradient(100deg,#fff0ad 0%,#ffe1e9 34%,#e8f7ef 68%,#ece7ff 100%)!important;
-  z-index:6!important;
-  position:relative!important;
-  overflow:hidden!important;
-}
-#orderForm.mee-order-form .modal-head:before{
-  content:"✿  ❀  ✦"!important;
-  position:absolute!important;
-  right:58px!important;
-  top:-10px!important;
-  font-size:38px!important;
-  letter-spacing:-.18em!important;
-  color:rgba(255,255,255,.72)!important;
-  transform:rotate(7deg)!important;
-  pointer-events:none!important;
-}
-#orderForm.mee-order-form .modal-head h3{
-  font-size:24px!important;
-  letter-spacing:-.035em!important;
-  color:#342d29!important;
-  position:relative!important;
-  z-index:2!important;
-}
-#orderForm.mee-order-form .modal-head:after{
-  content:"Đơn hoa mới · nhanh, rõ, đủ thông tin";
-  display:block;
-  position:absolute;
-  left:22px;
-  bottom:5px;
-  font-size:10px;
-  color:#80736c;
-  font-weight:650;
-  letter-spacing:.03em;
-}
-#orderForm.mee-order-form > .form-grid{
-  display:block!important;
-  padding:16px 18px 0!important;
-}
-#orderForm .mee-form-section{
-  display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:12px;
-  padding:16px;
-  margin:0 0 12px;
-  border-radius:20px;
-  border:1px solid rgba(92,67,58,.07);
-  box-shadow:0 8px 24px rgba(77,52,45,.045);
-  min-width:0;
-  position:relative;
-  overflow:hidden;
-}
-#orderForm .mee-form-section:after{
-  position:absolute;
-  right:12px;
-  top:9px;
-  font-size:28px;
-  opacity:.14;
-  transform:rotate(10deg);
-  pointer-events:none;
-}
-#orderForm .mee-form-section[data-tone="customer"]:after{content:"❀";color:#e86f8a}
-#orderForm .mee-form-section[data-tone="order"]:after{content:"✿";color:#daa72e}
-#orderForm .mee-form-section[data-tone="delivery"]:after{content:"⌁";font-size:42px;color:#2f8b69;top:2px}
-#orderForm .mee-form-section[data-tone="payment"]:after{content:"✦";color:#8d72c8}
-#orderForm .mee-form-section > *{min-width:0;position:relative;z-index:1}
-#orderForm .mee-form-section > .mee-section-title{
-  grid-column:1/-1;
-  display:flex;
-  align-items:center;
-  gap:8px;
-  margin:-2px 0 2px;
-  font-size:11px;
-  font-weight:850;
-  letter-spacing:.07em;
-  text-transform:uppercase;
-  color:#5f544f;
-}
-#orderForm .mee-form-section > .mee-section-title:before{content:"✿";font-size:12px;color:#ee8195}
-#orderForm .mee-form-section[data-tone="customer"]{background:linear-gradient(145deg,#fff,#fff1f4)}
-#orderForm .mee-form-section[data-tone="order"]{background:linear-gradient(145deg,#fff,#fff5cf)}
-#orderForm .mee-form-section[data-tone="delivery"]{background:linear-gradient(145deg,#fff,#e7f7ef)}
-#orderForm .mee-form-section[data-tone="payment"]{background:linear-gradient(145deg,#fff,#eee8fb)}
-#orderForm .mee-form-section label,
-#orderForm .accessory-box label{
-  margin-top:0!important;
-  color:#756962!important;
-  font-size:10px!important;
-}
-#orderForm .mee-form-section input,
-#orderForm .mee-form-section select,
-#orderForm .mee-form-section textarea,
-#orderForm .accessory-box input,
-#orderForm .accessory-box textarea{
-  max-width:100%!important;
-  min-width:0!important;
-  background:rgba(255,255,255,.95)!important;
-  border-color:rgba(87,65,57,.11)!important;
-  border-radius:13px!important;
-  box-shadow:0 3px 12px rgba(70,48,41,.025)!important;
-}
-#orderForm .mee-form-section input:focus,
-#orderForm .mee-form-section select:focus,
-#orderForm .mee-form-section textarea:focus{
-  box-shadow:0 0 0 3px rgba(74,148,119,.12),0 6px 18px rgba(70,48,41,.04)!important;
-}
-#orderForm textarea{
-  min-height:76px!important;
-  line-height:1.45!important;
-  resize:vertical!important;
-}
-#orderForm textarea[name="flower"]{min-height:96px!important}
-#orderForm .mee-textarea-compact{min-height:64px!important}
-#orderForm .mee-address-wrap.mee-hidden{display:none!important}
-
-/* Accessory block should feel special, not like a continuation of the same grid */
-#orderForm .accessory-box{
-  margin:2px 18px 0!important;
-  padding:17px!important;
-  border:1px solid rgba(224,170,50,.18)!important;
-  border-radius:20px!important;
-  background:linear-gradient(115deg,#fff0a7 0%,#fff 31%,#ffe6ec 70%,#eee8ff 100%)!important;
-  box-shadow:0 10px 26px rgba(164,119,32,.07)!important;
-  min-width:0!important;
-  position:relative!important;
-  overflow:hidden!important;
-}
-#orderForm .accessory-box:after{
-  content:"✿"!important;
-  position:absolute!important;
-  right:-8px!important;
-  bottom:-16px!important;
-  font-size:76px!important;
-  color:rgba(237,129,150,.10)!important;
-  transform:rotate(-12deg)!important;
-  pointer-events:none!important;
-}
-#orderForm .accessory-box > b{
-  display:block;
-  margin-bottom:12px;
-  color:#6a5535;
-  font-size:11px;
-  letter-spacing:.07em;
-  position:relative;
-  z-index:1;
-}
-#orderForm .accessory-box > b:before{content:"❀";margin-right:7px;color:#de7d91}
-#orderForm .accessory-box .check{
-  display:grid!important;
-  grid-template-columns:22px minmax(0,1fr)!important;
-  align-items:center!important;
-  gap:8px!important;
-  min-height:38px!important;
-  padding:8px 10px!important;
-  margin:8px 0 6px!important;
-  border-radius:12px!important;
-  background:rgba(255,255,255,.76)!important;
-  text-transform:none!important;
-  letter-spacing:0!important;
-  font-size:12px!important;
-  font-weight:750!important;
-  position:relative!important;
-  z-index:1!important;
-}
+/* MEEHOA V3.4 — Compact accessory editor & Full Paid evidence styles (Flat Navy UI V3) */
+#orderForm .mee-address-wrap.mee-hidden{display:none}
 #orderForm input[type="checkbox"]{
-  appearance:auto!important;
-  -webkit-appearance:checkbox!important;
-  width:18px!important;
-  height:18px!important;
-  min-width:18px!important;
-  max-width:18px!important;
-  min-height:18px!important;
-  max-height:18px!important;
-  padding:0!important;
-  margin:0!important;
-  border-radius:4px!important;
-  box-shadow:none!important;
-}
-#orderForm #orderSubmit{
-  width:calc(100% - 36px)!important;
-  margin:16px 18px 0!important;
-  height:52px!important;
-  border-radius:16px!important;
-  background:linear-gradient(105deg,#24745b 0%,#54a17f 45%,#ef8197 112%)!important;
-  box-shadow:0 13px 28px rgba(40,107,88,.2)!important;
-  font-size:14px!important;
-}
-#orderForm #orderSubmit:before{content:"✿";margin-right:5px}
-
-@media(max-width:900px){
-  .drawer .gallery,
-  .drawer .image-grid,
-  .drawer .thumbs{gap:8px!important}
-  .drawer .gallery img,
-  .drawer .image-grid img,
-  .drawer .thumbs img{
-    height:112px!important;
-    min-height:112px!important;
-    max-height:112px!important;
-    padding:4px!important;
-  }
-  #orderForm.mee-order-form{
-    width:100%!important;
-    max-width:100%!important;
-    max-height:calc(100dvh - env(safe-area-inset-top))!important;
-    border-radius:24px 24px 0 0!important;
-    padding-bottom:max(20px,env(safe-area-inset-bottom))!important;
-  }
-  #orderForm.mee-order-form .modal-head{
-    padding-left:18px!important;
-    padding-right:18px!important;
-  }
-  #orderForm.mee-order-form .modal-head:before{right:52px!important;font-size:30px!important}
-  #orderForm.mee-order-form .modal-head:after{left:18px}
-  #orderForm.mee-order-form > .form-grid{padding-left:12px!important;padding-right:12px!important}
-  #orderForm .mee-form-section{grid-template-columns:1fr!important;padding:14px!important}
-  #orderForm .mee-form-section > .mee-section-title{grid-column:1!important}
-  #orderForm .span2{grid-column:auto!important}
-  #orderForm .accessory-box{margin-left:12px!important;margin-right:12px!important}
-  #orderForm #orderSubmit{width:calc(100% - 24px)!important;margin-left:12px!important;margin-right:12px!important}
+  appearance:auto;
+  -webkit-appearance:checkbox;
+  width:18px;
+  height:18px;
+  min-width:18px;
+  max-width:18px;
+  min-height:18px;
+  max-height:18px;
+  padding:0;
+  margin:0;
+  border-radius:4px;
+  box-shadow:none;
 }
 
-
-/* 20/10 compact accessory workflow + structured order detail */
+/* Compact accessory workflow + structured order detail */
 #orderForm .mee-accessory-box{
-  padding:0!important;
-  overflow:visible!important;
+  padding:0;
+  overflow:visible;
 }
-#orderForm .mee-accessory-box:after{display:none!important}
 #orderForm .mee-accessory-head{
   width:100%;
-  min-height:64px;
-  padding:14px 16px;
+  min-height:54px;
+  padding:12px 14px;
   border:0;
-  background:transparent;
+  background:#f8fafc;
   display:flex;
   align-items:center;
   justify-content:space-between;
@@ -307,23 +38,23 @@
 #orderForm .mee-accessory-head > span:first-child{
   display:flex;
   flex-direction:column;
-  gap:4px;
+  gap:3px;
 }
 #orderForm .mee-accessory-head b{
   font-size:12px;
-  letter-spacing:.07em;
-  color:#624f37;
+  letter-spacing:.05em;
+  color:#050b17;
 }
 #orderForm .mee-accessory-head small{
-  font-size:11px;
-  color:#a24b61;
-  font-weight:750;
+  font-size:11.5px;
+  color:#103f82;
+  font-weight:700;
 }
 #orderForm .mee-accessory-chevron{
-  width:30px;height:30px;border-radius:10px;
+  width:28px;height:28px;border-radius:7px;
   display:grid;place-items:center;
-  background:rgba(255,255,255,.72);
-  color:#6a5a50;font-size:18px;
+  background:#eef4fc;
+  color:#103f82;font-size:16px;
   transition:transform .18s ease;
 }
 #orderForm .mee-accessory-box.is-open .mee-accessory-chevron{transform:rotate(180deg)}
@@ -335,57 +66,56 @@
 #orderForm .mee-accessory-toolbar{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:10px 0 12px;
-  border-top:1px solid rgba(116,83,57,.08);
+  border-top:1px solid #e2e8f0;
 }
 #orderForm .mee-accessory-add-wrap{position:relative;flex:0 0 auto}
-#orderForm .mee-accessory-add{height:38px!important;border-radius:12px!important}
+#orderForm .mee-accessory-add{height:36px;border-radius:8px}
 #orderForm .mee-accessory-menu{
-  position:absolute;right:0;top:44px;z-index:20;
-  width:230px;padding:7px;
-  background:#fff;border:1px solid rgba(70,51,43,.10);
-  border-radius:14px;box-shadow:0 16px 38px rgba(52,38,31,.16);
+  position:absolute;right:0;top:42px;z-index:20;
+  width:230px;padding:6px;
+  background:#fff;border:1px solid #cbd5e1;
+  border-radius:10px;box-shadow:0 12px 28px rgba(5,11,23,.14);
 }
 #orderForm .mee-accessory-menu-item{
-  width:100%;border:0;background:transparent;padding:10px 11px;
-  border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;
-  color:var(--text-primary);cursor:pointer;text-align:left;
+  width:100%;border:0;background:transparent;padding:9px 10px;
+  border-radius:7px;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  color:#1e293b;cursor:pointer;text-align:left;
 }
-#orderForm .mee-accessory-menu-item:hover{background:#f7f5f1}
-#orderForm .mee-accessory-menu-item.is-selected{background:#edf8f3;color:#24745b}
-#orderForm .mee-accessory-menu-item small{color:var(--text-muted);font-size:10px}
+#orderForm .mee-accessory-menu-item:hover{background:#f8fafc}
+#orderForm .mee-accessory-menu-item.is-selected{background:#eef4fc;color:#103f82;font-weight:600}
+#orderForm .mee-accessory-menu-item small{color:#64748b;font-size:10.5px}
 #orderForm .mee-accessory-items{display:grid;gap:10px}
 #orderForm .mee-accessory-item{
-  padding:12px;border-radius:15px;
-  background:rgba(255,255,255,.80);
-  border:1px solid rgba(97,71,60,.08);
-  box-shadow:0 4px 14px rgba(64,45,38,.035);
+  padding:12px;border-radius:10px;
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
 }
 #orderForm .mee-accessory-item-head{
   display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px
 }
 #orderForm .mee-accessory-item-head .check{
-  margin:0!important;padding:0!important;background:transparent!important;
-  min-height:28px!important;display:flex!important;grid-template-columns:none!important
+  margin:0;padding:0;background:transparent;
+  min-height:26px;display:flex;align-items:center;gap:8px;
 }
 #orderForm .mee-accessory-remove{
-  border:0;background:#fff0f3;color:#c85a71;width:28px;height:28px;
-  border-radius:9px;font-size:18px;cursor:pointer
+  border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;width:28px;height:28px;
+  border-radius:7px;font-size:16px;cursor:pointer
 }
 #orderForm .mee-card-qty-native{
   display:grid;grid-template-columns:1fr 100px;gap:12px;align-items:end;margin:8px 0 10px
 }
-#orderForm .mee-card-qty-native input{height:40px!important;text-align:center!important}
+#orderForm .mee-card-qty-native input{height:40px;text-align:center}
 #orderForm .mee-accessory-fee-grid{
   display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px
 }
 #orderForm .mee-accessory-total{
-  margin-top:12px;padding:12px 14px;border:1px dashed rgba(36,116,91,.34);
-  border-radius:13px;background:rgba(238,249,244,.78);
+  margin-top:12px;padding:11px 14px;border:1px solid #c5d9f2;
+  border-radius:8px;background:#eef4fc;
   display:flex;align-items:center;justify-content:space-between;gap:12px;
-  font-size:12px
+  font-size:12.5px
 }
-#orderForm .mee-accessory-total b{font-size:15px;color:#177356}
-#orderForm .hidden{display:none!important}
+#orderForm .mee-accessory-total b{font-size:15px;color:#103f82}
+#orderForm .hidden{display:none}
 
 /* Canonical order detail: native responsive drawer. One style owner. */
  .mee-order-drawer-v2{display:flex;flex-direction:column;gap:0;overflow:hidden;background:var(--bg-surface,#fff);box-shadow:-10px 0 36px rgba(8,20,39,.10);padding:0}

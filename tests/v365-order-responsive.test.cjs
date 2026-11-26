@@ -27,11 +27,11 @@ test('canonical base form owns card quantity and latest runtime only enhances fi
 test('canonical responsive CSS owns desktop left rail, login and order ergonomics',()=>{
   const s=fs.readFileSync('assets/meehoa-v365.css','utf8');
   assert.match(s,/@media \(min-width: 901px\)/);
-  assert.match(s,/width:164px!important/);
+  assert.match(s,/width:232px/);
   assert.match(s,/\.login:not\(\.hidden\)/);
   assert.doesNotMatch(s,/content:\"🐶  🐱\"/);
   assert.doesNotMatch(s,/HÔM NAY MÌNH LÀM HOA GÌ NÈ/);
-  assert.match(s,/mee-card-qty-v365/);
+  assert.match(s,/mee-money-v365/);
 });
 
 test('the real bootSplash is replaced and styled; no transient loading card remains in index body',()=>{

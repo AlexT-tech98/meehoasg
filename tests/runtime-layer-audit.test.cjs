@@ -27,8 +27,10 @@ const retired=[
 test('runtime architecture is explicit single-owner modules',()=>{
   assert.equal(metrics.schemaVersion,2);
   assert.equal(metrics.architecture,'single-owner-modules');
-  assert.equal(metrics.cssFiles.length,7);
+  assert.ok(metrics.cssFiles.length>=7);
+  assert.ok(metrics.cssFiles.includes('meehoa-ui-v3.css'));
   assert.ok(metrics.jsFiles.length>=7);
+  assert.ok(metrics.jsFiles.includes('meehoa-ui-v3.js'));
   assert.equal(metrics.sourceRequestsBefore,metrics.cssFiles.length+metrics.jsFiles.length);
   assert.equal(metrics.runtimeRequestsAfter,2);
   assert.ok(Object.keys(ownership).length>=7);

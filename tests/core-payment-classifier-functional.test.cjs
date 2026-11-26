@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('supabase/functions/meehoasg-api-core/index.js','utf8').replace(/^import .*\n/gm,'');
-const context={console,TextEncoder,URL,Date,Intl,createOperationService:()=>({}),createOperationStorage:()=>({uploadImages:async()=>[],discard:async()=>{}}),Deno:{env:{get:()=>''},serve(){} }};vm.createContext(context);vm.runInContext(source,context);
+const context={console,TextEncoder,URL,Date,Intl,createOperationService:()=>({}),createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage:()=>({uploadImages:async()=>[],discard:async()=>{}}),Deno:{env:{get:()=>''},serve(){} }};vm.createContext(context);vm.runInContext(source,context);
 test('flower-only Full leaves accessory, VAT and shipping debt; verified Full Paid clears it',()=>{
  context.row={id:'FLOWER-ONLY',flower_total:500000,payment:'Đã thanh toán đủ tiền hoa (Full)',shipping:'Shop book ship',ship_confirmed:true,ship_fee:45000,card:true,card_qty:2,banner:true,banner_qty:3,vat:50000,image_urls:[],sale:'sale1'};
  const get=()=>vm.runInContext("decorate(row,{username:'sale1',role:'SALE'},null,{map:new Map()})",context);

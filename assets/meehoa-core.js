@@ -13,11 +13,6 @@
   function forceSidebarState(side,open){
     if(!side)return;
     side.classList.toggle('mee-open',open);
-    if(open){
-      [['display','flex'],['position','fixed'],['top','0'],['bottom','0'],['left','0'],['right','auto'],['width','min(84vw,300px)'],['max-width','300px'],['height','100dvh'],['transform','translate3d(0,0,0)'],['visibility','visible'],['pointer-events','auto'],['opacity','1'],['z-index','2147483001']].forEach(function(x){side.style.setProperty(x[0],x[1],'important')});
-    }else{
-      ['display','position','top','bottom','left','right','width','max-width','height','transform','visibility','pointer-events','opacity','z-index'].forEach(function(p){side.style.removeProperty(p)});
-    }
   }
 
   function ensureMenu(){
@@ -26,7 +21,6 @@
     if(!btn){btn=document.createElement('button');btn.className='mee-menu-btn';btn.type='button';btn.title='Mở menu';btn.setAttribute('aria-label','Mở menu');btn.setAttribute('aria-expanded','false');btn.innerHTML='<span></span>';var left=qs('.topbar-left',top);top.insertBefore(btn,left||top.firstChild)}
     var back=qs('.mee-menu-backdrop');
     if(!back){back=document.createElement('div');back.className='mee-menu-backdrop';back.setAttribute('aria-hidden','true');document.body.appendChild(back)}
-    back.style.setProperty('z-index','2147483000','important');
     function set(open){var side=qs('.sidebar');open=!!open;forceSidebarState(side,open);back.classList.toggle('mee-open',open);document.body.classList.toggle('mee-menu-open',open);btn.setAttribute('aria-expanded',open?'true':'false');back.setAttribute('aria-hidden',open?'false':'true');if(open&&side)side.scrollTop=0}
     if(btn.dataset.meeBound!=='1'){btn.dataset.meeBound='1';btn.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var side=qs('.sidebar');set(!(side&&side.classList.contains('mee-open')))},{passive:false})}
     if(back.dataset.meeBound!=='1'){back.dataset.meeBound='1';back.addEventListener('click',function(e){e.preventDefault();set(false)},{passive:false})}
@@ -57,13 +51,8 @@
     document.body.classList.toggle('mee-page-kpi',page==='kpi');
   }
 
-  function shippingIcon(text){text=String(text||'');if(/Shop book ship/i.test(text))return'🛵';if(/Khách tự book/i.test(text))return'📱';if(/Ghé lấy/i.test(text))return'🏪';return''}
   function decorateShippingIcons(){
-    qsa('.order .meta,.order-card-mobile .meta,.order-card-mobile-meta,.drawer .meta,.drawer-row,.ops-lines span').forEach(function(el){
-      var txt=el.textContent||'',icon=shippingIcon(txt);if(!icon)return;
-      el.innerHTML=el.innerHTML.replace(/🚗|🚙|🚚|🚘/g,icon);
-      if(!el.querySelector('.mee-shipping-icon')&&!/[🛵📱🏪]/.test(el.textContent||'')){var span=document.createElement('span');span.className='mee-shipping-icon';span.textContent=icon;el.insertBefore(span,el.firstChild)}
-    })
+    /* Shipping icons are now rendered natively with crisp inline SVGs in UI V3 markup. */
   }
 
   function init(){
@@ -99,37 +88,37 @@
   function enhanceOrderForm(){
     var form=qs('#orderForm');
     if(!form||form.dataset.meeEnhanced==='1') return;
-    var grid=qs('.form-grid',form);
-    if(!grid) return;
-
     form.dataset.meeEnhanced='1';
     form.classList.add('mee-order-form');
 
-    var customer=createSection('customer','01 · Khách hàng');
-    var order=createSection('order','02 · Đơn hoa');
-    var delivery=createSection('delivery','03 · Giao nhận');
-    var payment=createSection('payment','04 · Thanh toán & phụ trách');
-
-    var groups={
-      customer:['customer','phone'],
-      order:['flower','note','imageFiles'],
-      delivery:['date','time','shipping','address'],
-      payment:['flowerTotal','paymentType','depositAmount','sale']
-    };
-    function move(names,target){
-      names.forEach(function(name){
-        var w=findFieldWrap(form,name);
-        if(w&&w.parentElement===grid) target.appendChild(w);
-      });
+    /* UI V3 renders sections natively inside the Side Drawer (no DOM relocation needed). */
+    if(form.dataset.meeV3Layout!=='1'){
+      var grid=qs('.form-grid',form);
+      if(grid){
+        var customer=createSection('customer','01 · Khách hàng');
+        var order=createSection('order','02 · Đơn hoa');
+        var delivery=createSection('delivery','03 · Giao nhận');
+        var payment=createSection('payment','04 · Thanh toán & phụ trách');
+        var groups={
+          customer:['customer','phone'],
+          order:['flower','note','tagNoteFree','imageFiles'],
+          delivery:['date','time','shipping','address'],
+          payment:['flowerTotal','paymentType','depositAmount','sale']
+        };
+        function move(names,target){
+          names.forEach(function(name){
+            var w=findFieldWrap(form,name);
+            if(w&&w.parentElement===grid) target.appendChild(w);
+          });
+        }
+        move(groups.customer,customer);
+        move(groups.order,order);
+        move(groups.delivery,delivery);
+        move(groups.payment,payment);
+        [customer,order,delivery,payment].forEach(function(s){if(s.children.length>1) grid.appendChild(s)});
+      }
     }
-    move(groups.customer,customer);
-    move(groups.order,order);
-    move(groups.delivery,delivery);
-    move(groups.payment,payment);
-    [customer,order,delivery,payment].forEach(function(s){if(s.children.length>1) grid.appendChild(s)});
 
-    /* Keep original field nodes intact. Replacing input elements after the app binds
-       validation/listeners can break form behavior and cached DOM references. */
     var address=form.querySelector('[name="address"]');
     var addressWrap=address&&(address.closest('.span2')||address.parentElement);
     if(addressWrap) addressWrap.classList.add('mee-address-wrap');
@@ -178,7 +167,7 @@
     ov.innerHTML='<div class="modal-bg mee-calendar-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()">'+
       '<div class="calendar-modal">'+
         '<div class="modal-head"><div><h3 style="margin:0">'+(single?'Chọn ngày':'Chọn khoảng ngày')+'</h3><div class="sub">'+(single?'Chọn ngày cần xem':'Chọn ngày bắt đầu, sau đó chọn ngày kết thúc')+'</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div>'+
-        '<div class="calendar-shortcuts"><button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'today\')">Hôm nay</button>'+(single?'':'<button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'week\')">7 ngày</button><button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'month\')">Tháng này</button>')+'</div>'+
+        '<div class="calendar-shortcuts"><button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'today\')">Hôm nay</button><button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'tomorrow\')">Ngày mai</button>'+(single?'':'<button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'week\')">7 ngày</button><button type="button" class="btn" onclick="MEEOPS7.datePickerShortcut(\'month\')">Tháng này</button>')+'</div>'+
         '<div class="calendar-head"><button type="button" class="calendar-nav" onclick="MEEOPS7.datePickerMonth(-1)">‹</button><strong>'+monthLabel(x.month)+'</strong><button type="button" class="calendar-nav" onclick="MEEOPS7.datePickerMonth(1)">›</button></div>'+
         '<div class="calendar-grid"><div class="calendar-dow">T2</div><div class="calendar-dow">T3</div><div class="calendar-dow">T4</div><div class="calendar-dow">T5</div><div class="calendar-dow">T6</div><div class="calendar-dow">T7</div><div class="calendar-dow">CN</div>'+cells.join('')+'</div>'+
         (single?'':'<div class="calendar-selection '+(x.start&&!x.end?'mee-range-waiting':'')+'"><div><b>'+dateVN2(x.start)+'</b><div class="sub">Bắt đầu</div></div><span>→</span><div style="text-align:right"><b>'+endText+'</b><div class="sub">Kết thúc</div></div></div>')+
@@ -219,6 +208,7 @@
     MEEOPS7.datePickerShortcut=function(which){
       var x=window._meeDatePicker;if(!x)return;var t=todayISO();
       if(which==='today'){x.start=t;x.end=t}
+      else if(which==='tomorrow'){var tm=addDays(t,1);x.start=tm;x.end=tm}
       else if(which==='week'){x.start=t;x.end=addDays(t,6)}
       else{var d=new Date(),s=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-01',e=new Date(d.getFullYear(),d.getMonth()+1,0);x.start=s;x.end=e.getFullYear()+'-'+pad(e.getMonth()+1)+'-'+pad(e.getDate())}
       x.freshRange=false;x.awaitingEnd=false;x.month=monthStart(x.start);renderMeeRangePicker();
@@ -263,7 +253,7 @@
     if(!window.S)return;var ff=S.filters&&S.filters.flowers||{},d=(ff.start||ff.date)+'|'+(ff.end||ff.start||ff.date),r=S.data&&S.data.flowers&&S.data.flowers[d],ov=qs('#overlay');if(!r||!ov)return;
     var item=(r.items||[]).find(function(x){return x.name===name});if(!item)return;
     var orders=(item.orderList||[]).map(function(x){return '<article class="mee-material-order"><div class="mee-material-order-top"><div><b>'+esc(x.customer||'Chưa rõ khách')+'</b><div class="sub">'+esc((x.time||'—')+' · '+dateVN2(x.date||d))+'</div></div><span class="badge">'+esc(name)+'</span></div><div class="flower-copy">'+esc(x.flower||'')+'</div>'+(x.id?'<button type="button" class="btn" data-open-order="'+attr(x.id)+'">Mở đơn hàng</button>':'')+'</article>'}).join('');
-    ov.innerHTML='<div class="drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer"><div class="drawer-head"><div><h3 style="margin:0">'+esc(name)+'</h3><div class="sub">'+Number(item.orders||0)+' đơn cần loại hoa này</div></div><button type="button" class="close" onclick="MEEOPS7.closeOverlay()">×</button></div><div class="mee-material-drawer-list">'+(orders||'<div class="empty">Không có đơn.</div>')+'</div></aside></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
+    ov.innerHTML='<div class="drawer-bg mee3-drawer-bg" onclick="if(event.target===this)MEEOPS7.closeOverlay()"><aside class="drawer mee3-drawer" aria-label="Nguyên liệu theo đơn"><header class="drawer-head mee3-drawer-head"><div><h3 class="mee3-drawer-title">'+esc(name)+'</h3><div class="mee3-drawer-sub">'+Number(item.orders||0)+' đơn cần loại hoa này</div></div><button type="button" class="close" aria-label="Đóng" onclick="MEEOPS7.closeOverlay()">×</button></header><div class="mee3-drawer-body"><div class="mee-material-drawer-list">'+(orders||'<div class="empty">Không có đơn.</div>')+'</div></div><footer class="mee3-drawer-foot"><button type="button" class="btn secondary" onclick="MEEOPS7.closeOverlay()">Đóng</button></footer></aside></div>';if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
     qsa('[data-open-order]',ov).forEach(function(btn){btn.addEventListener('click',function(){var id=btn.dataset.openOrder;if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();setTimeout(function(){if(window.MEEOPS7&&MEEOPS7.openDrawer)MEEOPS7.openDrawer(id,'production')},0)})});
   }
 
@@ -308,10 +298,12 @@
   function renderMetrics(r){
     var s=r.summary||{},orders=n(s.orders),delivered=n(s['Đã giao']),revenue=n(s.revenue)||n(s.grossRevenue)||n(s.settledRevenue)+n(s.unsettledRevenue);
     var average=orders?Math.round(revenue/orders):0;
+    var wiOrders=n(s.walkInOrders),wiRev=n(s.walkInRevenue),wiTrUnv=n(s.walkInTransferUnverifiedRevenue);
+    var wiFoot=wiOrders?('<br>Vãng lai: '+visibleMoney(wiRev,'revenue')+(wiTrUnv?' · CK chưa xác minh: '+visibleMoney(wiTrUnv,'revenue'):'')):'';
     var near=(r.attentionGroups&&r.attentionGroups.nearUnpacked||[]).length,late=(r.attentionGroups&&r.attentionGroups.packedOverdue||[]).length;
     return '<section class="mee-dv2-metrics" aria-label="Các chỉ số vận hành">'+
       metric('Đơn hàng',String(orders),'Đã giao '+delivered+' / '+orders)+
-      metric('Doanh thu đơn',visibleMoney(revenue,'revenue'),'Bình quân '+visibleMoney(average,'average')+privacyButton('average','Bình quân trên đơn'), 'revenue')+
+      metric('Doanh thu đơn',visibleMoney(revenue,'revenue'),'Bình quân '+visibleMoney(average,'average')+privacyButton('average','Bình quân trên đơn')+wiFoot, 'revenue')+
       metric('Công nợ chưa thu',visibleMoney(s.debt,'debt'),'Cần thu và đối soát','debt')+
       metric('Đơn cần ưu tiên',String(near+late),near+' sắp đến giờ · '+late+' trễ giờ')+
       '</section>';
@@ -488,23 +480,19 @@
     var active=!!ov.firstElementChild;
     document.body.classList.toggle('mee-overlay-open-v364',active);
     if(!active)return;
-    if(!qs('.mee-overlay-global-close-v364',ov)){
-      var b=document.createElement('button');
-      b.type='button';b.className='mee-overlay-global-close-v364';b.setAttribute('aria-label','Đóng');b.textContent='×';
-      b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();closeActiveOverlay()});
-      ov.appendChild(b);
-    }
-    var panel=qs('.modal,.drawer,.mobile-menu-sheet,.calendar-modal',ov);
+    var panel=qs('.modal,.drawer,.mobile-menu-sheet,.calendar-modal,.mee3-order-drawer-form',ov);
     if(panel&&!panel.dataset.meeScrollInit){panel.dataset.meeScrollInit='1';panel.scrollTop=0}
   }
 
   function openProof(src){
-    var ov=qs('#overlay');if(!ov)return;
+    var ov=qs('#overlay');if(!ov||!src)return;
     qsa('.mee-proof-layer-v364',ov).forEach(function(x){x.remove()});
     var layer=document.createElement('div');layer.className='mee-proof-layer-v364';
-    layer.innerHTML='<div class="modal-bg mee-proof-lightbox-v364"><div class="mee-proof-view-v364"><button class="close" type="button" onclick="window.MEEV364CloseOverlay()">×</button><img src="'+esc(src)+'" alt="Xem ảnh"></div></div>';
+    var ext=/^https?:\/\//i.test(String(src))?'<a class="mee3-proof-ext" href="'+esc(src)+'" target="_blank" rel="noopener">Mở tab mới ↗</a>':'';
+    layer.innerHTML='<div class="modal-bg mee-proof-lightbox-v364"><div class="mee3-proof-toolbar">'+ext+'<button class="close" type="button" aria-label="Đóng ảnh" onclick="window.MEEV364CloseOverlay()">×</button></div><div class="mee-proof-view-v364"><img src="'+esc(src)+'" alt="Xem ảnh"></div></div>';
     ov.appendChild(layer);ensureOverlayControls();
   }
+  window.MEEV364OpenProof=openProof;
 
   function paymentChecks(grid){
     return qsa('.settle-check',grid).filter(function(x){return !x.disabled});
@@ -579,22 +567,36 @@
     return kept;
   }
 
+  function existingDisplaySrc(u,i){
+    var map=window._editPreviewMap||{};
+    if(map[u])return map[u];
+    var list=Array.isArray(window._editPreviewUrls)?window._editPreviewUrls:[];
+    if(list[i])return list[i];
+    return u;
+  }
+  function existingFullSrc(u,i){
+    var map=window._editFullMap||{};
+    if(map[u])return map[u];
+    var list=Array.isArray(window._editFullUrls)?window._editFullUrls:[];
+    if(list[i])return list[i];
+    return existingDisplaySrc(u,i);
+  }
   function renderOrderImageManager(form,input,state){
     var box=qs('.mee-order-image-manager-v364',form);if(!box)return;
     var existing=syncExistingUrls(state);
     var pasted=Array.isArray(window._pasted)?window._pasted:[];
-    var sig=existing.join('||')+'##'+state.newFiles.map(fileKey).join('||')+'##'+pasted.map(fileKey).join('||');
+    var sig=existing.map(function(u,i){return u+'@'+existingDisplaySrc(u,i)}).join('||')+'##'+state.newFiles.map(fileKey).join('||')+'##'+pasted.map(fileKey).join('||');
     if(box.dataset.signature===sig)return;box.dataset.signature=sig;
     var parts=[];
-    existing.forEach(function(u,i){parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(u)+'" alt="Ảnh hiện có"><span>Hiện có</span><button type="button" data-remove-existing="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
-    state.newFiles.forEach(function(f,i){parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(previewForFile(f,state))+'" alt="Ảnh mới"><span>Ảnh mới</span><button type="button" data-remove-new="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
-    pasted.forEach(function(f,i){if(!f)return;parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(previewForFile(f,state))+'" alt="Ảnh paste"><span>Ảnh paste</span><button type="button" data-remove-pasted="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
+    existing.forEach(function(u,i){var thumb=existingDisplaySrc(u,i),full=existingFullSrc(u,i);parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(thumb)+'" data-full-src="'+esc(full)+'" loading="lazy" decoding="async" alt="Ảnh hiện có"><span>Hiện có</span><button type="button" data-remove-existing="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
+    state.newFiles.forEach(function(f,i){var src=previewForFile(f,state);parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(src)+'" data-full-src="'+esc(src)+'" alt="Ảnh mới"><span>Ảnh mới</span><button type="button" data-remove-new="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
+    pasted.forEach(function(f,i){if(!f)return;var src=previewForFile(f,state);parts.push('<div class="mee-order-image-tile-v364"><img src="'+esc(src)+'" data-full-src="'+esc(src)+'" alt="Ảnh paste"><span>Ảnh paste</span><button type="button" data-remove-pasted="'+i+'" aria-label="Xóa ảnh">×</button></div>')});
     box.innerHTML=parts.length?'<div class="mee-order-image-grid-v364">'+parts.join('')+'</div><div class="mee-order-image-help-v364">Có '+parts.length+' ảnh sẽ được giữ/lưu. Bấm × trên ảnh để bỏ.</div>':'<div class="mee-order-image-empty-v364">Chưa có ảnh nào được chọn.</div>';
 
-    qsa('[data-remove-existing]',box).forEach(function(b){b.onclick=function(){var idx=Number(b.dataset.removeExisting);var current=Array.isArray(window._editExistingUrls)?window._editExistingUrls.slice():[];var url=current[idx];if(url)state.removedExisting.add(url);window._editExistingUrls=current.filter(function(_,j){return j!==idx});box.dataset.signature='';renderOrderImageManager(form,input,state)}});
+    qsa('[data-remove-existing]',box).forEach(function(b){b.onclick=function(){var idx=Number(b.dataset.removeExisting);var current=Array.isArray(window._editExistingUrls)?window._editExistingUrls.slice():[];var url=current[idx];if(url)state.removedExisting.add(url);window._editExistingUrls=current.filter(function(_,j){return j!==idx});if(Array.isArray(window._editPreviewUrls))window._editPreviewUrls=window._editPreviewUrls.filter(function(_,j){return j!==idx});if(Array.isArray(window._editFullUrls))window._editFullUrls=window._editFullUrls.filter(function(_,j){return j!==idx});box.dataset.signature='';renderOrderImageManager(form,input,state)}});
     qsa('[data-remove-new]',box).forEach(function(b){b.onclick=function(){state.newFiles.splice(Number(b.dataset.removeNew),1);rebuildFileInput(input,state);box.dataset.signature='';renderOrderImageManager(form,input,state)}});
     qsa('[data-remove-pasted]',box).forEach(function(b){b.onclick=function(){var i=Number(b.dataset.removePasted);if(Array.isArray(window._pasted))window._pasted.splice(i,1);box.dataset.signature='';renderOrderImageManager(form,input,state)}});
-    qsa('.mee-order-image-tile-v364 img',box).forEach(function(img){img.onclick=function(){openProof(img.src)}});
+    qsa('.mee-order-image-tile-v364 img',box).forEach(function(img){img.onclick=function(){openProof(img.dataset.fullSrc||img.src)}});
   }
 
   function patchOrderImageUploader(){
@@ -615,15 +617,6 @@
     renderOrderImageManager(form,input,state);
   }
 
-  function patchPaidCopy(){
-    if(!window.S||!['production','orders'].includes(S.page))return;
-    var root=qs('#content');if(!root)return;
-    qsa('.ops-tile,.order:not(.settlement-card),.order-card-mobile',root).forEach(function(card){
-      var walker=document.createTreeWalker(card,NodeFilter.SHOW_TEXT);var n;
-      while((n=walker.nextNode()))if(String(n.nodeValue||'').trim()==='Đã tất toán')n.nodeValue='Bankful full hoa';
-    });
-  }
-
   function patchMaterialsLabel(){
     if(!window.S||S.page!=='flowers')return;
     var d=S.filters&&S.filters.flowers&&S.filters.flowers.date;
@@ -638,7 +631,7 @@
     }
   }
 
-  function contentSync(){patchPayment();patchPaidCopy();patchMaterialsLabel()}
+  function contentSync(){patchPayment();patchMaterialsLabel()}
   function overlaySync(){patchOrderImageUploader();ensureOverlayControls()}
   function patch(){contentSync();overlaySync()}
   function init(){
@@ -649,11 +642,18 @@
       ov.addEventListener('click',function(e){
         var target=e.target;
         if(target&&target.matches&&target.matches('.modal-bg,.drawer-bg')){e.preventDefault();closeActiveOverlay();return}
-        var a=target&&target.closest?target.closest('.thumbs a'):null;
-        if(a&&ov.contains(a)){var img=qs('img',a);if(img){e.preventDefault();e.stopPropagation();openProof(img.src)}}
+        var lb=target&&target.closest?target.closest('[data-lightbox-src]'):null;
+        if(lb&&ov.contains(lb)){e.preventDefault();e.stopPropagation();openProof(lb.getAttribute('data-lightbox-src')||lb.getAttribute('href'));return}
+        var a=target&&target.closest?target.closest('.thumbs a,.mee3-thumb-strip a'):null;
+        if(a&&ov.contains(a)){var img=qs('img',a);if(img){e.preventDefault();e.stopPropagation();openProof(a.dataset.fullSrc||img.dataset.fullSrc||a.getAttribute('href')||img.src)}}
       },true);
     }
-    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&qs('#overlay')&&qs('#overlay').firstElementChild){e.preventDefault();closeActiveOverlay()}});
+    document.addEventListener('keydown',function(e){
+      if(e.key!=='Escape')return;
+      if(qs('#meeInvoicePreview')){e.preventDefault();if(window.MEE_CLOSE_INVOICE)window.MEE_CLOSE_INVOICE();else qs('#meeInvoicePreview').remove();return}
+      if(qs('.mee3-dialog-layer')){e.preventDefault();if(window.MEE_UI_V3)window.MEE_UI_V3.closeDialog();else qs('.mee3-dialog-layer').remove();return}
+      if(qs('#overlay')&&qs('#overlay').firstElementChild){e.preventDefault();closeActiveOverlay()}
+    });
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
@@ -700,12 +700,13 @@
     if(!['text','tel'].includes(t))return input;
     var ta=document.createElement('textarea');
     Array.from(input.attributes).forEach(function(a){if(!['type','value'].includes(a.name))ta.setAttribute(a.name,a.value)});
-    ta.value=input.value||'';ta.dataset.meeMultiline='1';ta.rows=2;input.replaceWith(ta);return ta;
+    ta.value=input.value||'';ta.dataset.meeMultiline='1';ta.rows=1;input.replaceWith(ta);return ta;
   }
   function patchMultiline(form){
     qsa('[maxlength]',form).forEach(function(x){x.removeAttribute('maxlength')});
     ['customer','phone','address','cardText','bannerText','charmText','paperText'].forEach(function(name){var x=qs('[name="'+name+'"]',form);if(x&&x.tagName==='INPUT')replaceTextInput(x)});
     qsa('textarea',form).forEach(function(x){x.removeAttribute('maxlength');x.style.maxHeight='none'});
+    if(window.MEE_AUTOGROW&&window.MEE_AUTOGROW.bind)window.MEE_AUTOGROW.bind(form);
   }
   function patchMoney(form){
     ['flowerTotal','depositAmount','charmFee','paperFee','vat','shipFee'].forEach(function(name){
@@ -734,6 +735,7 @@
       o.flower||''
     ];
     if(String(o.note||'').trim())out.push('Note: '+o.note);
+    if(String(o.tagNoteFree||'').trim())out.push('Tag note free: '+o.tagNoteFree);
     if(accessory.length)out=out.concat(['','PHỤ KIỆN']).concat(accessory);
     out=out.concat([
       '',
@@ -770,6 +772,45 @@
   }
   function copyOrder(id){var o=findOrderDeep(id);if(!o){if(window.toast)window.toast('Không tìm thấy dữ liệu đơn để sao chép.',1);return false}return copyNow(buildCopyText(o),'thông tin đơn hàng')}
   function copyField(id,field,label){var o=findOrderDeep(id);if(!o){if(window.toast)window.toast('Không tìm thấy dữ liệu đơn để sao chép.',1);return false}return copyNow(o[field]||'',label||field)}
+  var invoiceBank={bin:'970441',account:'941233979',name:'TẠ VŨ GIA KHANH',label:'VIB'};
+  function invoiceEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function invoiceQr(due){return 'https://img.vietqr.io/image/'+invoiceBank.bin+'-'+invoiceBank.account+'-compact2.svg?amount='+encodeURIComponent(due)+'&accountName='+encodeURIComponent(invoiceBank.name)}
+  function invoiceData(o){var total=Number(o.totalDue)||Number(o.flowerTotal||0)+Number(o.accessoryTotal||0)+Number(o.vat||0)+(o.shipFeePending?0:Number(o.shipFee||0));return {o:o,total:total,due:Math.max(0,Number(o.debt)||0),qr:invoiceQr(Math.max(0,Number(o.debt)||0))}}
+  function invoiceStyles(){
+    if(qs('#meeInvoiceStyles'))return;
+    var style=document.createElement('style');style.id='meeInvoiceStyles';style.textContent='#meeInvoicePreview{position:fixed;inset:0;z-index:1500;background:#12283ba8;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px;overflow:auto;overscroll-behavior:contain}#meeInvoicePreview .mee-invoice-toolbar{width:min(100%,390px);display:flex;gap:8px;flex-wrap:wrap;justify-content:center}#meeInvoicePreview .mee-invoice-toolbar button{border:0;border-radius:9px;padding:10px 12px;font:600 13px Arial,sans-serif;cursor:pointer;background:#fff;color:#164c72}#meeInvoicePreview .mee-invoice-toolbar button.primary{background:#164c72;color:#fff}#meeInvoicePreview .mee-invoice-card{width:min(100%,390px);min-height:0;aspect-ratio:3/4;background:#fff;color:#17324a;box-shadow:0 12px 38px #07131b35;border-radius:10px;padding:16px;display:flex;flex-direction:column;font:13px/1.35 Arial,sans-serif}#meeInvoicePreview .mee-invoice-brand{font-size:22px;font-weight:800;letter-spacing:.08em;color:#164c72}#meeInvoicePreview .mee-invoice-title{font-size:11px;letter-spacing:.08em;color:#687b89;border-bottom:2px solid #164c72;padding-bottom:9px;margin-bottom:12px}#meeInvoicePreview .mee-invoice-top{display:flex;justify-content:space-between;gap:10px}#meeInvoicePreview .mee-invoice-name{font-size:17px;font-weight:700}#meeInvoicePreview .mee-invoice-muted{color:#687b89;font-size:11px}#meeInvoicePreview .mee-invoice-flower{margin:5px 0;min-height:25px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}#meeInvoicePreview .mee-invoice-line{display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid #e5ebef}#meeInvoicePreview .mee-invoice-line b{text-align:right}#meeInvoicePreview .mee-invoice-due{font-size:16px;color:#164c72;font-weight:700}#meeInvoicePreview .mee-invoice-qr{text-align:center;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:120px}#meeInvoicePreview .mee-invoice-qr img{display:block;width:min(40%,140px);max-height:165px;object-fit:contain}#meeInvoicePreview .mee-invoice-bank{text-align:center;font-size:12px;font-weight:700}#meeInvoicePreview .mee-invoice-note{text-align:center;font-size:11px;margin:4px 0 2px}#meeInvoicePreview .mee-invoice-thanks{text-align:center;font-size:12px;font-weight:700;color:#164c72}@media print{@page{size:90mm 120mm;margin:0}body>*:not(#meeInvoicePreview){display:none!important}#meeInvoicePreview{position:static;display:block;background:#fff;padding:0;overflow:visible}#meeInvoicePreview .mee-invoice-toolbar{display:none!important}#meeInvoicePreview .mee-invoice-card{width:90mm;height:120mm;min-height:0;aspect-ratio:auto;box-shadow:none;border-radius:0;padding:6mm;break-inside:avoid}}';document.head.appendChild(style);
+  }
+  function invoiceCanvas(data){
+    var canvas=document.createElement('canvas');canvas.width=900;canvas.height=1200;var c=canvas.getContext('2d');
+    c.fillStyle='#fff';c.fillRect(0,0,900,1200);c.textBaseline='top';
+    function label(t,x,y,size,bold,color){c.font=(bold?'bold ':'')+size+'px Arial,sans-serif';c.fillStyle=color||'#17324a';c.fillText(String(t||''),x,y)}
+    function right(t,y,size,bold,color){c.font=(bold?'bold ':'')+size+'px Arial,sans-serif';c.fillStyle=color||'#17324a';c.fillText(String(t||''),830-c.measureText(String(t||'')).width,y)}
+    function fit(t,max){t=String(t||'');while(c.measureText(t).width>max&&t.length>1)t=t.slice(0,-2);return t===String(arguments[0]||'')?t:t+'…'}
+    function row(k,v,y,strong){label(k,70,y,strong?32:26,strong);right(v,y,strong?32:26,true,strong?'#164c72':'#17324a');c.strokeStyle='#e5ebef';c.beginPath();c.moveTo(70,y+43);c.lineTo(830,y+43);c.stroke()}
+    label('MEEHOA',70,55,58,true,'#164c72');right('PHIẾU XÁC NHẬN ĐƠN HÀNG',83,20,false,'#687b89');c.fillStyle='#164c72';c.fillRect(70,135,760,4);
+    label(fit(data.o.customer||'Khách hàng',700),70,165,37,true);label('Mã đơn: '+(data.o.id||''),70,222,23,false,'#687b89');right(dateVN(data.o.date),222,23,false,'#687b89');
+    c.font='26px Arial,sans-serif';label(fit(data.o.flower||'Hoa theo đơn',760),70,275,26,false);
+    row('Tổng đơn',vnd(data.total),340,false);row('Đã thanh toán',vnd(data.o.paid),400,false);row('Còn thanh toán',vnd(data.due),475,true);
+    return {canvas:canvas,ctx:c,label:label,right:right};
+  }
+  function invoiceDownload(data,share){
+    var image=new Image();image.crossOrigin='anonymous';image.onload=function(){
+      try{var art=invoiceCanvas(data),c=art.ctx;
+        if(data.due){c.drawImage(image,325,555,250,295);art.label(invoiceBank.name,70,885,28,true);art.right(invoiceBank.label+' · '+invoiceBank.account,885,26,true)}
+        else art.label('Đơn hàng đã thanh toán đủ',70,715,32,true,'#164c72');
+        art.label('Thanh toán xong quý khách vui lòng gửi ảnh bill',70,1020,23,false);art.label('để tiệm xác nhận giao dịch.',70,1050,23,false);art.label('Meehoa xin cảm ơn Quý khách 💕',70,1110,27,true,'#164c72');
+        art.canvas.toBlob(function(blob){if(!blob){if(window.toast)toast('Không tạo được ảnh hóa đơn.',1);return}var filename='Meehoa-'+String(data.o.id||'hoa-don').replace(/[^a-zA-Z0-9-]/g,'')+'.png';if(share&&navigator.share&&navigator.canShare){var file=new File([blob],filename,{type:'image/png'});if(navigator.canShare({files:[file]})){navigator.share({files:[file],title:'Hóa đơn Meehoa'}).catch(function(){});return}}var url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url)},60000)},'image/png');
+      }catch(e){if(window.toast)toast('Không tạo được ảnh hóa đơn. Hãy thử In / Lưu PDF.',1)}
+    };image.onerror=function(){if(window.toast)toast('Không tải được mã QR. Vui lòng kiểm tra mạng.',1)};image.src=data.qr;
+  }
+  function closeInvoice(){var layer=qs('#meeInvoicePreview');if(layer)layer.remove();document.body.style.overflow=''}
+  function printInvoice(id){
+    var o=findOrderDeep(id);if(!o){if(window.toast)toast('Không tìm thấy đơn hàng.',1);return}
+    closeInvoice();invoiceStyles();var data=invoiceData(o),layer=document.createElement('div');layer.id='meeInvoicePreview';layer.setAttribute('role','dialog');layer.setAttribute('aria-label','Hóa đơn Meehoa');
+    layer.innerHTML='<div class="mee-invoice-toolbar"><button type="button" data-invoice-close>← Về đơn hàng</button><button type="button" class="primary" data-invoice-download>Tải ảnh</button><button type="button" data-invoice-share>Chia sẻ</button><button type="button" data-invoice-print>In / Lưu PDF</button></div><div class="mee-invoice-card"><div class="mee-invoice-brand">MEEHOA</div><div class="mee-invoice-title">PHIẾU XÁC NHẬN ĐƠN HÀNG</div><div class="mee-invoice-top"><div class="mee-invoice-name">'+invoiceEsc(o.customer||'Khách hàng')+'</div><div class="mee-invoice-muted">'+invoiceEsc(dateVN(o.date))+'</div></div><div class="mee-invoice-muted">Mã đơn: '+invoiceEsc(o.id)+'</div><div class="mee-invoice-flower">'+invoiceEsc(o.flower||'Hoa theo đơn')+'</div><div class="mee-invoice-line"><span>Tổng đơn</span><b>'+invoiceEsc(vnd(data.total))+'</b></div><div class="mee-invoice-line"><span>Đã thanh toán</span><b>'+invoiceEsc(vnd(o.paid))+'</b></div><div class="mee-invoice-line mee-invoice-due"><span>Còn thanh toán</span><b>'+invoiceEsc(vnd(data.due))+'</b></div>'+(data.due?'<div class="mee-invoice-qr"><img crossorigin="anonymous" src="'+invoiceEsc(data.qr)+'" alt="Mã QR chuyển khoản VIB"></div><div class="mee-invoice-bank">'+invoiceEsc(invoiceBank.name)+' · '+invoiceEsc(invoiceBank.label)+' '+invoiceEsc(invoiceBank.account)+'</div>':'<div class="mee-invoice-qr">Đơn hàng đã thanh toán đủ.</div>')+'<div class="mee-invoice-note">Thanh toán xong quý khách vui lòng gửi ảnh bill<br>để tiệm xác nhận giao dịch.</div><div class="mee-invoice-thanks">Meehoa xin cảm ơn Quý khách 💕</div></div>';
+    document.body.appendChild(layer);document.body.style.overflow='hidden';qs('[data-invoice-close]',layer).onclick=closeInvoice;qs('[data-invoice-download]',layer).onclick=function(){invoiceDownload(data,false)};qs('[data-invoice-share]',layer).onclick=function(){invoiceDownload(data,true)};qs('[data-invoice-print]',layer).onclick=function(){window.print()};layer.addEventListener('click',function(e){if(e.target===layer)closeInvoice()});
+  }
+  function patchInvoiceButton(){var ov=qs('#overlay'),id=drawerOrderId();if(!ov||!id||qs('[data-mee-print-invoice]',ov))return;var actions=qs('.order-actions',ov);if(!actions)return;var btn=document.createElement('button');btn.type='button';btn.className='btn secondary';btn.textContent='▣ In hóa đơn + QR';btn.dataset.meePrintInvoice=id;btn.addEventListener('click',function(){printInvoice(id)});actions.appendChild(btn)}
   function wrapCopy(){if(!window.MEEOPS7)return;MEEOPS7.copyOrderById=copyOrder;MEEOPS7.copyOrderField=copyField;MEEOPS7._meeCopy365=true}
   function patchCreatedCopy(){
     var btn=qs('#copyCreated'),ov=qs('#overlay');if(!btn||!ov)return;
@@ -793,7 +834,7 @@
       el.addEventListener('click',run);el.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' ')run(e)});
     });
   }
-  function patchCopyActions(){patchCreatedCopy();wrapCopy();bindCopyTargets()}
+  function patchCopyActions(){patchCreatedCopy();wrapCopy();bindCopyTargets();patchInvoiceButton()}
   // An edit tap has one owner. Consume it before any copy handlers can run.
   function delegatedEditTap(e){
     var edit=e.target&&e.target.closest?e.target.closest('#overlay [data-mee-order-action="edit"]'):null;
@@ -812,30 +853,59 @@
 
   function drawerOrderId(){
     var ov=qs('#overlay');if(!ov)return'';
+    var drawer=qs('[data-mee-order-id]',ov);if(drawer&&drawer.dataset.meeOrderId)return drawer.dataset.meeOrderId;
     var bound=qs('[data-mee-copy-order-id]',ov);if(bound)return bound.dataset.meeCopyOrderId||'';
     var copy=qs('[onclick*="copyOrderById"]',ov);if(copy){var m=(copy.getAttribute('onclick')||'').match(/copyOrderById\(['"]([^'"]+)/);if(m)return m[1]}
     var field=qs('[onclick*="copyOrderField"]',ov);if(field){var f=(field.getAttribute('onclick')||'').match(/copyOrderField\(['"]([^'"]+)/);if(f)return f[1]}
     return'';
   }
+  async function executeSoftDelete(o,reasonCode,reason,btn){
+    var reqId=(typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():('del-'+Date.now());
+    var old=btn?btn.textContent:'';
+    if(btn){btn.disabled=true;btn.textContent='Đang xóa…';}
+    try{
+      var j;
+      if(typeof window.gas==='function'){
+        j=await window.gas('deleteOrder',{orderId:o.id,expectedUpdatedAt:o.updatedAt||'',reason:reason,reasonCode:reasonCode,requestId:reqId});
+      }else{
+        var r=await fetch(DELETE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:S.token,orderId:o.id,expectedUpdatedAt:o.updatedAt||'',reason:reason,reasonCode:reasonCode,requestId:reqId})});
+        j=await r.json();
+      }
+      if(!j||!j.ok)throw new Error((j&&j.message)||'Không xóa được đơn.');
+      if(window.S&&S.orders&&typeof S.orders.delete==='function')S.orders.delete(o.id);
+      if(window.S&&S.dirty){['getOrders','getProductionOrders','getDashboardSummary','getDebtReview','getKpi','getFlowerInventory','getSettlementQueue'].forEach(function(k){S.dirty.add(k)});}
+      if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();
+      if(window.toast)window.toast(j.message||'Đã chuyển đơn vào Thùng rác.');
+      if(window.loadPage&&S.page)window.loadPage(S.page,true);
+      return true;
+    }catch(e){
+      if(window.toast)window.toast((e&&e.message)||'Không xóa được đơn.',1);
+      if(btn){btn.disabled=false;btn.textContent=old;}
+      throw e;
+    }
+  }
   async function requestDelete(id,btn){
     if(!id||!window.S||!S.token)return;
-    var o=findOrderDeep(id),name=o&&o.customer?o.customer:id;
-    if(!window.confirm('Xóa đơn của '+name+'?\n\nĐơn sẽ được đánh dấu xóa trên Sheet trước, sau đó gỡ khỏi hệ thống.'))return;
-    var old=btn.textContent;btn.disabled=true;btn.textContent='Đang xóa…';
-    try{
-      var r=await fetch(DELETE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:S.token,orderId:id})}),j=await r.json();
-      if(!j.ok)throw new Error(j.message||'Không xóa được đơn.');
-      if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();
-      if(window.toast)window.toast(j.message||'Đã gửi yêu cầu xóa.');
-      if(window.loadPage&&S.page)window.loadPage(S.page,true);
-    }catch(e){if(window.toast)window.toast(e.message||'Không xóa được đơn.',1);btn.disabled=false;btn.textContent=old}
+    var o=findOrderDeep(id);
+    if(!o){if(window.toast)window.toast('Không tìm thấy đơn hàng.',1);return;}
+    if(o.canDelete===false){if(window.toast)window.toast('Bạn không có quyền xóa đơn hàng này.',1);return;}
+    if(window.MEE_UI_V3&&typeof window.MEE_UI_V3.openDeleteDialog==='function'){
+      window.MEE_UI_V3.openDeleteDialog(o,function(payload){
+        return executeSoftDelete(o,payload.reasonCode,payload.reason,btn);
+      });
+      return;
+    }
+    if(window.toast)window.toast('Không thể mở hộp thoại xác nhận xóa.',1);
   }
   function patch(){patchOrderForm();patchCopyActions()}
   function init(){
     window.MEE_ORDER_FORM_ENHANCE=patchOrderForm;
     window.MEE_COPY_ACTIONS_SYNC=patchCopyActions;
+    window.MEE_CLOSE_INVOICE=closeInvoice;
+    window.MEE_PRINT_INVOICE=printInvoice;
+    window.MEE_FIND_ORDER=findOrderDeep;
     patch();
-    if(!document.documentElement.dataset.meeDeleteDelegateV2){document.documentElement.dataset.meeDeleteDelegateV2='1';document.addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-mee-delete-order]');if(!button)return;if(!window.S||!S.user||S.user.role!=='ADMIN')return;event.preventDefault();requestDelete(button.dataset.meeDeleteOrder,button);});}
+    if(!document.documentElement.dataset.meeDeleteDelegateV2){document.documentElement.dataset.meeDeleteDelegateV2='1';document.addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-mee-delete-order]');if(!button)return;if(!window.S||!S.user||!['ADMIN','SALE','THO_OPS'].includes(S.user.role))return;event.preventDefault();requestDelete(button.dataset.meeDeleteOrder,button);});}
     if(!document.documentElement.dataset.meeCopyDelegate365){document.documentElement.dataset.meeCopyDelegate365='1';document.addEventListener('click',delegatedEditTap,true);document.addEventListener('click',delegatedCopyTap,true)}
     if(window.MEEOPS7)wrapCopy();
     // Drawer, creation confirmation and order form invoke their canonical render hooks directly.
@@ -946,4 +1016,381 @@
   function overlaySync(){patchShipButtons(qs('#overlay')||document)}
   function init(){window.MEE_ORDER_ACTIONS_CONTENT_SYNC=contentSync;window.MEE_ORDER_ACTIONS_OVERLAY_SYNC=overlaySync;install();contentSync();overlaySync()}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();
+
+/* ===== meehoa-ui-v3.js ===== */
+/* MEEHOA OPS UI V3 — Canonical SVG Icons, Auto-grow Textareas, In-App Flat Navy Dialogs & Admin Trash */
+(function(){
+  'use strict';
+
+  function qs(s, r){ return (r || document).querySelector(s); }
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+  function vnd(v){ return new Intl.NumberFormat('vi-VN').format(Number(v) || 0) + ' ₫'; }
+  function dateVN(s){
+    var p = String(s || '').split('-');
+    return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : String(s || '—');
+  }
+  function dateTimeVN(iso){
+    if(!iso) return '—';
+    var d = new Date(iso);
+    if(!Number.isFinite(d.getTime())) return String(iso);
+    return new Intl.DateTimeFormat('vi-VN', {
+      day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:false
+    }).format(d);
+  }
+
+  var SVG_PATHS = {
+    clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/>',
+    phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    truck: '<rect x="1" y="3" width="15" height="13" rx="1"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+    pickup: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    customerBook: '<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
+    flower: '<circle cx="12" cy="12" r="2.5"/><path d="M12 4.5a2.5 2.5 0 1 1 3.5 3.5A2.5 2.5 0 1 1 19 12a2.5 2.5 0 1 1-3.5 3.5A2.5 2.5 0 1 1 12 19.5a2.5 2.5 0 1 1-3.5-3.5A2.5 2.5 0 1 1 5 12a2.5 2.5 0 1 1 3.5-3.5A2.5 2.5 0 1 1 12 4.5z"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    tag: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+    copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
+    restore: '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
+    table: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
+    alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    ext: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+    pin: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+    note: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'
+  };
+
+  function icon(name, sizeClass){
+    var body = SVG_PATHS[name] || '';
+    if(!body) return '';
+    return '<span class="mee3-ico' + (sizeClass ? ' ' + sizeClass : '') + '" aria-hidden="true"><svg viewBox="0 0 24 24">' + body + '</svg></span>';
+  }
+
+  function shippingIcon(shipping){
+    var s = String(shipping || '');
+    if(/Ghé lấy/i.test(s)) return icon('pickup', 'mee3-ico-sm');
+    if(/Khách tự book/i.test(s)) return icon('customerBook', 'mee3-ico-sm');
+    return icon('truck', 'mee3-ico-sm');
+  }
+
+  function autoGrow(el){
+    if(!el || el.tagName !== 'TEXTAREA') return;
+    el.style.height = 'auto';
+    var next = Math.max(40, Math.min(240, el.scrollHeight || 40));
+    el.style.height = next + 'px';
+    el.style.overflowY = (el.scrollHeight || 0) > 240 ? 'auto' : 'hidden';
+  }
+
+  function bindAutoGrow(root){
+    if(!root) return;
+    Array.from(root.querySelectorAll('textarea')).forEach(function(ta){
+      if(!ta.dataset.meeAutoGrow){
+        ta.dataset.meeAutoGrow = '1';
+        ta.addEventListener('input', function(){ autoGrow(ta); });
+      }
+      autoGrow(ta);
+    });
+  }
+
+  function closeDialog(){
+    var layer = qs('.mee3-dialog-layer');
+    if(layer) layer.remove();
+  }
+
+  function mountDialog(title, bodyHtml, footHtml, opts){
+    closeDialog();
+    opts = opts || {};
+    var layer = document.createElement('div');
+    layer.className = 'mee3-dialog-layer';
+    layer.setAttribute('role', 'dialog');
+    layer.setAttribute('aria-modal', 'true');
+    layer.setAttribute('aria-label', title);
+    layer.innerHTML =
+      '<div class="mee3-dialog">' +
+        '<div class="mee3-dialog-head"><h3>' + esc(title) + '</h3><button type="button" class="close" data-mee3-dialog-close aria-label="Đóng">×</button></div>' +
+        '<div class="mee3-dialog-body">' + bodyHtml + '</div>' +
+        '<div class="mee3-dialog-foot">' + footHtml + '</div>' +
+      '</div>';
+    layer.addEventListener('click', function(e){
+      if(e.target === layer || (e.target.closest && e.target.closest('[data-mee3-dialog-close]'))) closeDialog();
+    });
+    document.body.appendChild(layer);
+    return layer;
+  }
+
+  /* TC-14 / TC-15 / TC-16: Mandatory-reason Delete Confirmation Dialog (replaces window.confirm) */
+  var DELETE_REASONS = [
+    { code: 'CUSTOMER_CANCELLED', label: 'Khách hủy đơn' },
+    { code: 'CREATED_BY_MISTAKE', label: 'Tạo nhầm đơn' },
+    { code: 'DUPLICATE_ORDER', label: 'Đơn bị trùng' },
+    { code: 'OTHER', label: 'Khác (nhập lý do cụ thể)' }
+  ];
+
+  function openDeleteDialog(order, onConfirm){
+    if(!order) return;
+    var hasPaid = Number(order.paid || 0) > 0 || Boolean(order.fullPaid || order.settled || order.settlementStatus === 'PENDING');
+    var body =
+      '<div>Chuyển đơn <b>' + esc(order.customer || order.id) + '</b> (' + esc(order.id) + ') vào <b>Thùng rác</b>?</div>' +
+      '<div style="font-size:12.5px;color:var(--v3-muted)">Đơn sẽ bị loại hoàn toàn khỏi danh sách đơn hàng, doanh thu, công nợ, Payment Check và KPI. Dữ liệu gốc, ảnh và lịch sử vẫn được bảo lưu trong Thùng rác cho Admin.</div>' +
+      (hasPaid ? '<div class="mee3-trash-audit-badge">' + icon('alert', 'mee3-ico-sm') + ' Lưu ý: Đơn đã có phát sinh thanh toán / tất toán (' + esc(vnd(order.paid)) + '). Toàn bộ giá trị sẽ bị loại khỏi báo cáo vận hành và chỉ lưu nội bộ trong Thùng rác.</div>' : '') +
+      '<div class="mee3-reason-options" role="radiogroup" aria-label="Lý do xóa đơn">' +
+        DELETE_REASONS.map(function(opt, idx){
+          return '<label class="mee3-reason-option"><input type="radio" name="mee3DeleteReasonCode" value="' + esc(opt.code) + '"' + (idx === 0 ? ' checked' : '') + '><span>' + esc(opt.label) + '</span></label>';
+        }).join('') +
+      '</div>' +
+      '<div data-mee3-other-wrap class="hidden"><label style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">Nhập lý do cụ thể *</label><textarea class="mee3-reason-textarea" data-mee3-reason-text placeholder="Nhập lý do xóa đơn (bắt buộc)…"></textarea></div>' +
+      '<div class="mee3-dialog-error hidden" data-mee3-dialog-err></div>';
+    var foot =
+      '<button type="button" class="btn secondary" data-mee3-dialog-close>Hủy</button>' +
+      '<button type="button" class="btn danger" data-mee3-confirm-delete>Xác nhận xóa đơn</button>';
+    var layer = mountDialog('Xác nhận xóa đơn hàng', body, foot);
+    var otherWrap = qs('[data-mee3-other-wrap]', layer);
+    var textEl = qs('[data-mee3-reason-text]', layer);
+    var errEl = qs('[data-mee3-dialog-err]', layer);
+    var confirmBtn = qs('[data-mee3-confirm-delete]', layer);
+
+    function selectedCode(){
+      var checked = qs('input[name="mee3DeleteReasonCode"]:checked', layer);
+      return checked ? checked.value : 'CUSTOMER_CANCELLED';
+    }
+    function syncOther(){
+      var isOther = selectedCode() === 'OTHER';
+      if(otherWrap) otherWrap.classList.toggle('hidden', !isOther);
+      if(isOther && textEl) textEl.focus();
+      if(errEl){ errEl.textContent = ''; errEl.classList.add('hidden'); }
+    }
+    Array.from(layer.querySelectorAll('input[name="mee3DeleteReasonCode"]')).forEach(function(r){
+      r.addEventListener('change', syncOther);
+    });
+    syncOther();
+
+    confirmBtn.addEventListener('click', function(){
+      var code = selectedCode();
+      var preset = DELETE_REASONS.find(function(x){ return x.code === code; });
+      var reason = code === 'OTHER' ? String(textEl && textEl.value || '').trim() : (preset ? preset.label : '');
+      if(!reason){
+        errEl.textContent = 'Vui lòng nhập lý do xóa đơn hàng.';
+        errEl.classList.remove('hidden');
+        if(textEl) textEl.focus();
+        return;
+      }
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Đang xóa…';
+      Promise.resolve(onConfirm({ reasonCode: code, reason: reason })).then(function(ok){
+        if(ok !== false) closeDialog();
+        else { confirmBtn.disabled = false; confirmBtn.textContent = 'Xác nhận xóa đơn'; }
+      }).catch(function(err){
+        errEl.textContent = (err && err.message) || 'Không xóa được đơn.';
+        errEl.classList.remove('hidden');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Xác nhận xóa đơn';
+      });
+    });
+  }
+
+  /* TC-12: In-App Conflict Compare Dialog (replaces window.alert) */
+  function openCompareDialog(latestOrder){
+    if(!latestOrder) return;
+    var body =
+      '<div style="font-size:12.5px;color:var(--v3-muted)">Bản mới nhất đang lưu trên hệ thống (form bạn đang sửa vẫn được giữ nguyên):</div>' +
+      '<dl class="mee3-compare-grid">' +
+        '<dt>Khách hàng</dt><dd>' + esc(latestOrder.customer || '—') + '</dd>' +
+        '<dt>Thời gian</dt><dd>' + esc(dateVN(latestOrder.date) + ' · ' + (latestOrder.time || '—')) + '</dd>' +
+        '<dt>Mẫu hoa</dt><dd>' + esc(latestOrder.flower || '—') + '</dd>' +
+        '<dt>Địa chỉ</dt><dd>' + esc(latestOrder.address || '—') + '</dd>' +
+        '<dt>Lưu ý đơn hàng</dt><dd>' + esc(latestOrder.note || '—') + '</dd>' +
+        (latestOrder.orderSource ? '<dt>Nguồn đơn</dt><dd>' + esc(latestOrder.orderSource) + '</dd>' : '') +
+        (latestOrder.tagNoteFree ? '<dt>Tag note free</dt><dd>' + esc(latestOrder.tagNoteFree) + '</dd>' : '') +
+        '<dt>Trạng thái</dt><dd>' + esc(latestOrder.status || '—') + '</dd>' +
+      '</dl>' +
+      '<div style="font-size:12px;color:var(--v3-muted)">Đóng form rồi mở lại đơn để cập nhật trên phiên bản mới nhất.</div>';
+    var foot = '<button type="button" class="btn primary" data-mee3-dialog-close>Đã hiểu</button>';
+    mountDialog('Phiên bản mới nhất của đơn', body, foot);
+  }
+
+  /* TC-14: In-App Restore Dialog */
+  function openRestoreDialog(order, onConfirm){
+    if(!order) return;
+    var body =
+      '<div>Khôi phục đơn <b>' + esc(order.customer || order.id) + '</b> (' + esc(order.id) + ') về danh sách hoạt động?</div>' +
+      '<div style="font-size:12.5px;color:var(--v3-muted)">Đơn sẽ được khôi phục nguyên bản (cùng mã đơn, không tạo bản sao), giữ toàn bộ lịch sử xóa và dữ liệu ảnh/thanh toán.</div>' +
+      '<div><label style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">Ghi chú khôi phục (tùy chọn)</label><textarea class="mee3-reason-textarea" style="min-height:56px" data-mee3-restore-note placeholder="Ví dụ: Khách đặt lại đơn…"></textarea></div>' +
+      '<div class="mee3-dialog-error hidden" data-mee3-dialog-err></div>';
+    var foot =
+      '<button type="button" class="btn secondary" data-mee3-dialog-close>Hủy</button>' +
+      '<button type="button" class="btn primary" data-mee3-confirm-restore>Khôi phục đơn</button>';
+    var layer = mountDialog('Khôi phục đơn hàng', body, foot);
+    var noteEl = qs('[data-mee3-restore-note]', layer);
+    var errEl = qs('[data-mee3-dialog-err]', layer);
+    var btn = qs('[data-mee3-confirm-restore]', layer);
+    btn.addEventListener('click', function(){
+      btn.disabled = true;
+      btn.textContent = 'Đang khôi phục…';
+      var reason = String(noteEl && noteEl.value || '').trim();
+      Promise.resolve(onConfirm(reason)).then(function(ok){
+        if(ok !== false) closeDialog();
+        else { btn.disabled = false; btn.textContent = 'Khôi phục đơn'; }
+      }).catch(function(err){
+        errEl.textContent = (err && err.message) || 'Không khôi phục được đơn.';
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Khôi phục đơn';
+      });
+    });
+  }
+
+  /* Admin Trash State & Renderer (TC-14, TC-15) */
+  var trashState = { active: false, loading: false, q: '', page: 1, paymentAuditOnly: false, data: null, error: '' };
+
+  async function loadTrash(force){
+    if(!window.S || !S.user || S.user.role !== 'ADMIN') return;
+    trashState.loading = true;
+    trashState.error = '';
+    if(window.renderOrders) window.renderOrders();
+    try{
+      var r = await window.gas('getDeletedOrders', { q: trashState.q, page: trashState.page, pageSize: 40, paymentAuditOnly: trashState.paymentAuditOnly });
+      if(!r || !r.ok) throw new Error((r && r.message) || 'Không tải được Thùng rác.');
+      trashState.data = r;
+    }catch(e){
+      trashState.error = (e && e.message) || 'Không tải được Thùng rác.';
+      if(window.toast) window.toast(trashState.error, 1);
+    }finally{
+      trashState.loading = false;
+      if(S.page === 'orders' && window.renderOrders) window.renderOrders();
+    }
+  }
+
+  function renderTrashMarkup(){
+    var d = trashState.data || { items: [], total: 0 };
+    var items = d.items || [];
+    var auditSum = d.paymentAuditSummary || { count: 0, totalCollected: 0, totalDebt: 0 };
+    var cards = items.map(function(o){
+      var hist = (o.deletionHistory || []).slice(0, 4).map(function(h){
+        var verb = h.eventType === 'RESTORE' ? 'Khôi phục' : 'Xóa';
+        return '<div>• <b>' + verb + '</b> bởi ' + esc(h.actorName || h.actorUsername || '—') + ' (' + esc(h.actorRole || '') + ') · ' + esc(dateTimeVN(h.occurredAt)) + (h.reason ? ' — ' + esc(h.reason) : '') + '</div>';
+      }).join('');
+      return '<article class="mee3-trash-card" data-trash-order="' + esc(o.id) + '">' +
+        '<div class="mee3-card-head">' +
+          '<span class="mee3-card-time">' + icon('calendar', 'mee3-ico-sm') + ' ' + esc(dateVN(o.date)) + ' · <b>' + esc(o.time || '—') + '</b></span>' +
+          '<span class="mee3-badge mee3-badge-danger">Đã xóa</span>' +
+        '</div>' +
+        '<div>' +
+          '<div class="mee3-card-customer">' + esc(o.customer || 'Khách vãng lai') + '</div>' +
+          '<div class="mee3-card-meta-line">' + esc(o.id) + ' · Sale: ' + esc(o.sale || '—') + ' · Tiền hoa: <b>' + esc(vnd(o.flowerTotal)) + '</b></div>' +
+          '<div class="mee3-card-flower" style="margin-top:4px">' + esc(o.flower || '') + '</div>' +
+        '</div>' +
+        '<div class="mee3-trash-reason-box">' +
+          '<div><b>Lý do xóa:</b> ' + esc(o.deletedReason || 'Không ghi rõ') + '</div>' +
+          '<div style="font-size:11.5px;margin-top:2px;opacity:.88">Xóa bởi: <b>' + esc(o.deletedBy || '—') + '</b>' + (o.deletedByRole ? ' (' + esc(o.deletedByRole) + ')' : '') + ' · ' + esc(dateTimeVN(o.deletedAt)) + '</div>' +
+        '</div>' +
+        (o.hasPaymentAudit ? '<div class="mee3-trash-audit-badge">' + icon('alert', 'mee3-ico-sm') + ' Lịch sử thanh toán lưu nội bộ: ' + esc(vnd(o.paid)) + ' (' + esc(o.payment || '—') + ') · Không tính vận hành</div>' : '') +
+        (hist ? '<div class="mee3-trash-history"><b style="color:var(--v3-text-soft)">Lịch sử xóa / khôi phục:</b>' + hist + '</div>' : '') +
+        '<div class="mee3-trash-actions">' +
+          '<button type="button" class="btn secondary" onclick="MEEOPS7.openDrawer(\'' + esc(o.id) + '\',\'trash\')">Xem chi tiết</button>' +
+          '<button type="button" class="btn primary" data-mee3-restore-order="' + esc(o.id) + '">' + icon('restore', 'mee3-ico-sm') + ' Khôi phục đơn</button>' +
+        '</div>' +
+      '</article>';
+    }).join('');
+
+    var auditFilterBtn = auditSum.count > 0
+      ? '<button type="button" class="mee3-trash-filter-btn' + (trashState.paymentAuditOnly ? ' is-active' : '') + '" onclick="window.MEE_UI_V3.toggleTrashPaymentAudit()">' + icon('alert', 'mee3-ico-sm') + ' Có phát sinh thu tiền (' + auditSum.count + ' · ' + esc(vnd(auditSum.totalCollected)) + ')</button>'
+      : '';
+
+    return '<div class="mee3-trash-shell">' +
+      '<div class="mee3-trash-banner">' +
+        '<div><b>Thùng rác đơn hàng (' + Number(d.total || 0) + ')</b><div style="font-size:12px;color:var(--v3-muted)">Chỉ Admin được xem và khôi phục. Không có xóa vĩnh viễn để đảm bảo an toàn kiểm toán.</div></div>' +
+        '<div class="mee3-trash-search">' +
+          auditFilterBtn +
+          '<input type="search" id="mee3TrashSearch" value="' + esc(trashState.q) + '" placeholder="Tìm mã đơn, khách, người xóa, lý do…" onkeydown="if(event.key===\'Enter\')window.MEE_UI_V3.searchTrash(this.value)">' +
+          '<button type="button" class="btn secondary" onclick="window.MEE_UI_V3.searchTrash((document.getElementById(\'mee3TrashSearch\')||{}).value||\'\')">Tìm</button>' +
+          '<button type="button" class="btn secondary" onclick="window.MEE_UI_V3.closeTrash()">← Quay lại Đơn hàng</button>' +
+        '</div>' +
+      '</div>' +
+      (trashState.loading ? '<div class="empty">Đang tải Thùng rác…</div>' :
+        trashState.error ? '<div class="empty">' + esc(trashState.error) + '</div>' :
+        (cards ? '<div class="mee3-trash-list">' + cards + '</div>' : '<div class="empty">' + (trashState.paymentAuditOnly ? 'Không có đơn đã xóa nào có phát sinh thu tiền.' : 'Thùng rác đang trống.') + '</div>')) +
+    '</div>';
+  }
+
+  async function restoreOrderById(id){
+    var items = (trashState.data && trashState.data.items) || [];
+    var order = items.find(function(x){ return x.id === id; });
+    if(!order) return;
+    openRestoreDialog(order, async function(reason){
+      var reqId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('res-' + Date.now());
+      var r = await window.gas('restoreOrder', {
+        orderId: order.id,
+        expectedUpdatedAt: order.updatedAt || '',
+        reason: reason,
+        requestId: reqId
+      });
+      if(!r || !r.ok) throw new Error((r && r.message) || 'Không khôi phục được đơn.');
+      if(window.toast) window.toast(r.message || 'Đã khôi phục đơn hàng.');
+      if(window.S && S.dirty){
+        ['getOrders','getProductionOrders','getDashboardSummary','getDebtReview','getKpi','getFlowerInventory','getSettlementQueue'].forEach(function(k){ S.dirty.add(k); });
+      }
+      await loadTrash(true);
+      return true;
+    });
+  }
+
+  function init(){
+    document.body.classList.add('mee-ui-v3');
+    window.MEE_ICONS = { icon: icon, shipping: shippingIcon };
+    window.MEE_AUTOGROW = { grow: autoGrow, bind: bindAutoGrow };
+    window.MEE_UI_V3 = {
+      icon: icon,
+      shippingIcon: shippingIcon,
+      autoGrow: autoGrow,
+      bindAutoGrow: bindAutoGrow,
+      closeDialog: closeDialog,
+      openDeleteDialog: openDeleteDialog,
+      openCompareDialog: openCompareDialog,
+      openRestoreDialog: openRestoreDialog,
+      trashState: trashState,
+      isTrashOpen: function(){ return !!(trashState.active && window.S && S.user && S.user.role === 'ADMIN'); },
+      openTrash: function(){
+        if(!window.S || !S.user || S.user.role !== 'ADMIN') return;
+        trashState.active = true;
+        trashState.page = 1;
+        loadTrash(true);
+      },
+      closeTrash: function(){
+        trashState.active = false;
+        if(window.S && S.page === 'orders'){
+          if(window.loadOrdersPage) window.loadOrdersPage(true);
+          else if(window.renderOrders) window.renderOrders();
+        }
+      },
+      searchTrash: function(q){
+        trashState.q = String(q || '').trim();
+        trashState.page = 1;
+        loadTrash(true);
+      },
+      toggleTrashPaymentAudit: function(){
+        trashState.paymentAuditOnly = !trashState.paymentAuditOnly;
+        trashState.page = 1;
+        loadTrash(true);
+      },
+      renderTrashMarkup: renderTrashMarkup,
+      restoreOrderById: restoreOrderById
+    };
+
+    if(!document.documentElement.dataset.mee3TrashBind){
+      document.documentElement.dataset.mee3TrashBind = '1';
+      document.addEventListener('click', function(e){
+        var btn = e.target && e.target.closest ? e.target.closest('[data-mee3-restore-order]') : null;
+        if(!btn) return;
+        e.preventDefault();
+        restoreOrderById(btn.getAttribute('data-mee3-restore-order'));
+      });
+    }
+  }
+
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();

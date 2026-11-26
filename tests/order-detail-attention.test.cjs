@@ -6,12 +6,13 @@ const html=fs.readFileSync('html','utf8');
 const css=fs.readFileSync('assets/meehoa-v34.css','utf8');
 const entry=fs.readFileSync('index.html','utf8');
 
-test('customer note and card text remain semantic, conditional attention blocks',()=>{
-  assert.match(html,/mee-detail-section mee-detail-note/);
-  assert.match(html,/GHI CHÚ KHÁCH/);
-  assert.match(html,/mee-detail-section mee-detail-card/);
+test('customer note, card text and Tag note free remain semantic, conditional attention blocks',()=>{
+  assert.match(html,/mee3-note-block mee-detail-note/);
+  assert.match(html,/LƯU Ý ĐƠN HÀNG/);
+  assert.match(html,/mee3-note-block mee-detail-card/);
   assert.match(html,/NỘI DUNG THIỆP/);
-  assert.match(html,/String\(o\.note\|\|''\)\.trim\(\)\?/);
+  assert.match(html,/Tag note free/);
+  assert.match(html,/String\(o\.note\|\|''\)\.trim\(\)/);
   assert.match(html,/String\(o\.cardText\|\|''\)\.trim\(\)/);
 });
 

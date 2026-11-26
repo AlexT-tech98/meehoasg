@@ -1,0 +1,2124 @@
+/* MEEHOA OPS UI V3 — Modern Enterprise Flat Navy Design System
+ * Zero CSS important overrides. Strict single-owner token & component layer.
+ */
+:root {
+  --v3-navy: #103F82;
+  --v3-navy-hover: #0B2D60;
+  --v3-navy-soft: #EEF4FC;
+  --v3-navy-border: #C5D9F2;
+  --v3-ink: #050B17;
+  --v3-text: #1E293B;
+  --v3-text-soft: #475569;
+  --v3-muted: #64748B;
+  --v3-canvas: #F6F7F9;
+  --v3-surface: #FFFFFF;
+  --v3-surface-alt: #F8FAFC;
+  --v3-border: #E2E8F0;
+  --v3-border-strong: #CBD5E1;
+  --v3-success: #047857;
+  --v3-success-bg: #ECFDF5;
+  --v3-success-border: #A7F3D0;
+  --v3-warning: #B45309;
+  --v3-warning-accent: #D97706;
+  --v3-warning-bg: #FFFBEB;
+  --v3-warning-border: #FDE68A;
+  --v3-danger: #B91C1C;
+  --v3-danger-bg: #FEF2F2;
+  --v3-danger-border: #FECACA;
+  --v3-info: #1D4ED8;
+  --v3-info-bg: #EFF6FF;
+  /* UX-04 Soft Color Zoning Tokens (Owner Approved) */
+  --v3-zone-customer-bg: #EDF3FA;
+  --v3-zone-customer-fg: #315477;
+  --v3-zone-customer-bd: #D6E4F2;
+  --v3-zone-flower-bg: #EEF4EF;
+  --v3-zone-flower-fg: #42634A;
+  --v3-zone-flower-bd: #D5E4D8;
+  --v3-zone-delivery-bg: #F0EEF8;
+  --v3-zone-delivery-fg: #665583;
+  --v3-zone-delivery-bd: #DDD8EC;
+  --v3-zone-accessory-bg: #FAF3E7;
+  --v3-zone-accessory-fg: #8B6B35;
+  --v3-zone-accessory-bd: #ECDCB9;
+  --v3-zone-payment-bg: #F0F3F6;
+  --v3-zone-payment-fg: #475569;
+  --v3-zone-payment-bd: #DCE2E9;
+  --v3-radius-sm: 6px;
+  --v3-radius: 8px;
+  --v3-radius-md: 10px;
+  --v3-radius-lg: 12px;
+  --v3-shadow-sm: 0 1px 2px rgba(5, 11, 23, 0.05);
+  --v3-shadow-md: 0 8px 24px rgba(5, 11, 23, 0.10);
+  --v3-shadow-drawer: -12px 0 36px rgba(5, 11, 23, 0.14);
+  --v3-font: 'Inter', 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --v3-z-sticky: 100;
+  --v3-z-sidebar-bg: 990;
+  --v3-z-sidebar: 1000;
+  --v3-z-overlay: 1100;
+  --v3-z-lightbox: 1200;
+  --v3-z-dialog: 1300;
+  --v3-z-toast: 1400;
+  --v3-z-invoice: 1500;
+}
+
+body.mee-ui-v3 {
+  font-family: var(--v3-font);
+  background: var(--v3-canvas);
+  color: var(--v3-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Inline SVG Icon System (1.5px crisp stroke) */
+.mee3-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  color: currentColor;
+  vertical-align: -2px;
+}
+.mee3-ico svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.mee3-ico-sm { width: 13px; height: 13px; flex-basis: 13px; }
+.mee3-ico-lg { width: 18px; height: 18px; flex-basis: 18px; }
+
+/* Tabular numbers for money, counts, and timestamps */
+.mee3-num,
+.mee3-card-price,
+.mee3-card-debt,
+.mee3-fin-val,
+.mee3-table td.mee3-col-num,
+.mee3-tab-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Normalized Z-Index & Mobile Sidebar */
+.mee-menu-backdrop {
+  z-index: var(--v3-z-sidebar-bg);
+}
+.sidebar.mee-open {
+  display: flex;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: min(84vw, 296px);
+  max-width: 296px;
+  height: 100dvh;
+  transform: translate3d(0, 0, 0);
+  visibility: visible;
+  pointer-events: auto;
+  opacity: 1;
+  z-index: var(--v3-z-sidebar);
+}
+
+/* Top-Center Non-Blocking Toast (TC-07) — 0px overlap with Drawer Footer & Mobile Nav */
+body #toast.toast {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  bottom: auto;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  z-index: var(--v3-z-toast);
+  max-width: min(92vw, 440px);
+  width: max-content;
+  padding: 10px 16px;
+  border-radius: var(--v3-radius-md);
+  background: var(--v3-ink);
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  box-shadow: 0 10px 28px rgba(5, 11, 23, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  text-align: center;
+}
+body #toast.toast.err,
+body #toast.toast.bad {
+  background: #991B1B;
+  border-color: rgba(254, 202, 202, 0.35);
+}
+
+/* Single Create Order CTA Rule (TC-03 / RC5-01):
+ * Desktop (>=901px): Topbar only (no .fab, no Orders toolbar create button, .mobile-nav hidden)
+ * Tablet & Mobile (<=900px): Synchronized with .mobile-nav — Bottom Nav "+ Tạo" only (hide Topbar create button & .fab)
+ */
+body .fab {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  body.mee-ui-v3 .topbar .mee3-topbar-create,
+  .topbar .mee3-topbar-create {
+    display: none;
+  }
+  body.mee-ui-v3 .topbar .topbar-search,
+  .topbar .topbar-search {
+    flex: 1 1 auto;
+    min-width: 185px;
+    max-width: none;
+  }
+  body.mee-ui-v3 .topbar #globalSearchInput,
+  .topbar #globalSearchInput {
+    min-width: 150px;
+    width: 100%;
+    font-size: 16px;
+  }
+}
+
+/* ===== ORDERS MODULE (DC-02, TC-09, TC-11, TC-14, TC-17) ===== */
+.mee3-orders {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mee3-orders-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-border);
+  border-radius: var(--v3-radius-lg);
+  padding: 14px 18px;
+  box-shadow: var(--v3-shadow-sm);
+}
+
+.mee3-orders-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mee3-orders-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mee3-orders-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--v3-ink);
+}
+
+.mee3-orders-scope-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--v3-navy-soft);
+  color: var(--v3-navy);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.mee3-orders-sub {
+  font-size: 12.5px;
+  color: var(--v3-muted);
+}
+
+.mee3-orders-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mee3-orders-controls .date-filter-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.mee3-orders-controls .date-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--v3-radius);
+  border: 1px solid var(--v3-border-strong);
+  background: var(--v3-surface);
+  color: var(--v3-ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.mee3-orders-controls .date-filter-btn:hover {
+  border-color: var(--v3-navy);
+  background: var(--v3-navy-soft);
+}
+
+.mee3-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: var(--v3-canvas);
+  border: 1px solid var(--v3-border);
+  border-radius: var(--v3-radius);
+  padding: 2px;
+  gap: 2px;
+}
+
+.mee3-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v3-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mee3-view-btn[aria-pressed="true"] {
+  background: var(--v3-navy);
+  color: #FFFFFF;
+}
+
+.mee3-trash-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--v3-radius);
+  border: 1px solid var(--v3-border-strong);
+  background: var(--v3-surface);
+  color: var(--v3-text-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.mee3-trash-btn:hover {
+  border-color: var(--v3-danger-border);
+  background: var(--v3-danger-bg);
+  color: var(--v3-danger);
+}
+
+.mee3-trash-btn.is-active {
+  border-color: var(--v3-navy);
+  background: var(--v3-navy);
+  color: #FFFFFF;
+}
+
+/* Status Filter Tabs Row */
+.mee3-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mee3-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 0;
+  flex: 1 1 auto;
+}
+.mee3-tabs::-webkit-scrollbar { display: none; }
+
+.mee3-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--v3-border);
+  background: var(--v3-surface);
+  color: var(--v3-text-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.mee3-tab:hover {
+  border-color: var(--v3-navy-border);
+  color: var(--v3-navy);
+}
+
+.mee3-tab.active {
+  background: var(--v3-navy);
+  border-color: var(--v3-navy);
+  color: #FFFFFF;
+}
+
+.mee3-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 19px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--v3-canvas);
+  color: var(--v3-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mee3-tab.active .mee3-tab-count {
+  background: rgba(255, 255, 255, 0.2);
+  color: #FFFFFF;
+}
+
+.mee3-showing-meta {
+  font-size: 12.5px;
+  color: var(--v3-muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Status Badges */
+.mee3-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.mee3-badge.status-wait { background: #FEF3C7; color: #92400E; border-color: #FDE68A; }
+.mee3-badge.status-shipping,
+.mee3-badge.status-packed { background: #DBEAFE; color: #1E40AF; border-color: #BFDBFE; }
+.mee3-badge.status-pickup { background: #E0E7FF; color: #3730A3; border-color: #C7D2FE; }
+.mee3-badge.status-delivered { background: #DCFCE7; color: #166534; border-color: #BBF7D0; }
+.mee3-badge-acc { background: var(--v3-warning-bg); color: var(--v3-warning); border-color: var(--v3-warning-border); font-size: 11px; padding: 2px 7px; }
+.mee3-badge-tag { background: #F1F5F9; color: #334155; border-color: #CBD5E1; font-size: 11px; padding: 2px 7px; }
+.mee3-badge-note { background: var(--v3-zone-flower-bg); color: var(--v3-zone-flower-fg); border-color: var(--v3-zone-flower-bd); font-size: 11px; padding: 2px 7px; }
+.mee3-badge-walkin { background: #E0F2FE; color: #0369A1; border-color: #BAE6FD; font-size: 11px; padding: 2px 7px; }
+.mee3-badge-source { background: var(--v3-zone-customer-bg); color: var(--v3-zone-customer-fg); border-color: var(--v3-zone-customer-bd); font-size: 11px; padding: 2px 7px; }
+.mee3-badge-danger { background: var(--v3-danger-bg); color: var(--v3-danger); border-color: var(--v3-danger-border); }
+.mee3-badge-success { background: var(--v3-success-bg); color: var(--v3-success); border-color: var(--v3-success-border); }
+
+/* Orders Grid View (Default on Desktop — DC-02, TC-11) */
+.mee3-orders.mee3-view-grid .mee3-table-wrap { display: none; }
+.mee3-orders.mee3-view-table .mee3-grid { display: none; }
+
+.mee3-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 12px;
+}
+
+.mee3-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-border);
+  border-radius: var(--v3-radius-md);
+  padding: 13px 14px;
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+  box-shadow: var(--v3-shadow-sm);
+}
+
+.mee3-card:hover {
+  border-color: var(--v3-navy-border);
+  box-shadow: 0 4px 14px rgba(16, 63, 130, 0.08);
+  transform: translateY(-1px);
+}
+
+.mee3-card:focus-visible {
+  outline: 2px solid var(--v3-navy);
+  outline-offset: 2px;
+}
+
+/* Subtle 3px amber accent for orders with accessories (TC-11 — replaces yellow full-card .row-alert) */
+.mee3-card.has-accessories {
+  border-left: 3px solid var(--v3-warning-accent);
+}
+
+.mee3-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mee3-card-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--v3-text-soft);
+}
+.mee3-card-time b {
+  color: var(--v3-ink);
+  font-weight: 700;
+}
+
+.mee3-card-body {
+  display: flex;
+  gap: 11px;
+  min-width: 0;
+}
+
+.mee3-card-thumb {
+  width: 68px;
+  height: 68px;
+  flex: 0 0 68px;
+  border-radius: var(--v3-radius);
+  object-fit: cover;
+  border: 1px solid var(--v3-border);
+  background: var(--v3-surface-alt);
+}
+
+.mee3-card-thumb-empty {
+  width: 68px;
+  height: 68px;
+  flex: 0 0 68px;
+  border-radius: var(--v3-radius);
+  border: 1px dashed var(--v3-border-strong);
+  background: var(--v3-surface-alt);
+  color: var(--v3-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mee3-card-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mee3-card-customer {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--v3-ink);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mee3-card-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--v3-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mee3-card-flower {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--v3-text);
+  line-height: 1.38;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mee3-card-note {
+  font-size: 12px;
+  color: var(--v3-muted);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mee3-card-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.mee3-card-ship {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--v3-text-soft);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mee3-card-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--v3-border);
+  flex-wrap: wrap;
+}
+
+.mee3-card-price-wrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.mee3-card-price-label {
+  font-size: 11.5px;
+  color: var(--v3-muted);
+}
+.mee3-card-price {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--v3-ink);
+}
+
+.mee3-card-debt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--v3-muted);
+  text-align: right;
+}
+.mee3-card-debt.has-debt {
+  color: var(--v3-danger);
+  font-weight: 700;
+}
+.mee3-card-debt.is-paid {
+  color: var(--v3-success);
+}
+
+/* Orders Table View (9 Columns — DC-02, TC-11, RC5-02) */
+.mee3-table-wrap {
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-border);
+  border-radius: var(--v3-radius-lg);
+  max-width: 100%;
+  overflow-x: auto;
+  box-shadow: var(--v3-shadow-sm);
+}
+
+.mee3-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.mee3-table th {
+  position: sticky;
+  top: 0;
+  background: var(--v3-surface-alt);
+  color: var(--v3-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: left;
+  padding: 9px 7px;
+  border-bottom: 1px solid var(--v3-border);
+  white-space: nowrap;
+}
+
+.mee3-table th.mee3-col-num,
+.mee3-table td.mee3-col-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mee3-table td.mee3-col-pay {
+  white-space: normal;
+  min-width: 120px;
+  max-width: 162px;
+  line-height: 1.38;
+}
+
+.mee3-table .mee3-nowrap-sub {
+  display: inline-block;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+.mee3-table .orders-ship-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--v3-muted);
+  font-size: 11px;
+}
+
+.mee3-table td {
+  padding: 8px 7px;
+  border-bottom: 1px solid var(--v3-border);
+  vertical-align: top;
+  color: var(--v3-text);
+}
+
+.mee3-table .note-cell {
+  min-width: 190px;
+  max-width: 250px;
+}
+
+.mee3-table .address-cell {
+  min-width: 135px;
+  max-width: 185px;
+}
+
+.mee3-table .sample-with-thumb {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.mee3-table .sample-with-thumb .table-thumb {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.mee3-table tbody tr {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.mee3-table tbody tr:hover {
+  background: #F8FAFC;
+}
+
+.mee3-table tbody tr.has-accessories td:first-child {
+  box-shadow: inset 3px 0 0 var(--v3-warning-accent);
+}
+
+.mee3-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 260px;
+  line-height: 1.38;
+}
+
+.mee3-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 12px;
+}
+
+/* ===== ADMIN TRASH VIEW (TC-14, TC-15, TC-16) ===== */
+.mee3-trash-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mee3-trash-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-border);
+  border-left: 4px solid var(--v3-navy);
+  border-radius: var(--v3-radius-md);
+  padding: 12px 16px;
+}
+
+.mee3-trash-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mee3-trash-search input {
+  height: 36px;
+  min-width: 220px;
+  padding: 0 10px;
+  border-radius: var(--v3-radius);
+  border: 1px solid var(--v3-border-strong);
+  font-size: 13px;
+}
+
+.mee3-trash-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+}
+
+.mee3-trash-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-border);
+  border-radius: var(--v3-radius-md);
+  padding: 14px;
+  box-shadow: var(--v3-shadow-sm);
+}
+
+.mee3-trash-reason-box {
+  background: var(--v3-danger-bg);
+  border: 1px solid var(--v3-danger-border);
+  border-radius: var(--v3-radius);
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--v3-danger);
+}
+
+.mee3-trash-audit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--v3-warning-bg);
+  border: 1px solid var(--v3-warning-border);
+  color: var(--v3-warning);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.mee3-trash-history {
+  border-top: 1px dashed var(--v3-border);
+  padding-top: 8px;
+  font-size: 11.5px;
+  color: var(--v3-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mee3-trash-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--v3-border);
+}
+
+/* ===== 3-TIER DRAWER SYSTEM (DC-03, TC-05, TC-06, TC-08, TC-12) ===== */
+#overlay .drawer-bg.mee3-drawer-bg {
+  position: fixed;
+  inset: 0;
+  z-index: var(--v3-z-overlay);
+  background: rgba(5, 11, 23, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+
+#overlay .mee3-drawer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(100vw, 520px);
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  background: var(--v3-surface);
+  color: var(--v3-text);
+  box-shadow: var(--v3-shadow-drawer);
+  border-left: 1px solid var(--v3-border);
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+}
+
+#overlay .mee3-drawer.mee3-drawer-wide {
+  width: min(100vw, 680px);
+}
+
+#overlay .mee3-drawer-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 14px;
+  background: var(--v3-surface);
+  border-bottom: 1px solid var(--v3-border);
+  z-index: 2;
+}
+
+#overlay .mee3-drawer-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--v3-ink);
+  line-height: 1.25;
+}
+
+#overlay .mee3-drawer-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--v3-muted);
+}
+
+#overlay .mee3-drawer-head .close,
+#overlay .mee3-dialog-head .close {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--v3-radius);
+  border: 1px solid var(--v3-border);
+  background: var(--v3-surface);
+  color: var(--v3-text-soft);
+  font-size: 20px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+#overlay .mee3-drawer-head .close:hover,
+#overlay .mee3-dialog-head .close:hover {
+  background: var(--v3-canvas);
+  color: var(--v3-ink);
+  border-color: var(--v3-border-strong);
+}
+
+/* Quick Copy Strip right under Drawer Header (TC-08) */
+#overlay .mee3-quickbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 20px;
+  background: var(--v3-surface-alt);
+  border-bottom: 1px solid var(--v3-border);
+}
+
+#overlay .mee3-quickbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 7px;
+  border: 1px solid var(--v3-border-strong);
+  background: var(--v3-surface);
+  color: var(--v3-navy);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+#overlay .mee3-quickbtn:hover {
+  background: var(--v3-navy-soft);
+  border-color: var(--v3-navy);
+}
+
+#overlay .mee3-drawer-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+#overlay .mee3-drawer-body > * {
+  flex: 0 0 auto;
+}
+
+#overlay .mee3-drawer-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 20px max(12px, env(safe-area-inset-bottom));
+  background: var(--v3-surface);
+  border-top: 1px solid var(--v3-border);
+  box-shadow: 0 -4px 12px rgba(5, 11, 23, 0.04);
+  z-index: 2;
+}
+
+#overlay .mee3-drawer-foot .btn {
+  min-height: 38px;
+  padding: 0 13px;
+  border-radius: var(--v3-radius);
+  font-size: 13px;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+#overlay .mee3-drawer-foot .btn.secondary {
+  background: var(--v3-surface);
+  color: var(--v3-ink);
+  border: 1px solid var(--v3-border-strong);
+}
+
+#overlay .mee3-drawer-foot .btn.secondary:hover {
+  background: var(--v3-canvas);
+  border-color: var(--v3-navy);
+  color: var(--v3-navy);
+}
+
+#overlay .mee3-drawer-foot .mee3-btn-delete {
+  margin-right: auto;
+  background: var(--v3-surface);
+  color: var(--v3-danger);
+  border: 1px solid var(--v3-danger-border);
+}
+
+#overlay .mee3-drawer-foot .mee3-btn-delete:hover {
+  background: var(--v3-danger-bg);
+  border-color: var(--v3-danger);
+}
+
+/* Compact Horizontal Thumbnail Strip in Detail Drawer (TC-08: <= 120px tall, TC-18 lazy previewUrls) */
+#overlay .mee3-thumb-strip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0 4px;
+  min-height: 94px;
+  max-height: 112px;
+  scrollbar-width: thin;
+}
+
+#overlay .mee3-thumb-strip a {
+  position: relative;
+  flex: 0 0 88px;
+  width: 88px;
+  height: 88px;
+  border-radius: var(--v3-radius);
+  overflow: hidden;
+  border: 1px solid var(--v3-border);
+  background: var(--v3-surface-alt);
+  display: block;
+}
+
+#overlay .mee3-thumb-strip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+#overlay .mee3-thumb-count {
+  font-size: 11.5px;
+  color: var(--v3-muted);
+  margin-top: -6px;
+}
+
+/* Detail Drawer Cards & Soft Color Zoning (UX-01, UX-02, UX-03, UX-04) */
+#overlay .mee3-detail-card {
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-border);
+  border-radius: var(--v3-radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#overlay .mee3-detail-card.mee3-zone-customer,
+#overlay .mee3-form-section.mee3-zone-customer {
+  background: var(--v3-zone-customer-bg);
+  border-color: var(--v3-zone-customer-bd);
+}
+#overlay .mee3-detail-card.mee3-zone-customer .mee3-detail-card-head,
+#overlay .mee3-form-section.mee3-zone-customer .mee3-form-section-title {
+  color: var(--v3-zone-customer-fg);
+  border-bottom-color: var(--v3-zone-customer-bd);
+}
+#overlay .mee3-form-section.mee3-zone-customer .mee3-form-section-num {
+  background: rgba(49, 84, 119, 0.14);
+  color: var(--v3-zone-customer-fg);
+}
+
+#overlay .mee3-detail-card.mee3-zone-flower,
+#overlay .mee3-form-section.mee3-zone-flower {
+  background: var(--v3-zone-flower-bg);
+  border-color: var(--v3-zone-flower-bd);
+}
+#overlay .mee3-detail-card.mee3-zone-flower .mee3-detail-card-head,
+#overlay .mee3-form-section.mee3-zone-flower .mee3-form-section-title {
+  color: var(--v3-zone-flower-fg);
+  border-bottom-color: var(--v3-zone-flower-bd);
+}
+#overlay .mee3-form-section.mee3-zone-flower .mee3-form-section-num {
+  background: rgba(66, 99, 74, 0.14);
+  color: var(--v3-zone-flower-fg);
+}
+
+#overlay .mee3-detail-card.mee3-zone-delivery,
+#overlay .mee3-form-section.mee3-zone-delivery {
+  background: var(--v3-zone-delivery-bg);
+  border-color: var(--v3-zone-delivery-bd);
+}
+#overlay .mee3-detail-card.mee3-zone-delivery .mee3-detail-card-head,
+#overlay .mee3-form-section.mee3-zone-delivery .mee3-form-section-title {
+  color: var(--v3-zone-delivery-fg);
+  border-bottom-color: var(--v3-zone-delivery-bd);
+}
+#overlay .mee3-form-section.mee3-zone-delivery .mee3-form-section-num {
+  background: rgba(102, 85, 131, 0.14);
+  color: var(--v3-zone-delivery-fg);
+}
+
+#overlay .mee3-detail-card.mee3-zone-accessory,
+#overlay .mee3-form-section.mee3-zone-accessory {
+  background: var(--v3-zone-accessory-bg);
+  border-color: var(--v3-zone-accessory-bd);
+}
+#overlay .mee3-detail-card.mee3-zone-accessory .mee3-detail-card-head,
+#overlay .mee3-form-section.mee3-zone-accessory .mee3-form-section-title {
+  color: var(--v3-zone-accessory-fg);
+  border-bottom-color: var(--v3-zone-accessory-bd);
+}
+#overlay .mee3-form-section.mee3-zone-accessory .mee3-form-section-num {
+  background: rgba(139, 107, 53, 0.15);
+  color: var(--v3-zone-accessory-fg);
+}
+
+#overlay .mee3-detail-card.mee3-zone-payment,
+#overlay .mee3-form-section.mee3-zone-payment {
+  background: var(--v3-zone-payment-bg);
+  border-color: var(--v3-zone-payment-bd);
+}
+#overlay .mee3-detail-card.mee3-zone-payment .mee3-detail-card-head,
+#overlay .mee3-form-section.mee3-zone-payment .mee3-form-section-title {
+  color: var(--v3-zone-payment-fg);
+  border-bottom-color: var(--v3-zone-payment-bd);
+}
+#overlay .mee3-form-section.mee3-zone-payment .mee3-form-section-num {
+  background: rgba(71, 85, 105, 0.14);
+  color: var(--v3-zone-payment-fg);
+}
+
+#overlay .mee3-detail-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--v3-muted);
+}
+
+#overlay .mee3-copyable-block {
+  cursor: pointer;
+  border-radius: var(--v3-radius);
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px dashed rgba(102, 85, 131, 0.34);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+#overlay .mee3-copyable-block:hover,
+#overlay .mee3-copyable-block:focus-visible {
+  background: #FFFFFF;
+  border-color: var(--v3-navy);
+  outline: none;
+}
+#overlay .mee3-note-block.mee3-addr-block {
+  padding: 9px 11px;
+  background: #FFFFFF;
+  border: 1px solid var(--v3-border);
+}
+#overlay .mee3-note-block.mee3-addr-block.mee3-copyable-block:hover,
+#overlay .mee3-note-block.mee3-addr-block.mee3-copyable-block:focus-visible {
+  border-color: var(--v3-navy);
+  background: #FFFFFF;
+}
+#overlay .mee3-icon-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--v3-border-strong);
+  background: var(--v3-surface);
+  color: var(--v3-navy);
+  flex: 0 0 24px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+#overlay .mee3-copyable-block:hover .mee3-icon-copy,
+#overlay .mee3-copyable-block:focus-visible .mee3-icon-copy {
+  background: var(--v3-navy-soft);
+  border-color: var(--v3-navy);
+}
+#overlay .mee3-flower-lead {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--v3-ink);
+  line-height: 1.48;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: var(--v3-radius);
+  padding: 9px 11px;
+}
+#overlay .mee3-detail-card .mee3-note-block {
+  background: #FFFFFF;
+}
+#overlay .mee3-detail-card .mee3-fin-row {
+  border-bottom-color: rgba(71, 85, 105, 0.14);
+}
+#overlay .mee3-detail-card .mee3-fin-total {
+  border-top-color: rgba(71, 85, 105, 0.24);
+}
+
+/* TC-20 Walk-in Quick Order Toggle & Payment Selector */
+#overlay #orderForm label.mee3-walkin-toggle {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 14px;
+  border-radius: var(--v3-radius-md);
+  border: 1px solid var(--v3-navy-border);
+  background: var(--v3-navy-soft);
+  cursor: pointer;
+  margin: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+#overlay #orderForm label.mee3-walkin-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  flex: 0 0 18px;
+  margin: 0;
+  accent-color: var(--v3-navy);
+  cursor: pointer;
+}
+#overlay .mee3-walkin-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+#overlay .mee3-walkin-toggle-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--v3-navy);
+}
+#overlay .mee3-walkin-toggle-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--v3-text-soft);
+}
+#overlay .mee3-walkin-pay-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+#overlay #orderForm label.mee3-walkin-pay-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  margin: 0;
+  border-radius: var(--v3-radius);
+  border: 1px solid var(--v3-border-strong);
+  background: #FFFFFF;
+  color: var(--v3-ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+#overlay #orderForm label.mee3-walkin-pay-option input[type="radio"] {
+  width: 17px;
+  height: 17px;
+  min-width: 17px;
+  min-height: 17px;
+  flex: 0 0 17px;
+  margin: 0;
+  accent-color: var(--v3-navy);
+}
+#overlay #orderForm label.mee3-walkin-pay-option:has(input:checked) {
+  border-color: var(--v3-navy);
+  background: var(--v3-navy-soft);
+  color: var(--v3-navy);
+}
+#overlay .mee3-walkin-owner-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 9px 11px;
+  border-radius: var(--v3-radius);
+  background: #FFFFFF;
+  border: 1px solid var(--v3-zone-payment-bd);
+  font-size: 12.5px;
+  color: var(--v3-text-soft);
+}
+#overlay .mee3-walkin-owner-box b {
+  color: var(--v3-ink);
+}
+
+#overlay .mee3-detail-kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+#overlay .mee3-detail-kv .mee3-span2 {
+  grid-column: 1 / -1;
+}
+
+#overlay .mee3-kv-label {
+  display: block;
+  font-size: 11.5px;
+  color: var(--v3-muted);
+  margin-bottom: 2px;
+}
+
+#overlay .mee3-kv-label.mee3-kv-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+#overlay .mee3-kv-val {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--v3-ink);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+#overlay .mee3-note-block {
+  border-radius: var(--v3-radius);
+  padding: 9px 11px;
+  background: var(--v3-surface-alt);
+  border: 1px solid var(--v3-border);
+}
+
+#overlay .mee3-note-block.is-tag-free {
+  background: #F8FAFC;
+  border-color: var(--v3-navy-border);
+}
+
+#overlay .mee3-note-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--v3-text-soft);
+}
+
+#overlay .mee3-note-copy {
+  border: 1px solid var(--v3-border-strong);
+  background: var(--v3-surface);
+  color: var(--v3-navy);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#overlay .mee3-note-text {
+  font-size: 13px;
+  color: var(--v3-text);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#overlay .mee3-fin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  padding: 5px 0;
+  border-bottom: 1px solid #F1F5F9;
+}
+
+#overlay .mee3-fin-row:last-child {
+  border-bottom: 0;
+}
+
+#overlay .mee3-fin-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 10px;
+  margin-top: 4px;
+  border-top: 1px solid var(--v3-border);
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+#overlay .mee3-bill-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+#overlay .mee3-bill-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--v3-navy-soft);
+  border: 1px solid var(--v3-navy-border);
+  color: var(--v3-navy);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+#overlay .mee3-bill-link:hover {
+  background: var(--v3-navy);
+  color: #FFFFFF;
+}
+
+/* ===== CREATE / EDIT ORDER SIDE DRAWER FORM (TC-05, TC-13, TC-18) ===== */
+#overlay form#orderForm.mee3-order-drawer-form {
+  display: flex;
+  flex-direction: column;
+  width: min(100vw, 680px);
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  background: var(--v3-surface);
+  color: var(--v3-text);
+  box-shadow: var(--v3-shadow-drawer);
+  border-left: 1px solid var(--v3-border);
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+}
+
+#overlay .mee3-form-section {
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-border);
+  border-radius: var(--v3-radius-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#overlay .mee3-form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--v3-navy);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--v3-border);
+}
+
+#overlay .mee3-form-section-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--v3-navy-soft);
+  color: var(--v3-navy);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+#overlay .mee3-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+#overlay .mee3-form-grid .span2 {
+  grid-column: 1 / -1;
+}
+
+#overlay #orderForm label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--v3-text-soft);
+  margin-bottom: 4px;
+}
+
+#overlay #orderForm input[type="text"],
+#overlay #orderForm input[type="tel"],
+#overlay #orderForm input[type="date"],
+#overlay #orderForm input[type="time"],
+#overlay #orderForm input[type="number"],
+#overlay #orderForm select,
+#overlay #orderForm textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 11px;
+  border: 1px solid var(--v3-border-strong);
+  border-radius: var(--v3-radius);
+  background: var(--v3-surface);
+  color: var(--v3-ink);
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.4;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+#overlay #orderForm textarea {
+  resize: vertical;
+  min-height: 40px;
+  overflow-y: hidden;
+}
+
+#overlay #orderForm input:focus,
+#overlay #orderForm select:focus,
+#overlay #orderForm textarea:focus {
+  outline: none;
+  border-color: var(--v3-navy);
+  box-shadow: 0 0 0 3px rgba(16, 63, 130, 0.12);
+}
+
+#overlay #orderForm .mee3-field-hint {
+  font-size: 11.5px;
+  color: var(--v3-muted);
+  margin-top: 4px;
+}
+
+#overlay #orderForm .mee-accessory-box {
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-border);
+  border-radius: var(--v3-radius-md);
+  overflow: visible;
+}
+
+#overlay #orderForm .mee-accessory-head {
+  background: var(--v3-surface-alt);
+  border-radius: var(--v3-radius-md);
+  color: var(--v3-ink);
+}
+
+#overlay #orderForm .mee3-form-footer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px max(12px, env(safe-area-inset-bottom));
+  background: var(--v3-surface);
+  border-top: 1px solid var(--v3-border);
+  box-shadow: 0 -4px 12px rgba(5, 11, 23, 0.05);
+}
+
+#overlay #orderForm .mee3-form-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+#overlay #orderForm #orderSubmit {
+  min-width: 170px;
+  height: 42px;
+  background: var(--v3-navy);
+  color: #FFFFFF;
+  border: 1px solid var(--v3-navy);
+  border-radius: var(--v3-radius);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#overlay #orderForm #orderSubmit:hover:not(:disabled) {
+  background: var(--v3-navy-hover);
+}
+
+#overlay #orderForm #orderSubmit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+#overlay #orderForm [data-order-feedback] {
+  margin: 0;
+  font-size: 12.5px;
+  padding: 8px 12px;
+  border-radius: var(--v3-radius);
+}
+
+/* ===== FLAT NAVY CALENDAR MODAL (TC-10) ===== */
+#overlay .calendar-modal {
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-border);
+  border-radius: var(--v3-radius-lg);
+  box-shadow: var(--v3-shadow-md);
+  color: var(--v3-ink);
+}
+
+#overlay .calendar-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#overlay .calendar-shortcuts .btn {
+  background: var(--v3-surface-alt);
+  border: 1px solid var(--v3-border-strong);
+  color: var(--v3-navy);
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 7px;
+  padding: 6px 10px;
+}
+
+#overlay .calendar-shortcuts .btn:hover {
+  background: var(--v3-navy-soft);
+  border-color: var(--v3-navy);
+}
+
+#overlay .calendar-day.selected {
+  background: var(--v3-navy);
+  color: #FFFFFF;
+  border-color: var(--v3-navy);
+}
+
+#overlay .calendar-day.in-range {
+  background: var(--v3-navy-soft);
+  color: var(--v3-navy);
+}
+
+#overlay .calendar-day.today {
+  border: 1px solid var(--v3-navy);
+  font-weight: 700;
+}
+
+/* ===== LIGHTBOX & IN-APP FLAT NAVY DIALOGS (TC-06, TC-08, TC-12, TC-16) ===== */
+#overlay .mee-proof-layer-v364 {
+  position: fixed;
+  inset: 0;
+  z-index: var(--v3-z-lightbox);
+}
+
+#overlay .mee3-proof-toolbar {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 3;
+}
+
+#overlay .mee3-proof-ext {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--v3-navy);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.mee3-dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--v3-z-dialog);
+  background: rgba(5, 11, 23, 0.56);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.mee3-dialog {
+  width: min(100%, 460px);
+  max-height: 90dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-border);
+  border-radius: var(--v3-radius-lg);
+  box-shadow: var(--v3-shadow-md);
+  overflow: hidden;
+}
+
+.mee3-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--v3-border);
+}
+
+.mee3-dialog-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--v3-ink);
+}
+
+.mee3-dialog-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13.5px;
+  color: var(--v3-text);
+}
+
+.mee3-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--v3-border);
+  background: var(--v3-surface-alt);
+}
+
+.mee3-reason-options {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.mee3-reason-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0;
+  border-radius: var(--v3-radius);
+  border: 1px solid var(--v3-border-strong);
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--v3-ink);
+  background: var(--v3-surface);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.mee3-reason-option input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  max-width: 18px;
+  max-height: 18px;
+  flex: 0 0 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--v3-navy);
+  cursor: pointer;
+}
+
+.mee3-reason-option:has(input:checked) {
+  border-color: var(--v3-navy);
+  background: var(--v3-navy-soft);
+  color: var(--v3-navy);
+  font-weight: 600;
+}
+
+.mee3-reason-textarea {
+  width: 100%;
+  min-height: 76px;
+  padding: 9px 11px;
+  border: 1px solid var(--v3-border-strong);
+  border-radius: var(--v3-radius);
+  font-family: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.mee3-dialog-error {
+  color: var(--v3-danger);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.mee3-compare-grid {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 6px 10px;
+  font-size: 13px;
+}
+.mee3-compare-grid dt {
+  color: var(--v3-muted);
+  font-weight: 600;
+}
+.mee3-compare-grid dd {
+  margin: 0;
+  color: var(--v3-ink);
+  font-weight: 500;
+  white-space: pre-wrap;
+}
+
+/* Production Tag Note Free Chip */
+.mee3-prod-tag-note {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #F8FAFC;
+  border: 1px solid var(--v3-navy-border);
+  font-size: 12px;
+  color: var(--v3-text);
+  line-height: 1.38;
+}
+.mee3-prod-tag-note strong {
+  color: var(--v3-navy);
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+/* Invoice preview z-index normalization (TC-01, TC-02) */
+#meeInvoicePreview {
+  z-index: var(--v3-z-invoice);
+}
+
+/* Debt Review Deleted-with-Payment Audit Banner & Card Payment Subtext */
+.mee3-debt-audit-banner {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: var(--v3-radius-md);
+  border: 1px solid var(--v3-warning-border);
+  background: var(--v3-warning-bg);
+  color: var(--v3-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mee3-debt-audit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mee3-debt-audit-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--v3-warning);
+}
+.mee3-debt-audit-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+}
+.mee3-debt-audit-item {
+  background: var(--v3-surface);
+  border: 1px solid var(--v3-warning-border);
+  border-radius: var(--v3-radius);
+  padding: 9px 11px;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mee3-debt-audit-item-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  align-items: baseline;
+}
+.mee3-card-pay-sub {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--v3-text-soft);
+  margin-right: 4px;
+}
+.mee3-trash-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: var(--v3-radius);
+  border: 1px solid var(--v3-warning-border);
+  background: var(--v3-warning-bg);
+  color: var(--v3-warning);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mee3-trash-filter-btn.is-active {
+  background: var(--v3-warning);
+  border-color: var(--v3-warning);
+  color: #FFFFFF;
+}
+.mee3-drawer-audit-hint {
+  font-size: 11.5px;
+  color: var(--v3-warning);
+  background: var(--v3-warning-bg);
+  border: 1px solid var(--v3-warning-border);
+  border-radius: var(--v3-radius);
+  padding: 5px 9px;
+  line-height: 1.3;
+}
+
+/* ===== RESPONSIVE TABLET & MOBILE OPTIMIZATION (DC-04, TC-03, TC-11, RC5-01, RC5-04) ===== */
+@media (max-width: 900px) {
+  .mee3-orders-header {
+    padding: 10px 12px;
+  }
+  .mee3-orders.mee3-view-grid .mee3-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mee3-orders.mee3-view-table .mee3-table-wrap {
+    display: block;
+  }
+  .mee3-orders.mee3-view-table .mee3-grid {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  body.mee-ui-v3 .topbar {
+    height: auto;
+    min-height: 48px;
+    padding: 5px 10px;
+    gap: 6px;
+  }
+  body.mee-ui-v3 .topbar .mee-menu-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+  body.mee-ui-v3 .topbar #globalSearchInput {
+    height: 36px;
+    font-size: 16px;
+  }
+  body.mee-ui-v3 .content {
+    padding: 6px 10px calc(84px + env(safe-area-inset-bottom));
+  }
+  .mee3-orders {
+    gap: 6px;
+  }
+  .mee3-orders-header {
+    padding: 6px 10px;
+    gap: 6px;
+    border-radius: var(--v3-radius);
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .mee3-orders-title-group {
+    flex: 0 1 auto;
+    gap: 2px;
+  }
+  .mee3-orders-title-row {
+    gap: 6px;
+  }
+  .mee3-orders-title {
+    font-size: 14.5px;
+    line-height: 1.2;
+  }
+  .mee3-orders-scope-pill {
+    font-size: 11px;
+    padding: 2px 7px;
+  }
+  .mee3-hide-mobile {
+    display: none;
+  }
+  .mee3-orders-sub {
+    display: none;
+  }
+  .mee3-orders-controls {
+    width: auto;
+    flex: 0 1 auto;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  .mee3-orders-controls .date-filter-btn {
+    height: 30px;
+    padding: 0 8px;
+    font-size: 11.5px;
+    border-radius: 7px;
+  }
+  .mee3-trash-btn {
+    height: 30px;
+    padding: 0 8px;
+    font-size: 11.5px;
+    border-radius: 7px;
+  }
+  .mee3-view-toggle {
+    display: none;
+  }
+  .mee3-filter-bar {
+    gap: 4px;
+  }
+  .mee3-showing-meta {
+    display: none;
+  }
+  .mee3-orders.mee3-view-table .mee3-table-wrap {
+    display: none;
+  }
+  .mee3-orders.mee3-view-table .mee3-grid,
+  .mee3-orders.mee3-view-grid .mee3-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .mee3-card {
+    padding: 10px 12px;
+    gap: 7px;
+  }
+  .mee3-card-thumb,
+  .mee3-card-thumb-empty {
+    width: 58px;
+    height: 58px;
+    flex-basis: 58px;
+  }
+  .mee3-card-customer {
+    font-size: 14px;
+  }
+  .mee3-tabs {
+    gap: 5px;
+    padding-bottom: 1px;
+  }
+  .mee3-tab {
+    height: 29px;
+    padding: 0 9px;
+    font-size: 11.5px;
+  }
+  .mee3-tab-count {
+    font-size: 10.5px;
+    padding: 0 5px;
+  }
+  #overlay .mee3-drawer,
+  #overlay form#orderForm.mee3-order-drawer-form {
+    width: 100vw;
+    max-width: 100vw;
+  }
+  #overlay .mee3-drawer-head {
+    padding: 12px 14px;
+  }
+  #overlay .mee3-quickbar {
+    padding: 8px 14px;
+  }
+  #overlay .mee3-drawer-body {
+    padding: 12px 14px;
+  }
+  #overlay .mee3-drawer-foot,
+  #overlay #orderForm .mee3-form-footer {
+    padding: 10px 14px max(12px, env(safe-area-inset-bottom));
+  }
+  #overlay .mee3-form-grid {
+    grid-template-columns: 1fr;
+  }
+  #overlay #orderForm #orderSubmit {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 380px) {
+  body.mee-ui-v3 .topbar .topbar-search {
+    min-width: 160px;
+  }
+  body.mee-ui-v3 .topbar #globalSearchInput {
+    min-width: 110px;
+    font-size: 16px;
+  }
+  .mee3-orders-header {
+    padding: 9px 10px;
+  }
+  .mee3-card {
+    padding: 9px 10px;
+  }
+  .mee3-card-thumb,
+  .mee3-card-thumb-empty {
+    width: 52px;
+    height: 52px;
+    flex-basis: 52px;
+  }
+}

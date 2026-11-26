@@ -1,0 +1,570 @@
+import {createMediaStorage} from './media.js';
+import {createDb} from './db.js';
+import {createOperationRpc} from './operations.js';
+import {createOperationService} from './operation-service.js';
+import {loadOrderRules} from './order-rules.js';
+// Supabase Edge Function replacing google.script.run. Platform JWT verification
+// stays enabled; application roles use separate opaque sessions.
+export function createLegacy(env){
+const BUILD = '2026.09.28-supabase-v3';
+const SUPABASE_URL = env.SUPABASE_URL;
+const SERVICE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+const PASSWORD_SALT = env.LEGACY_PASSWORD_SALT || 'MEE-FLOWER-V4';
+const ALLOWED_ORIGIN = 'https://ops.meehoasg.com';
+const ALLOWED_ORIGINS = ['https://ops.meehoasg.com', 'http://ops.meehoasg.com', 'https://meehoasg.com', 'http://meehoasg.com'];
+const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const encoder = new TextEncoder();
+
+function clean(value) { return String(value ?? '').trim(); }
+function norm(value) { return clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+function usernameNorm(value) { return norm(value).replace(/đ/g, 'd').replace(/\s+/g, ''); }
+function num(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  let raw = String(value ?? '0').replace(/[^\d.,-]/g, '');
+  if (raw.includes(',') && raw.includes('.')) raw = raw.replaceAll('.', '').replace(',', '.');
+  else if (/^-?\d{1,3}(?:[.,]\d{3})+$/.test(raw)) raw = raw.replace(/[.,]/g, '');
+  else raw = raw.replace(',', '.');
+  const n = Number(raw); return Number.isFinite(n) ? n : 0;
+}
+function cleanTime(value) {
+  const raw = clean(value);
+  if (!raw) return "";
+  if (raw.includes("1899") || raw.includes("GMT")) {
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) {
+      const h = String(d.getHours()).padStart(2, "0");
+      const m = String(d.getMinutes()).padStart(2, "0");
+      return `${h}:${m}`;
+    }
+  }
+  const m = raw.match(/(\d{1,2}):(\d{2})/);
+  if (m) return `${m[1].padStart(2, "0")}:${m[2]}`;
+  return raw.slice(0, 5);
+}
+function bool(value) { return value === true || value === 1 || ['true', 'yes', '1', 'x'].includes(norm(value)); }
+function dateToday() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
+function publicUser(user) { return { username: user.username, name: user.display_name, role: user.role, active: user.active }; }
+function fail(message, code) { return { ok: false, message, ...(code ? { code } : {}) }; }
+function hex(bytes) { return [...bytes].map(n => n.toString(16).padStart(2, '0')).join(''); }
+async function sha256(text) { return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text)))); }
+function same(a, b) { a = String(a); b = String(b); if (a.length !== b.length) return false; let x = 0; for (let i = 0; i < a.length; i++) x |= a.charCodeAt(i) ^ b.charCodeAt(i); return x === 0; }
+function token() { return hex(crypto.getRandomValues(new Uint8Array(32))); }
+
+const db=createDb(env.DB,{rpc:createOperationRpc(env.DB)});
+async function all(table, query = {}) {
+  const out = [];
+  for (let offset = 0; ; offset += 1000) {
+    const part = await db(table, { ...query, limit: '1000', offset: String(offset) });
+    out.push(...part);
+    if (part.length < 1000) return out;
+  }
+}
+async function one(table, query) { return (await db(table, { ...query, limit: '1' }))[0] || null; }
+async function audit(user, orderId, action, before, after) {
+  try { await db('activity_log', {}, 'POST', { username: user.username, display_name: user.display_name, role: user.role, order_id: orderId || null, action, before_data: before || null, after_data: after || null }); } catch (_) {}
+}
+async function requireUser(payload, roles) {
+  const raw = clean(payload.token);
+  if (!raw || !/^[0-9a-f]{64}$/.test(raw)) throw new Error('Phiên đăng nhập không hợp lệ hoặc đã hết hạn.');
+  const session = await one('app_sessions', { token_hash: 'eq.' + await sha256(raw), select: 'username,expires_at' });
+  if (!session || Date.parse(session.expires_at) <= Date.now()) throw new Error('Phiên đăng nhập không hợp lệ hoặc đã hết hạn.');
+  const user = await one('app_users', { username: 'eq.' + session.username });
+  if (!user || !user.active) throw new Error('Tài khoản đã bị khóa.');
+  if (roles && !roles.includes(user.role)) throw new Error('Không có quyền thực hiện.');
+  return user;
+}
+async function login(payload) {
+  const username = usernameNorm(payload.username), password = String(payload.password || '');
+  if (!username || !password) return fail('Sai tài khoản hoặc mật khẩu.');
+  const attempt = await one('login_attempts', { username: 'eq.' + username });
+  if (attempt?.blocked_until && Date.parse(attempt.blocked_until) > Date.now()) return fail('Đăng nhập quá nhiều lần. Vui lòng thử lại sau.');
+  const user = await one('app_users', { username: 'eq.' + username });
+  const expected = await sha256(PASSWORD_SALT + '|' + password);
+  const valid = user && user.active && same(user.password_hash, expected);
+  if (!valid) {
+    const count = (attempt?.attempts || 0) + 1;
+    await db('login_attempts', { on_conflict: 'username' }, 'POST', { username, attempts: count, blocked_until: count >= 5 ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null, updated_at: new Date().toISOString() });
+    return fail('Sai tài khoản hoặc mật khẩu.');
+  }
+  if (attempt) await db('login_attempts', { username: 'eq.' + username }, 'DELETE');
+  const raw = token();
+  await db('app_sessions', {}, 'POST', { token_hash: await sha256(raw), username, expires_at: new Date(Date.now() + SESSION_MS).toISOString() });
+  return { ok: true, token: raw, user: publicUser(user) };
+}
+function accessoryTotal(order) { return (order.card ? Math.max(1,Math.min(99,Math.floor(num(order.card_qty)||1)))*10000 : 0) + (order.banner ? Math.max(1,Math.min(99,Math.floor(num(order.banner_qty)||1)))*35000 : 0) + num(order.charm_fee) + num(order.paper_fee); }
+function contactFields(row) {
+  const contact = clean(row.address);
+  const phoneInContact = contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);
+  return {
+    phone: clean(row.phone) || (phoneInContact ? clean(phoneInContact[1]) : ''),
+    address: contact.replace(/(?:SĐT|SDT)\s*:\s*[^\n]+\n?/i, '').replace(/^Địa chỉ\s*:\s*/i, '').trim()
+  };
+}
+function paidAmount(payment, base, settled) {
+  if (settled > 0) return settled;
+  const text = norm(payment);
+  if (!text || /chua/.test(text)) return 0;
+  if (/full|da tt|da thanh toan (?:du|toan bo)|thanh toan du/.test(text)) return base;
+  const match = text.replace(/\s/g, '').match(/([0-9.,]+)(k|tr|trieu)?/);
+  if (!match) return /da thanh toan/.test(text) ? base : 0;
+  let amount = num(match[1]);
+  if (match[2] === 'tr' || match[2] === 'trieu') amount *= 1000000;
+  else if (match[2] === 'k' || (amount > 0 && amount <= 1000 && !/\d\s*(?:đ|d|vn[dđ])(?:$|[\s),.])/i.test(text))) amount *= 1000;
+  return Math.max(0, amount);
+}
+function decorate(row, user, settlement) {
+  const contact = contactFields(row);
+  const accessory = accessoryTotal(row), ship = norm(row.shipping).includes('shop') && row.ship_confirmed ? num(row.ship_fee) : 0;
+  const base = num(row.flower_total) + accessory + num(row.vat);
+  const total = base + ship;
+  const verified=!!row.settled||!!row.full_paid;
+  const paid = row.full_paid ? (num(row.full_paid_total)||total) : paidAmount(row.payment, base, row.settled ? total : 0);
+  const status = row.full_paid ? 'AUTO_FULL_PAID' : (settlement?.status || 'NONE');
+  const locked = !!row.settled || ['PENDING', 'APPROVED'].includes(status);
+  // Owner check: so username (sau mapping) và display_name (đơn cũ chưa mapping)
+  const saleNorm = norm(row.sale || '');
+  const owner = saleNorm === norm(user.username) || saleNorm === norm(user.display_name);
+  const canEdit = !locked && (user.role !== 'SALE' || owner);
+  return {
+    id: row.id, updatedAt: row.updated_at, sourceSheet: row.source_sheet || '', sourceRow: row.source_row || 0,
+    customer: row.customer, phone: contact.phone, date: row.order_date, time: cleanTime(row.order_time),
+    flower: row.flower, imageUrls: row.image_urls || [], driveUrls: row.image_urls || [],
+    note: row.note, shipping: row.shipping, address: contact.address,
+    flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
+    fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),paymentVerified:verified,settled: row.settled, status: row.status, shipFee: num(row.ship_fee),
+    shipConfirmed: row.ship_confirmed, shipFeePending: norm(row.shipping).includes('shop') && !row.ship_confirmed,
+    card: row.card, cardQty:row.card?Math.max(1,Math.min(99,Math.floor(num(row.card_qty)||1))):0, cardText: row.card_text, banner: row.banner, bannerQty:row.banner?Math.max(1,Math.min(99,Math.floor(num(row.banner_qty)||1))):0, bannerFee:row.banner?Math.max(1,Math.min(99,Math.floor(num(row.banner_qty)||1)))*35000:0, bannerText: row.banner_text,
+    charmFee: num(row.charm_fee), charmText: row.charm_text, paperFee: num(row.paper_fee),
+    paperText: row.paper_text, vat: num(row.vat), accessoryTotal: accessory,
+    totalDue: total, debt: verified ? 0 : Math.max(0, total - paid),
+    hasAccessories: accessory > 0, settlementStatus: status,
+    settlementRequestId: settlement?.id || '', settlementReason: settlement?.rejection_reason || '',
+    locked, canEdit, canShip: !locked, canOperate: !locked && ['ADMIN', 'THO_OPS'].includes(user.role),
+    canSubmitSettlement: !locked && !row.full_paid && row.status === 'Đã giao' && (user.role === 'ADMIN' || owner),
+    detailLoaded: true
+  };
+}
+async function settlementMap(ids) {
+  if (!ids.length) return {};
+  const unique = [...new Set(ids)];
+  const chunks = [];
+  for (let i = 0; i < unique.length; i += 30) chunks.push(unique.slice(i, i + 30));
+  const parts = await Promise.all(chunks.map(chunk =>
+    all('settlement_requests', { order_id: 'in.(' + chunk.map(id => '"' + id.replaceAll('"', '') + '"').join(',') + ')', order: 'submitted_at.desc' })));
+  const rows = parts.flat();
+  const map = {};
+  for (const row of rows) if (!map[row.order_id]) map[row.order_id] = row;
+  return map;
+}
+async function orderRows(start, end) {
+  return all('orders', { and: '(order_date.gte.' + start + ',order_date.lte.' + end + ')', order: 'order_date.asc,order_time.asc' });
+}
+async function decoratedRange(start, end, user) {
+  const rows = await orderRows(start, end), settlements = await settlementMap(rows.map(r => r.id));
+  return Promise.all(rows.map(async row => decorate(await visibleOrder(row), user, settlements[row.id])));
+}
+async function dashboard(payload, user) {
+  const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
+  const orders = await decoratedRange(start, end, user);
+  const summary = { orders: 0, revenue: 0, debt: 0, cms: 0, 'Chờ bó': 0, 'Đã bó': 0, 'Đã giao': 0, unsettled: 0, alerts: 0 };
+  const groups = { nearUnpacked: [], packedOverdue: [] };
+  const now = Date.now();
+  for (const o of orders) {
+    summary.orders++; summary.revenue += o.flowerTotal; summary.debt += o.debt; summary.cms += o.flowerTotal * .08;
+    summary[o.status] = (summary[o.status] || 0) + 1; if (!o.settled) summary.unsettled++;
+    const due = Date.parse(o.date + 'T' + (o.time || '00:00') + ':00+07:00');
+    if (o.status === 'Chờ bó' && due >= now && due - now <= 3600000) groups.nearUnpacked.push(o);
+    if (o.status === 'Đã bó' && due < now) groups.packedOverdue.push(o);
+  }
+  groups.nearUnpacked = groups.nearUnpacked.slice(0, 20);
+  groups.packedOverdue = groups.packedOverdue.slice(0, 20);
+  summary.nearUnpacked = groups.nearUnpacked.length; summary.packedOverdue = groups.packedOverdue.length;
+  summary.alerts = summary.nearUnpacked + summary.packedOverdue;
+  return { ok: true, range: { start, end }, summary, attentionGroups: groups, attention: [...groups.nearUnpacked, ...groups.packedOverdue] };
+}
+async function getOrders(payload, user) {
+  const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
+  const q = norm(payload.q), page = Math.max(1, Math.floor(num(payload.page) || 1)), pageSize = Math.min(200, Math.max(20, Math.floor(num(payload.pageSize) || 80)));
+  const allOrders = await decoratedRange(start, end, user);
+  // SALE chỉ thấy đơn của mình
+  const visibleOrders = user.role === 'SALE'
+    ? allOrders.filter(o => norm(o.sale) === norm(user.username) || norm(o.sale) === norm(user.display_name))
+    : allOrders;
+  const filtered = q ? visibleOrders.filter(o => norm([o.customer, o.phone, o.id, o.flower, o.sale].join(' ')).includes(q)) : visibleOrders;
+  const items = filtered.slice((page - 1) * pageSize, page * pageSize);
+  return { ok: true, range: { start, end }, page, pageSize, total: filtered.length, items, hasMore: page * pageSize < filtered.length };
+}
+async function getProduction(payload, user) {
+  const date = clean(payload.date) || dateToday();
+  return { ok: true, date, orders: await decoratedRange(date, date, user) };
+}
+async function getDebt(payload, user) {
+  const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
+  const sale = user.role === 'ADMIN' ? norm(payload.sale) : null;
+  const items = (await decoratedRange(start, end, user)).filter(o => {
+    if (o.status !== 'Đã giao' || o.settled) return false;
+    if (user.role === 'ADMIN') return !sale || norm(o.sale) === sale;
+    return norm(o.sale) === norm(user.username) || norm(o.sale) === norm(user.display_name);
+  });
+  return { ok: true, range: { start, end }, items, summary: { orders: items.length, debt: items.reduce((n, o) => n + o.debt, 0), shipFeePending: items.filter(o => o.shipFeePending).length }, scope: user.role === 'ADMIN' ? 'ADMIN' : 'SELF' };
+}
+async function initial(user, token) {
+  const day = dateToday(), payload = { start: day, end: day, date: day, page: 1, pageSize: 80 };
+  if (user.role === 'ADMIN') return { page: 'dashboard', data: await dashboard(payload, user), at: Date.now() };
+  if (user.role === 'THO_OPS') return { page: 'production', data: await getProduction(payload, user), at: Date.now() };
+  return { page: 'orders', data: await getOrders(payload, user), at: Date.now() };
+}
+async function loginAndBootstrap(payload) {
+  const result = await login(payload);
+  if (!result.ok) return result;
+  const user = await one('app_users', { username: 'eq.' + result.user.username });
+  return { ...result, options: { shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: ['Chờ bó', 'Đã bó', 'Đã giao'] }, initial: await initial(user, result.token) };
+}
+async function usersList() {
+  const rows = await all('app_users', { select: 'username,display_name,role,active', order: 'display_name.asc' });
+  return { ok: true, items: rows.map(publicUser), employeeOptions: [...new Set(rows.filter(u => u.active).map(u => u.display_name))] };
+}
+async function options() {
+  const [rows, rules] = await Promise.all([
+    all('app_users', { select: 'display_name,active' }),
+    loadOrderRules(env.DB, env)
+  ]);
+  return { ok: true, options: { sales: [...new Set(rows.filter(u => u.active).map(u => u.display_name))], shipping: rules.enums?.shipping || ['Shop book ship', 'Khách tự book', 'Ghé lấy'], statuses: rules.enums?.statuses || ['Chờ bó', 'Đã bó', 'Đã giao'], rules } };
+}
+function newId(prefix) { return prefix + '-' + crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase(); }
+const operationStorage=createMediaStorage(env,'');
+const uploadImages=operationStorage.uploadImages;
+async function billDisplayUrls(urls){return operationStorage.displayUrls(urls)}
+async function visibleOrder(row) {
+  const image_urls = await billDisplayUrls(row.image_urls || []);
+  return { ...row, image_urls };
+}
+async function getOrder(payload, user) {
+  const row = await one('orders', { id: 'eq.' + clean(payload.orderId) });
+  if (!row) return fail('Không tìm thấy đơn.');
+  const settlement = (await settlementMap([row.id]))[row.id];
+  return { ok: true, order: decorate(await visibleOrder(row), user, settlement) };
+}
+const operations=createOperationService({db,one,uploadImages,discardImages:operationStorage.discard,sha256,newId});
+async function atomicWrite(action,payload,user){
+  const result=await operations.run(action,payload,user);if(!result?.ok)return result;
+  const output={...result};delete output.row;
+  if(result.row)output.updatedAt=result.row.updated_at;
+  return output;
+}
+async function createOrder(payload,user){return atomicWrite('createOrder',payload,user)}
+async function updateOrder(payload,user){return atomicWrite('updateOrder',payload,user)}
+async function updateStatus(payload,user){return atomicWrite('updateStatus',payload,user)}
+async function saveShipFee(payload,user){return atomicWrite('saveShipFee',payload,user)}
+async function submitSettlement(payload,user){return atomicWrite('submitSettlement',payload,user)}
+async function updateStatusBulk(payload,user){
+  if(!clean(payload.mutationRequestId||payload.requestId))return fail('Thiếu mã yêu cầu.','REQUEST_ID_REQUIRED');
+  const items=Array.isArray(payload.items)?payload.items.slice(0,100):[],results=[];
+  for(const item of items){
+    const result=await updateStatus({...item,requestId:clean(payload.mutationRequestId||payload.requestId)+':'+item.orderId,status:payload.status},user);
+    results.push({...result,orderId:item.orderId});
+  }
+  return {ok:results.every(r=>r.ok),results};
+}
+async function settlementQueue(payload, user) {
+  const status = clean(payload.status || 'PENDING').toUpperCase();
+  if (!['PENDING', 'APPROVED', 'REJECTED', 'ALL'].includes(status)) return fail('Trạng thái đối soát không hợp lệ.');
+  const query = { order: 'submitted_at.desc' };
+  if (status !== 'ALL') query.status = 'eq.' + status;
+  if (payload.start) query.submitted_at = 'gte.' + payload.start + 'T00:00:00+07:00';
+  const rows = await all('settlement_requests', query);
+  const end = payload.end ? Date.parse(payload.end + 'T23:59:59+07:00') : Infinity;
+  const filtered = rows.filter(x => Date.parse(x.submitted_at) <= end);
+  const groups = new Map();
+  for (const row of filtered) {
+    const group = groups.get(row.order_id) || [];
+    group.push(row);
+    groups.set(row.order_id, group);
+  }
+  const ids = [...groups.keys()];
+  const orderParts = [];
+  for (let i = 0; i < ids.length; i += 30) orderParts.push(ids.slice(i, i + 30));
+  const orders = (await Promise.all(orderParts.map(chunk =>
+    all('orders', { id: 'in.(' + chunk.map(x => '"' + x.replaceAll('"', '') + '"').join(',') + ')' })))).flat();
+  const byId = Object.fromEntries(orders.map(x => [x.id, x]));
+  const items = [];
+  for (const [orderId, requests] of groups) {
+    const x = requests[0];
+    const allBills = [...new Set(requests.flatMap(request => Array.isArray(request.bill_urls) ? request.bill_urls : []))];
+    items.push({
+      requestId: x.id, orderId: x.order_id, saleUsername: x.sale_username, saleName: x.sale_name,
+      flowerTotal: num(x.flower_total), accessoryTotal: num(x.accessory_total), vat: num(x.vat),
+      shipFee: num(x.ship_fee), requiredAmount: num(x.required_amount), billUrls: await billDisplayUrls(allBills),
+      requestIds: requests.map(request => request.id), duplicateCount: requests.length - 1,
+      note: x.note, status: x.status, createdAt: x.submitted_at, adminUsername: x.admin_username,
+      adminName: x.admin_name, reviewedAt: x.reviewed_at, reason: x.rejection_reason,
+      order: byId[orderId] ? decorate(await visibleOrder(byId[orderId]), user, x) : null
+    });
+  }
+  return { ok: true, status, range: payload.start || payload.end ? { start: payload.start || '', end: payload.end || '' } : null, items };
+}
+async function reviewSettlement(payload,user){
+  return atomicWrite('reviewSettlement',{...payload,settlementId:payload.settlementId||payload.requestId,requestId:payload.mutationRequestId||payload.requestId},user);
+}
+async function reviewBulk(payload,user){
+  const ids=[...new Set(Array.isArray(payload.requestIds)?payload.requestIds.map(clean).filter(Boolean):[])].slice(0,100);
+  if(!ids.length)return fail('Chưa chọn yêu cầu nào.');
+  if(!clean(payload.mutationRequestId))return fail('Thiếu mã yêu cầu.','REQUEST_ID_REQUIRED');
+  const failedItems=[],approvedOrderIds=[];
+  for(const id of ids){
+    const result=await reviewSettlement({settlementId:id,mutationRequestId:payload.mutationRequestId+':'+id,decision:'APPROVED'},user);
+    if(result.ok){if(!approvedOrderIds.includes(result.orderId))approvedOrderIds.push(result.orderId);}
+    else failedItems.push({requestId:id,reason:result.message});
+  }
+  return {ok:!failedItems.length,selected:ids.length,approved:approvedOrderIds.length,failed:failedItems.length,failedItems,approvedOrderIds,message:'Đã duyệt '+approvedOrderIds.length+' đơn.'};
+}
+async function getKpi(payload, user) {
+  const month = clean(payload.month) || dateToday().slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return fail('Tháng KPI không hợp lệ.');
+  const start = month + '-01', end = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  const allOrders = await decoratedRange(start, end, user);
+  // Tính trên toàn bộ đơn hàng trong tháng để khớp 100% với doanh thu Sheet sum lại
+  const orders = allOrders;
+  const penalties = await all('kpi_operations', { month: 'eq.' + month });
+  const users = await all('app_users', {});
+  const userMap = new Map();
+  for (const u of users) {
+    userMap.set(norm(u.username), u);
+    userMap.set(norm(u.display_name), u);
+  }
+  const aliases = {
+    'huynh kim xuyen': 'huynhxuyen', 'huynh xuyen': 'huynhxuyen', 'xuyen': 'huynhxuyen',
+    'huynh minh thu': 'huynhthu', 'huynh thu': 'huynhthu', 'thu': 'huynhthu',
+    'huynh ngoc lan': 'huynhlan', 'huynh lan': 'huynhlan', 'lan': 'huynhlan',
+    'hien le': 'hien', 'hien': 'hien',
+    'minh tien': 'tien', 'tien': 'tien',
+    'khanh': 'cmui', 'c mui': 'cmui', 'pu': 'pu'
+  };
+  function resolveUser(sale) {
+    const raw = clean(sale), k = norm(raw);
+    if (!raw) return userMap.get('cmui') || null;
+    const mapped = aliases[k] || k;
+    return userMap.get(mapped) || userMap.get(k) || null;
+  }
+
+  const grouped = {};
+  for (const o of orders) {
+    const u = resolveUser(o.sale);
+    if (user.role === 'SALE') {
+      const isMe = (u && norm(u.username) === norm(user.username)) ||
+                   norm(o.sale) === norm(user.username) ||
+                   norm(o.sale) === norm(user.display_name);
+      if (!isMe) continue;
+    } else if (user.role !== 'ADMIN') {
+      if (u && norm(u.username) === 'cmui') continue;
+    }
+    const saleKey = u ? u.display_name : (o.sale || 'Chưa gán');
+    const item = grouped[saleKey] ||= { sale: saleKey, username: u ? u.username : '', revenue: 0, orders: 0, bigOrders: 0 };
+    item.revenue += o.flowerTotal;
+    item.orders++;
+    if (o.flowerTotal >= 500000) item.bigOrders++;
+  }
+
+  const holiday = [2, 3, 10, 11].includes(Number(month.slice(5, 7)));
+  const target = holiday ? 50000000 : 38000000, bigTarget = holiday ? 20 : 16;
+  for (const item of Object.values(grouped)) {
+    const penalty = penalties.filter(x => {
+      const px = norm(x.sale_name || ''), pu = norm(x.sale_username || '');
+      const ix = norm(item.sale || ''), iu = norm(item.username || '');
+      return (ix && px === ix) || (iu && pu === iu) || (iu && px === iu);
+    }).reduce((n, x) => n + num(x.total_points), 0);
+
+    item.operationsScore = Math.max(0, 100 - penalty);
+    item.level1 = holiday ? item.revenue >= target : item.revenue > target;
+    item.bigTarget = bigTarget;
+    item.level2 = item.level1 && item.bigOrders >= bigTarget && item.operationsScore > 80;
+    item.rate = item.level2 ? .10 : .08;
+    item.commission = item.revenue * item.rate;
+    item.bonus = item.level1 ? 300000 : 0;
+  }
+  return { ok: true, month, holiday, items: Object.values(grouped), note: 'Mức 2 = đạt Mức 1 + target đơn ≥500.000đ + KPI vận hành >80.' };
+}
+async function saveKpi(payload, user) {
+  const d = payload.item || {}, points = num(d.points), count = Math.max(1, Math.floor(num(d.count) || 1));
+  if (!/^\d{4}-\d{2}$/.test(clean(d.month)) || !clean(d.saleName) || ![5, 10].includes(points)) return fail('Dữ liệu KPI chưa hợp lệ.');
+  const id = newId('KPI');
+  await db('kpi_operations', {}, 'POST', {
+    id, month: d.month, event_date: d.date || null, sale_username: clean(d.saleUsername),
+    sale_name: clean(d.saleName), order_id: clean(d.orderId) || null, error_type: clean(d.type),
+    points, count, total_points: points * count, note: clean(d.note),
+    admin_username: user.username, admin_name: user.display_name
+  });
+  return { ok: true, id };
+}
+function flowerKey(value) { return clean(value).replace(/\s+/g, ' ').toLocaleLowerCase('vi'); }
+function canonicalFlowers(values) {
+  return [...new Map((Array.isArray(values) ? values : []).map(value => clean(value).replace(/\s+/g, ' '))
+    .filter(Boolean).map(value => [flowerKey(value), value])).values()];
+}
+async function classifyFlowers(items) {
+  const apiKey = env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  const models = [...new Set([env.GEMINI_MODEL, 'gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-3.8-flash'].filter(Boolean))];
+  const prompt = 'Phân loại các mẫu hoa sau thành tên loài hoa chuẩn tiếng Việt. Không đếm cành, bỏ phụ kiện/bao bì/phong cách. Ly/Lily chuẩn hóa thành Lily. Nếu không xác định được loài hoa thì flowers=[] và needs_review=true. Chỉ trả JSON {"results":[{"fingerprint":"...","flowers":["..."],"needs_review":false}]}: ' + JSON.stringify(items);
+  const body = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: .1, responseMimeType: 'application/json' } };
+  for (const model of models) {
+    try {
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body)
+      });
+      if (!response.ok) continue;
+      const data = await response.json();
+      const raw = (data?.candidates?.[0]?.content?.parts || []).map(part => part.text || '').join('');
+      const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || '{}');
+      if (Array.isArray(parsed.results)) return parsed.results;
+    } catch (error) { console.error('Flower classification failed for model', model, error); }
+  }
+  return null;
+}
+async function flowers(payload, user) {
+  const date = clean(payload.date) || dateToday(), orders = await decoratedRange(date, date, user);
+  if (!orders.length) return { ok: true, status: 'empty', totalOrders: 0, analyzedOrders: 0, reviewCount: 0, items: [], reviewOrders: [] };
+  const cacheRows = await all('flower_cache', { select: 'content,flowers,needs_review,updated_at', order: 'updated_at.asc' });
+  const cache = new Map(cacheRows.map(row => [flowerKey(row.content), row]));
+  const unique = [...new Map(orders.map(order => [flowerKey(order.flower), clean(order.flower).slice(0, 700)]).filter(([key]) => key)).entries()];
+  const pending = unique.filter(([key]) => payload.forceRefresh || !cache.has(key));
+  for (let i = 0; i < pending.length; i += 40) {
+    const batch = await Promise.all(pending.slice(i, i + 40).map(async ([key, note]) => ({ fingerprint: await sha256(key), note })));
+    const results = await classifyFlowers(batch);
+    if (!results) break;
+    const byFingerprint = new Map(results.filter(result => result?.fingerprint).map(result => [result.fingerprint, result]));
+    const rows = batch.map(item => {
+      const result = byFingerprint.get(item.fingerprint) || {};
+      return { fingerprint: item.fingerprint, content: item.note, flowers: canonicalFlowers(result.flowers),
+        needs_review: !!result.needs_review || !Array.isArray(result.flowers) || !result.flowers.length, updated_at: new Date().toISOString() };
+    });
+    await db('flower_cache', { on_conflict: 'fingerprint' }, 'POST', rows);
+    rows.forEach(row => cache.set(flowerKey(row.content), row));
+  }
+  const groups = new Map(), reviewOrders = [];
+  let analyzedOrders = 0;
+  for (const order of orders) {
+    const entry = cache.get(flowerKey(order.flower));
+    const names = canonicalFlowers(entry?.flowers);
+    if (entry) analyzedOrders++;
+    if (!entry || entry.needs_review || !names.length) reviewOrders.push({ customer: order.customer, flower: order.flower, date: order.date, time: order.time });
+    for (const name of names) {
+      const groupKey = flowerKey(name), group = groups.get(groupKey) || { name, orders: 0, orderList: [] };
+      group.orders++;
+      group.orderList.push({ customer: order.customer, flower: order.flower, time: order.time, id: order.id });
+      groups.set(groupKey, group);
+    }
+  }
+  const items = [...groups.values()].sort((a, b) => b.orders - a.orders || a.name.localeCompare(b.name, 'vi'));
+  return { ok: true, status: reviewOrders.length ? 'needs_review' : 'ready', totalOrders: orders.length, analyzedOrders, reviewCount: reviewOrders.length, items, reviewOrders: reviewOrders.slice(0, 100) };
+}
+async function saveUser(payload, admin) {
+  const u = payload.user || {}, username = usernameNorm(u.username), name = clean(u.name), role = clean(u.role).toUpperCase();
+  if (!username || !name || !['ADMIN', 'THO_OPS', 'SALE'].includes(role)) return fail('Thông tin tài khoản chưa hợp lệ.');
+  const found = await one('app_users', { username: 'eq.' + username });
+  if (!found && String(u.password || '').length < 6) return fail('Mật khẩu mới phải có ít nhất 6 ký tự.');
+  const patch = { username, display_name: name, role, active: u.active !== false };
+  if (u.password) patch.password_hash = await sha256(PASSWORD_SALT + '|' + String(u.password));
+  if (found) {
+    await db('app_users', { username: 'eq.' + username }, 'PATCH', patch);
+    if (u.password || !patch.active || role !== found.role) await db('app_sessions', { username: 'eq.' + username }, 'DELETE');
+  } else await db('app_users', {}, 'POST', patch);
+  await audit(admin, null, 'ADMIN_USER', null, { username, role });
+  return { ok: true, name };
+}
+
+async function logPerformanceBatch(payload, user) {
+  const items = Array.isArray(payload.items) ? payload.items.slice(0, 100) : [];
+  const rows = items.filter(x => clean(x.api)).map(x => ({
+    occurred_at: Number.isFinite(Date.parse(x.at)) ? x.at : new Date().toISOString(),
+    api: clean(x.api).slice(0, 80), total_ms: Math.max(0, Math.min(120000, Math.round(num(x.totalMs)))),
+    server_ms: Math.max(0, Math.min(120000, Math.round(num(x.serverMs)))),
+    username: user.username, role: user.role, source: 'CLIENT'
+  }));
+  if (rows.length) await db('performance_log', {}, 'POST', rows);
+  return { ok: true, count: rows.length };
+}
+async function performanceReport(payload) {
+  const limit = Math.min(2000, Math.max(100, Math.floor(num(payload.limit) || 800)));
+  const rows = await db('performance_log', { select: 'api,total_ms,server_ms', order: 'occurred_at.desc', limit: String(limit) });
+  const grouped = new Map();
+  for (const row of rows) {
+    const values = grouped.get(row.api) || [];
+    values.push(row);
+    grouped.set(row.api, values);
+  }
+  const items = [...grouped].map(([api, values]) => {
+    const sorted = values.map(x => num(x.total_ms)).sort((a, b) => a - b);
+    const avg = key => Math.round(values.reduce((sum, x) => sum + num(x[key]), 0) / values.length);
+    return { api, samples: values.length, p50Ms: sorted[Math.floor((sorted.length - 1) * .50)],
+      p95Ms: sorted[Math.floor((sorted.length - 1) * .95)], serverAvgMs: avg('server_ms'),
+      clientAvgMs: Math.max(0, avg('total_ms') - avg('server_ms')), maxMs: sorted.at(-1) };
+  }).sort((a, b) => b.p95Ms - a.p95Ms);
+  return { ok: true, items, samples: rows.length };
+}
+
+const readRoutes = {
+  getAppOptions: options, getDashboardSummary: dashboard,
+  getProductionOrders: getProduction, getOrders, getDebtReview: getDebt,
+  getOrder, getSettlementQueue: settlementQueue, getKpi,
+  getFlowerInventory: flowers
+};
+const writeRoutes = {
+  createOrder, updateOrder, updateStatus, updateStatusBulk,
+  saveShipFee, saveShipAndSubmitSettlement: submitSettlement,
+  reviewSettlement, reviewSettlementsBulk: reviewBulk,
+  saveKpiOperation: saveKpi, saveUser
+};
+const adminRoutes = new Set(['listUsers', 'getSettlementQueue', 'reviewSettlement',
+  'reviewSettlementsBulk', 'saveKpiOperation', 'saveUser', 'getPerformanceReport',
+  'logPerformanceBatch', 'getDashboardSummary']);
+const opsRoutes = new Set(['updateStatus', 'updateStatusBulk', 'getFlowerInventory',
+  'getProductionOrders']);
+
+async function dispatch(name, payload) {
+  if (name === 'loginAndBootstrap') return loginAndBootstrap(payload);
+  const user = await requireUser(payload, adminRoutes.has(name) ? ['ADMIN'] :
+    opsRoutes.has(name) ? ['ADMIN', 'THO_OPS'] : null);
+  if (name === 'getCurrentUserAndBootstrap')
+    return { ok: true, user: publicUser(user), initial: await initial(user) };
+  if (name === 'listUsers') return usersList();
+  if (name === 'getPerformanceReport') return performanceReport(payload);
+  if (name === 'logPerformanceBatch') return logPerformanceBatch(payload, user);
+  const route = readRoutes[name] || writeRoutes[name];
+  if (!route) return fail('Thao tác không được hỗ trợ.');
+  return route(payload, user);
+}
+
+return async request => {
+  const origin = request.headers.get('origin');
+  const allowOrigin = (origin === new URL(request.url).origin) ? origin : (origin && (origin.includes('localhost') || origin.includes('127.0.0.1')) ? origin : ALLOWED_ORIGIN);
+  const cors = {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'content-type, authorization, apikey',
+    'Content-Type': 'application/json; charset=utf-8',
+    'Vary': 'Origin'
+  };
+  if (origin && !(origin === new URL(request.url).origin) && !origin.includes('localhost') && !origin.includes('127.0.0.1')) return new Response('Forbidden', { status: 403 });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  if (request.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: cors });
+  if (!env.DB || !env.MEDIA || !env.MEDIA_SIGNING_KEY) return new Response(JSON.stringify(fail('Máy chủ chưa cấu hình.')), { status: 503, headers: cors });
+  try {
+    if (Number(request.headers.get('content-length') || 0) > 12 * 1024 * 1024)
+      return new Response(JSON.stringify(fail('Dữ liệu gửi lên quá lớn.')), { status: 413, headers: cors });
+    const input = await request.json();
+    const name = clean(input?.name), payload = input?.payload && typeof input.payload === 'object' ? input.payload : {};
+    const started = Date.now();
+    const result = await dispatch(name, payload);
+    return new Response(JSON.stringify({ ...result, build: BUILD, _perf: { serverMs: Date.now() - started } }), { headers: cors });
+  } catch (error) {
+    const authError = /Phiên đăng nhập|Tài khoản đã bị khóa|Không có quyền/.test(error.message);
+    if (!authError) console.error('Meehoasg API error:', error);
+    const message = authError ? error.message : 'Máy chủ gặp lỗi. Vui lòng thử lại.';
+    const code = authError ? 'AUTH_REQUIRED' : 'SERVER_ERROR';
+    return new Response(JSON.stringify({ ...fail(message, code), build: BUILD }), { status: 200, headers: cors });
+  }
+};
+}
+
+

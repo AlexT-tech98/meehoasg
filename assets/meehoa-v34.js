@@ -22,37 +22,37 @@
   function enhanceOrderForm(){
     var form=qs('#orderForm');
     if(!form||form.dataset.meeEnhanced==='1') return;
-    var grid=qs('.form-grid',form);
-    if(!grid) return;
-
     form.dataset.meeEnhanced='1';
     form.classList.add('mee-order-form');
 
-    var customer=createSection('customer','01 · Khách hàng');
-    var order=createSection('order','02 · Đơn hoa');
-    var delivery=createSection('delivery','03 · Giao nhận');
-    var payment=createSection('payment','04 · Thanh toán & phụ trách');
-
-    var groups={
-      customer:['customer','phone'],
-      order:['flower','note','imageFiles'],
-      delivery:['date','time','shipping','address'],
-      payment:['flowerTotal','paymentType','depositAmount','sale']
-    };
-    function move(names,target){
-      names.forEach(function(name){
-        var w=findFieldWrap(form,name);
-        if(w&&w.parentElement===grid) target.appendChild(w);
-      });
+    /* UI V3 renders sections natively inside the Side Drawer (no DOM relocation needed). */
+    if(form.dataset.meeV3Layout!=='1'){
+      var grid=qs('.form-grid',form);
+      if(grid){
+        var customer=createSection('customer','01 · Khách hàng');
+        var order=createSection('order','02 · Đơn hoa');
+        var delivery=createSection('delivery','03 · Giao nhận');
+        var payment=createSection('payment','04 · Thanh toán & phụ trách');
+        var groups={
+          customer:['customer','phone'],
+          order:['flower','note','tagNoteFree','imageFiles'],
+          delivery:['date','time','shipping','address'],
+          payment:['flowerTotal','paymentType','depositAmount','sale']
+        };
+        function move(names,target){
+          names.forEach(function(name){
+            var w=findFieldWrap(form,name);
+            if(w&&w.parentElement===grid) target.appendChild(w);
+          });
+        }
+        move(groups.customer,customer);
+        move(groups.order,order);
+        move(groups.delivery,delivery);
+        move(groups.payment,payment);
+        [customer,order,delivery,payment].forEach(function(s){if(s.children.length>1) grid.appendChild(s)});
+      }
     }
-    move(groups.customer,customer);
-    move(groups.order,order);
-    move(groups.delivery,delivery);
-    move(groups.payment,payment);
-    [customer,order,delivery,payment].forEach(function(s){if(s.children.length>1) grid.appendChild(s)});
 
-    /* Keep original field nodes intact. Replacing input elements after the app binds
-       validation/listeners can break form behavior and cached DOM references. */
     var address=form.querySelector('[name="address"]');
     var addressWrap=address&&(address.closest('.span2')||address.parentElement);
     if(addressWrap) addressWrap.classList.add('mee-address-wrap');

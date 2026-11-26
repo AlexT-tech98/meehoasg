@@ -57,13 +57,15 @@ test('drawer separates customer note and card content from finance rows',()=>{
     shipping:'Ghé lấy',address:'',flowerTotal:1500000,card:true,cardQty:2,cardFee:20000,cardText,
     banner:false,charmFee:0,paperFee:0,vat:0,accessoryTotal:20000,shipFeePending:false,shipFee:0,paid:750000,debt:770000
   },true);
-  assert.match(html,/GHI CHÚ KHÁCH/);
+  assert.match(html,/LƯU Ý ĐƠN HÀNG/);
   assert.match(html,/NỘI DUNG THIỆP/);
   assert.match(html,/Mặt ngửa<br>Mặt úp/);
   assert.match(html,/Dòng 1<br>Dòng 2/);
   assert.match(html,/Thiệp × 2/);
   assert.match(html,/20\.000 ₫/);
-  const finance=html.slice(html.indexOf('TÀI CHÍNH & THANH TOÁN'));
+  const finStart=html.indexOf('TÀI CHÍNH & THANH TOÁN');
+  const finEnd=html.indexOf('THÔNG TIN ĐƠN HÀNG',finStart);
+  const finance=finEnd>finStart?html.slice(finStart,finEnd):html.slice(finStart);
   assert.doesNotMatch(finance,/Dòng 1|Dòng 2/);
 });
 

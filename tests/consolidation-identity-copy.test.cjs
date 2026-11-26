@@ -29,7 +29,8 @@ test('dashboard and KPI are canonicalized by the same identity rule',()=>{
 
 test('order copy excludes order id and uses synchronous clipboard fallback',()=>{
   assert.match(ui,/function buildCopyText\(o\)/);
-  assert.doesNotMatch(ui,/Mã đơn:/);
+  const copyTextSource=ui.slice(ui.indexOf('function buildCopyText(o)'),ui.indexOf('function textareaCopy(value)'));
+  assert.doesNotMatch(copyTextSource,/Mã đơn:/);
   assert.match(ui,/document\.execCommand&&document\.execCommand\('copy'\)/);
   assert.match(ui,/MEEOPS7\.copyOrderById=copyOrder/);
   assert.match(ui,/document\.addEventListener\('click',delegatedCopyTap,true\)/);
