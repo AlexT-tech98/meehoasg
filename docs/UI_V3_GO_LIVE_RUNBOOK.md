@@ -104,5 +104,43 @@ Trigger rollback immediately on any unexplained revenue/debt/KPI mismatch, autho
 ## 8. Post-Go-Live Monitoring (72h & 7-Day)
 
 - Monitor Edge Function error logs (`query_logs`), page load speed, API latency, and image rendering.
-- Track Egress at 72 hours and 7 days using **official Supabase Billing Usage** metrics (confirm new uploads/reads stay on Cloudflare R2 with zero revert to Supabase Storage).
+- Track Egress at 72 hours and 7 days using **official Supabase Billing Usage** metrics (distinguishing **Cached Egress** vs **Uncached Egress**, confirming new uploads/reads stay on Cloudflare R2 with zero revert to Supabase Storage).
 - Do not automatically upgrade or downgrade hosting/database plans.
+
+---
+
+## 9. V3.1 Post Go-Live Stabilization & Optimization Release Runbook
+
+Applies on top of UI V3 Production baseline `f0f9953cc53ab123707d7eef817b3cf3eefea63d` (`feat/ops-v3.1-stabilization`). **Do NOT execute on Production until Owner Go-Live authorization.**
+
+### 9.1 Database Migration (Delta Only)
+1. Verify zero duplicate normalized usernames on `public.app_users` (pre-audited: 18/18 unique).
+2. Apply **only** `supabase/migrations/20261126030000_ui_v3_1_username_uniqueness.sql` (adds `public.mee_username_norm(text)` and `idx_app_users_username_norm_unique`).
+
+### 9.2 Deploy Updated Edge Functions (Preserve Live Auth Config)
+- `meehoasg-order-actions` (`verify_jwt = false`): Permanent R2 fail-closed settlement bill uploads (no Supabase fallback on R2 error).
+- `meehoasg-api` (`verify_jwt = true`): `saveUser` create/edit separation + duplicate normalized username block (`USERNAME_EXISTS`) + DB `23505` guard.
+- `meehoasg-r2-copy` (`verify_jwt = false`, `apikey = SUPABASE_SECRET_KEYS.default`): controlled explicit `keys` batch copy + SHA-256 & R2 GET verification.
+- Keep `meehoasg-api-core` (`verify_jwt = true`), `meehoasg-delete-order` (`verify_jwt = false`), R2 secrets/tokens, Order Bot token, and Google Sheets Sync **OFF** (`active = false`) unchanged.
+
+### 9.3 Frontend Deploy (`ops.meehoasg.com`)
+- Merge V3.1 PR to `main` and confirm GitHub Pages publishes `RELEASE='20261126-ui-v3-1'`:
+  - Drawer: unified `ĐỊA CHỈ GIAO HÀNG` block (2 lines matching Thiệp/Note), compact copy icon replacing `Chạm để copy`, single top copy button `Copy thông tin đơn hàng`.
+  - Admin User Modal: explicit create vs edit mode with readonly username in edit mode.
+
+### 9.4 Controlled Production Data Operations (Only After Steps 9.1–9.3 Verified)
+1. **Group 1A — Legacy Note -> `tag_note_free` Normalization:**
+   - Re-run read-only `scripts/legacy-note-to-tag-note-free-dry-run.sql` (baseline: `3,814` auto-migrate eligible = `1,537` explicit + `2,277` clean legacy; `558` card/banner & `158` ops/mixed separated for review; `21` deleted/audit skipped; post-Go-Live `>= 2026-11-26T07:28:27Z` untouched).
+   - Run `scripts/legacy-note-to-tag-note-free-backfill.sql` (creates `public.legacy_note_migration_backup`, idempotent).
+   - Independent rollback: `scripts/legacy-note-to-tag-note-free-rollback.sql`.
+2. **Group 2B — Legacy Settlement Bills Migration (~430 bills, `150.7 MB`):**
+   - Re-run read-only `scripts/legacy-settlement-bills-inventory.sql` (baseline: `430` distinct `supabase://settlement-bills/...` across `285` `settlement_requests`, `0` missing in `storage.objects`).
+   - Run `scripts/migrate-settlement-bills-to-r2.cjs --copy --batch-size=20` then `--verify --batch-size=20` (SHA-256 + R2 GET verification on every object).
+   - Run `scripts/legacy-settlement-bills-r2-switch.sql` with verified keys list (creates `public.legacy_settlement_bills_r2_backup`, switches DB refs to `r2://meehoasg-media/settlement-bills/...`, **keeps Supabase Storage originals intact** until Owner approves separate cleanup).
+   - Verify Payment Check displays migrated bills cleanly; independent rollback: `scripts/legacy-settlement-bills-r2-rollback.sql`.
+3. **Group 2C — Go-Live R2 Test Objects Cleanup (Allow-List Only):**
+   - Run `scripts/r2-cleanup-golive-test-objects.cjs` (`--dry-run` first, then `--execute` after Owner confirmation) covering **ONLY** the 6 verified zero-ref JPEG objects from purged orders `MEE-4C8D65C26A8B4BA1` & `MEE-3ECAF7FA21984333`. Never deletes `MEE-4CEA187B770C469B` (`efe981ed-...`, still in Trash) or any customer/website/Order Bot media.
+
+### 9.5 Official Supabase Egress Monitoring (72h & 7-Day)
+- Monitor **Supabase Dashboard -> Organization Billing / Usage -> Egress**: track **Cached Egress** vs **Uncached Egress** separately at 72 hours and 7 days post-V3.1.
+- Confirm new sample images, Full Paid bills, and settlement bills incur **0** new Supabase Storage uploads/egress, and do not downgrade to Free or change plans without Owner review.

@@ -2240,6 +2240,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
   if (allowFullCopy === void 0) allowFullCopy = true;
   if (thumbBlock === void 0) thumbBlock = '';
   var shipIco = typeof v3ShipIcon === 'function' ? v3ShipIcon(o.shipping) : '';
+  var copyIco = typeof v3Icon === 'function' ? v3Icon('copy', 'mee3-ico-sm') : '⧉';
   var cardQty=Math.max(1,Number(o.cardQty||1)),cardFee=Number(o.cardFee)||cardQty*10000,bannerQtyVal=Math.max(1,Number(o.bannerQty||1));
   var accessoryRows=[],accessoryBlocks=[];
   if(o.card){
@@ -2270,14 +2271,14 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
   var hasAddr = Boolean(String(o.address || '').trim());
   var addrBlock = hasAddr
     ? '<div class="mee3-note-block mee3-addr-block mee3-copyable-block copyable" role="button" tabindex="0" data-mee-copy-address="1" title="Copy địa chỉ giao hàng" aria-label="Copy địa chỉ giao hàng" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'address\',\'địa chỉ giao hàng\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
-        '<div class="mee3-note-block-head"><span>ĐỊA CHỈ GIAO HÀNG</span><span class="mee3-icon-copy" aria-hidden="true">' + v3Icon('copy', 'mee3-ico-sm') + '</span></div>' +
+        '<div class="mee3-note-block-head"><span>ĐỊA CHỈ GIAO HÀNG</span><span class="mee3-icon-copy" aria-hidden="true">' + copyIco + '</span></div>' +
         '<div class="mee3-note-text">' + multiline(o.address) + '</div>' +
       '</div>'
     : '<div class="mee3-note-block mee3-addr-block"><div class="mee3-note-block-head"><span>ĐỊA CHỈ GIAO HÀNG</span></div><div class="mee3-note-text">Nhận tại cửa hàng</div></div>';
 
   var phoneBlock = String(o.phone || '').trim()
     ? '<div class="mee3-copyable-block copyable" role="button" tabindex="0" data-mee-copy-phone="1" title="Copy số điện thoại" aria-label="Copy số điện thoại" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
-        '<span class="mee3-kv-label mee3-kv-label-row"><span>Số điện thoại</span><span class="mee3-icon-copy" aria-hidden="true">' + v3Icon('copy', 'mee3-ico-sm') + '</span></span>' +
+        '<span class="mee3-kv-label mee3-kv-label-row"><span>Số điện thoại</span><span class="mee3-icon-copy" aria-hidden="true">' + copyIco + '</span></span>' +
         '<span class="mee3-kv-val mee3-num">' + esc(o.phone) + '</span>' +
       '</div>'
     : '<div><span class="mee3-kv-label">Số điện thoại</span><span class="mee3-kv-val">—</span></div>';
