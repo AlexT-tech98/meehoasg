@@ -250,6 +250,10 @@ describe('Form ↔ Bot ↔ createOrder read same loadOrderRules', () => {
     assert.ok(html.includes('getOrderRules'), 'dist/html must call getOrderRules');
     assert.ok(html.includes('S.options.rules'), 'dist/html must store rules in S.options.rules');
     assert.ok(html.includes('applyRulesToOrderForm'), 'dist/html must apply rules to form');
+    assert.ok(
+      html.includes('form.querySelector(\'[name="phone"]\')'),
+      'applyRulesToOrderForm must match [name="phone"] (supports textarea upgraded by meehoa-core.js)'
+    );
   });
 
   it('core.js routes getOrderRules (confirmed by entry)', async () => {
