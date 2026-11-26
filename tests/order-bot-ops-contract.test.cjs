@@ -1299,9 +1299,17 @@ async function sha256Hex(text) {
 }
 
 async function createRealOpsHarness() {
+  const path = require('node:path');
+  const { pathToFileURL } = require('node:url');
   const sqlite = new DatabaseSync(':memory:');
-  const opsSchema = fs.readFileSync('cloudflare-migration/generated/schema.sql', 'utf8');
-  const botSchema = fs.readFileSync('order-bot/cloudflare/schema.sql', 'utf8');
+  const opsBase = process.env.OPS_RUNTIME_DIR
+    ? path.resolve(process.env.OPS_RUNTIME_DIR)
+    : path.resolve(__dirname, '..', 'cloudflare-migration');
+  const schemaPath = fs.existsSync(path.join(opsBase, 'schema', 'schema.sql'))
+    ? path.join(opsBase, 'schema', 'schema.sql')
+    : path.join(opsBase, 'generated', 'schema.sql');
+  const opsSchema = fs.readFileSync(schemaPath, 'utf8');
+  const botSchema = fs.readFileSync(path.resolve(__dirname, '..', 'order-bot', 'cloudflare', 'schema.sql'), 'utf8');
   sqlite.exec(opsSchema);
   sqlite.exec(botSchema);
 
@@ -1348,7 +1356,7 @@ async function createRealOpsHarness() {
     .bind(tokenHash, JSON.stringify({ token_hash: tokenHash, username: 'cmui', expires_at: '2099-12-31T23:59:59.000Z' }))
     .run();
 
-  const { createCore } = await import('../cloudflare-migration/runtime/core.js');
+  const { createCore } = await import(pathToFileURL(path.join(opsBase, 'runtime', 'core.js')).href);
   const rawOpsHandler = createCore({
     DB: db,
     MEDIA_R2: r2,
@@ -2386,12 +2394,13 @@ test('Contract 22: /confirm blocks before createOrder when OPS caller cannot ass
 
 // ─── Contract 23: Fake-conversation benchmark (Telegram → worker → real OPS core, fake Gemini) ───
 
-test('Contract 23: conversation benchmark — keep "Như" on ship add-on, AI on natural caption, split 2 orders, ask back, 350k/200k paid/debt from OPS, AI failure fallback', async () => {
+test('Contract 23: conversation benchmark — keep "Như" on ship add-on, clean "Bó tulip trắng", explicit edit, split 2 orders, ask back, 350k/200k paid/debt from OPS, AI failure/quota fallback', async () => {
   const path = require('node:path');
   const { runConversationBenchmark } = await import('./helpers/conversation-benchmark.mjs');
   const root = path.resolve(__dirname, '..');
-  const results = await runConversationBenchmark(root, root);
+  const opsDir = process.env.OPS_RUNTIME_DIR ? path.resolve(process.env.OPS_RUNTIME_DIR) : path.join(root, 'cloudflare-migration');
+  const results = await runConversationBenchmark(root, opsDir);
   const failed = results.filter(r => !r.pass);
   assert.equal(failed.length, 0, `Failed benchmark cases: ${JSON.stringify(failed, null, 2)}`);
-  assert.equal(results.length, 6);
+  assert.equal(results.length, 7);
 });

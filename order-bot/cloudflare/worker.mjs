@@ -62,7 +62,7 @@ import {
 } from './telegram.mjs';
 
 import { callCreateOrder, syncOrderPaymentToOps, fetchOpsOrderRules, getCachedOpsOrderRules } from './ops-client.mjs';
-import { extractFieldsWithGemini, sanitizeAiFields } from './gemini.mjs';
+import { extractFieldsWithGemini, sanitizeAiFields, DEFAULT_GEMINI_MODEL } from './gemini.mjs';
 
 const DEFAULT_ALLOWED_USER_ID = 5252724920;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -278,6 +278,8 @@ export default {
           staleConfirmingDrafts: stale.length,
           telegramConfigured: Boolean(botToken),
           webhookSecretConfigured: Boolean(env.TELEGRAM_SECRET_TOKEN),
+          geminiConfigured: Boolean(env.GEMINI_API_KEY),
+          geminiModel: env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
           webhookInfo: webhookInfo,
           timestamp: new Date().toISOString()
         }), {
@@ -795,20 +797,31 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
 const AI_FILLABLE_FIELDS = ['customer', 'phone', 'flower', 'date', 'time', 'shipping', 'address', 'flowerTotal'];
 const isBlankField = v => v === undefined || v === null || String(v).trim() === '';
+const hasExplicitEditIntent = text => {
+  const norm = String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+  return /\b(sua|doi|thay\s*doi|cap\s*nhat|chinh|chuyen\s*sang)\b/.test(norm);
+};
+const isShippingLikeName = val => {
+  const norm = String(val || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+  return /\b(shop\s*(?:book|ship|giao)|khach\s*tu\s*book|tu\s*book|ghe\s*lay|tai\s*tiem|tu\s*lay|grab|aha)\b/.test(norm);
+};
 
 /**
  * Run Gemini AI fallback on top of the deterministic parser for both photo captions and text.
- * - Called when the parser found nothing, or found something but important fields are still blank.
- * - AI may ONLY fill fields that are still blank after the parser and that the parser did not touch;
- *   it can never overwrite an existing customer/price/date (e.g. keeps "Như" when "Shop book ship" is added).
- * - Any AI failure silently falls back to the parser result (owner still reviews summary before /confirm).
+ * - Called when the parser found nothing, when user expresses explicit edit intent, or when important fields are still blank.
+ * - By default AI may ONLY fill fields that are still blank and untouched by the parser;
+ *   it never overwrites an existing customer/price/date (e.g. keeps "Như" when "Shop book ship" is added).
+ * - When explicit edit intent is present (e.g. "đổi sang giao lúc 15h30"), AI may update fields explicitly extracted
+ *   for that edit, while still refusing to overwrite customer with shipping phrases.
+ * - Any AI failure/quota error silently falls back to the parser result and preserves the draft.
  */
 export async function mergeAiFallback(baseDraft, text, structured, env, opsRules) {
   const result = structured || { draft: baseDraft, changes: [], warnings: [] };
   if (!env?.GEMINI_API_KEY || !text || String(text).trim().length < 5) return result;
   const after = result.draft || baseDraft;
+  const explicitEdit = hasExplicitEditIntent(text);
   const stillMissing = AI_FILLABLE_FIELDS.filter(f => isBlankField(after?.fields?.[f]));
-  if (result.changes?.length && stillMissing.length === 0) return result;
+  if (result.changes?.length && stillMissing.length === 0 && !explicitEdit) return result;
 
   let aiExtracted = null;
   try {
@@ -820,7 +833,12 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
 
   const touched = new Set((result.changes || []).map(c => c.field));
   const lines = Object.entries(aiExtracted)
-    .filter(([k]) => !touched.has(k) && isBlankField(after?.fields?.[k]))
+    .filter(([k, v]) => {
+      if (touched.has(k)) return false;
+      if (k === 'customer' && isShippingLikeName(v)) return false;
+      if (isBlankField(after?.fields?.[k])) return true;
+      return explicitEdit && k !== 'customer';
+    })
     .map(([k, v]) => `${k}: ${String(v).replace(/[\r\n]+/g, ' ').trim()}`);
   if (!lines.length) return result;
 

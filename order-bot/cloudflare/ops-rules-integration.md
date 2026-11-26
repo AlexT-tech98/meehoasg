@@ -38,10 +38,10 @@ Ngày lập: 2026-11-26 · Nhánh: `feat/meehoa-order-bot-v1` (Draft PR #65)
 | `public/html` → `dist/html` | Form đọc `getOrderRules`, áp dụng SĐT bắt buộc / tiền hoa / ngưỡng cọc |
 | `tests/order-rules.test.mjs` (mới) | 33 test cho quy tắc, cùng nguồn đọc, chặn API trực tiếp, bật/tắt `phone_required` và đối chiếu Form vs Bot |
 
-## 5. Đề xuất tích hợp có thể review
+## 5. Trạng thái tích hợp (cập nhật 2026-11-26)
 
-1. Owner xác nhận `cloudflare-migration/` là nguồn chính thức của OPS Staging.
-2. Tạo nhánh `feat/ops-cloudflare-runtime` từ `origin/main`, chỉ commit: `runtime/`, `public/`, `build-*.mjs`, `wrangler.toml`, `package*.json`, `tests/`, tài liệu. Thêm `.gitignore` cho `generated/`, `live-snapshot/`, `dist/`, `node_modules/`, `*.before-*`, `.dev.vars`, `private-backup/`.
-3. Thêm `cloudflare-migration/schema/schema.sql` (chỉ DDL, không dữ liệu) và cho test của bot dùng file này.
-4. Sửa `package.json`: tách `build:backend` (thao tác chủ động, có cảnh báo) khỏi `build` mặc định (= `build-frontend.mjs`), tránh ghi đè runtime.
-5. Mở PR riêng cho OPS runtime; PR #65 phụ thuộc PR đó. Merge OPS trước, rồi rebase PR #65.
+- **Đã tách vào Git**: nhánh `feat/ops-cloudflare-runtime` (commit `5e8b22b`, **Draft PR #70**: `https://github.com/AlexT-tech98/meehoasg/pull/70`).
+- Chỉ commit 32 file sạch (`runtime/`, `public/` đã làm sạch URL/JWT Supabase cũ, `schema/schema.sql` chỉ DDL, `build-frontend.mjs`, `build-backend.mjs` có khóa `ALLOW_OVERWRITE_RUNTIME=1`, `package*.json`, `wrangler.toml`, `tests/`). Mọi dump/snapshot/secrets/dist bị loại qua `.gitignore`.
+- `npm run build` chỉ build frontend vào `dist/` và không bao giờ ghi đè `runtime/`.
+- Test hợp đồng Bot–OPS hỗ trợ biến môi trường `OPS_RUNTIME_DIR` trỏ thẳng tới bản clone sạch của nhánh OPS (`feat/ops-cloudflare-runtime`).
+- **Thứ tự merge**: review & merge Draft PR #70 trước, sau đó rebase & merge Draft PR #65 (chỉ sau khi owner duyệt).

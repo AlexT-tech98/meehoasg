@@ -83,18 +83,18 @@ export function sanitizeAiFields(parsed) {
   return Object.keys(result).length ? result : null;
 }
 
-/**
- * Extract order fields from conversational text using Gemini API.
- * @param {string} apiKey - Gemini API Key
- * @param {string} text - Message text from user
- * @param {string} [model='gemini-2.5-flash'] - Gemini model name
- * @param {Function} [fetcher=fetch] - Fetch implementation
- * @returns {Promise<object|null>} Extracted fields object or null on failure
- */
-export async function extractFieldsWithGemini(apiKey, text, model = 'gemini-2.5-flash', fetcher = fetch) {
-  if (!apiKey || !text || text.trim().length < 5) return null;
+export const DEFAULT_GEMINI_MODEL = 'gemini-4-hydrogen';
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+/**
+ * Extract order fields from conversational text using Gemini API with telemetry.
+ * @returns {Promise<{ok: boolean, fields: object|null, model: string, latencyMs: number, status?: number, error?: string}>}
+ */
+export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFAULT_GEMINI_MODEL, fetcher = fetch) {
+  const activeModel = String(model || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
+  if (!apiKey) return { ok: false, fields: null, model: activeModel, latencyMs: 0, error: 'NO_API_KEY' };
+  if (!text || text.trim().length < 5) return { ok: false, fields: null, model: activeModel, latencyMs: 0, error: 'TEXT_TOO_SHORT' };
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(activeModel)}:generateContent`;
 
   const body = {
     contents: [
@@ -113,6 +113,7 @@ export async function extractFieldsWithGemini(apiKey, text, model = 'gemini-2.5-
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 12000);
+  const startedAt = Date.now();
 
   try {
     const res = await fetcher(url, {
@@ -126,24 +127,46 @@ export async function extractFieldsWithGemini(apiKey, text, model = 'gemini-2.5-
     });
 
     clearTimeout(timeoutId);
+    const latencyMs = Date.now() - startedAt;
 
     if (!res.ok) {
-      console.warn(`[gemini] API responded with HTTP ${res.status}`);
-      return null;
+      let errMsg = `HTTP_${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson?.error?.status || errJson?.error?.message) {
+          errMsg = `${res.status} ${errJson.error.status || ''}: ${String(errJson.error.message || '').slice(0, 180)}`.trim();
+        }
+      } catch {}
+      console.warn(`[gemini] API responded with HTTP ${res.status} (model=${activeModel})`);
+      return { ok: false, fields: null, model: activeModel, latencyMs, status: res.status, error: errMsg };
     }
 
     const data = await res.json();
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) return null;
+    if (!rawText) return { ok: false, fields: null, model: activeModel, latencyMs, status: res.status, error: 'EMPTY_RESPONSE' };
 
     // Clean JSON markdown fences if any
     const jsonStr = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
     const parsed = JSON.parse(jsonStr);
 
-    return sanitizeAiFields(parsed);
+    return { ok: true, fields: sanitizeAiFields(parsed), model: activeModel, latencyMs, status: res.status };
   } catch (err) {
     clearTimeout(timeoutId);
+    const latencyMs = Date.now() - startedAt;
     console.warn('[gemini] Extraction failed or timed out:', err?.name || 'Error');
-    return null;
+    return { ok: false, fields: null, model: activeModel, latencyMs, error: err?.name || 'NETWORK_ERROR' };
   }
+}
+
+/**
+ * Extract order fields from conversational text using Gemini API.
+ * @param {string} apiKey - Gemini API Key
+ * @param {string} text - Message text from user
+ * @param {string} [model='gemini-4-hydrogen'] - Gemini model name
+ * @param {Function} [fetcher=fetch] - Fetch implementation
+ * @returns {Promise<object|null>} Extracted fields object or null on failure
+ */
+export async function extractFieldsWithGemini(apiKey, text, model = DEFAULT_GEMINI_MODEL, fetcher = fetch) {
+  const res = await extractFieldsWithGeminiDetailed(apiKey, text, model, fetcher);
+  return res.ok ? res.fields : null;
 }

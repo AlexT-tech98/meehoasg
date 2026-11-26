@@ -2,11 +2,16 @@
  * Fake-conversation benchmark for MEEHOA Order Bot.
  *
  * Drives the real Telegram webhook handler (worker.mjs) against the real OPS core runtime
- * (cloudflare-migration/runtime/core.js) on an in-memory SQLite D1. Telegram and Gemini are faked:
- * the fake Gemini returns scripted JSON so the test checks the bot's plumbing and merge rules
- * (when AI is called, which fields it may fill, what it may never overwrite) — NOT Gemini accuracy.
+ * (cloudflare-migration/runtime/core.js) on an in-memory SQLite D1.
  *
- * Usage (CLI): node tests/helpers/conversation-benchmark.mjs <botRoot> [opsRoot]
+ * Modes:
+ *  - Default (mocked Gemini): scripted JSON responses verify plumbing, merge rules, edit rules,
+ *    and quota/error fallback deterministically.
+ *  - Real Gemini (`--real-gemini --model gemini-4-hydrogen` with GEMINI_API_KEY env): calls the live
+ *    Gemini REST API on fake order messages and measures per-field accuracy, re-asks, and latency.
+ *
+ * Usage:
+ *   node tests/helpers/conversation-benchmark.mjs <botRoot> [opsDirOrRoot] [--real-gemini --model gemini-4-hydrogen]
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,6 +19,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 
 const CHAT_ID = 5252724920;
+
+function resolveOpsDir(opsDirOrRoot) {
+  const p = path.resolve(opsDirOrRoot);
+  if (fs.existsSync(path.join(p, 'runtime', 'core.js'))) return p;
+  return path.join(p, 'cloudflare-migration');
+}
 
 async function sha256Hex(text) {
   const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
@@ -46,9 +57,13 @@ function createMockR2() {
   };
 }
 
-async function createHarness(botRoot, opsRoot) {
+async function createHarness(botRoot, opsDirOrRoot) {
+  const opsDir = resolveOpsDir(opsDirOrRoot);
+  const schemaPath = fs.existsSync(path.join(opsDir, 'schema', 'schema.sql'))
+    ? path.join(opsDir, 'schema', 'schema.sql')
+    : path.join(opsDir, 'generated', 'schema.sql');
   const sqlite = new DatabaseSync(':memory:');
-  sqlite.exec(fs.readFileSync(path.join(opsRoot, 'cloudflare-migration/generated/schema.sql'), 'utf8'));
+  sqlite.exec(fs.readFileSync(schemaPath, 'utf8'));
   sqlite.exec(fs.readFileSync(path.join(botRoot, 'order-bot/cloudflare/schema.sql'), 'utf8'));
   const db = {
     sqlite,
@@ -74,7 +89,7 @@ async function createHarness(botRoot, opsRoot) {
     .bind('cmui', JSON.stringify({ username: 'cmui', display_name: 'C Mụi', role: 'ADMIN', active: true })).run();
   await db.prepare('INSERT INTO app_sessions(row_key, data) VALUES (?, ?)')
     .bind(tokenHash, JSON.stringify({ token_hash: tokenHash, username: 'cmui', expires_at: '2099-12-31T23:59:59.000Z' })).run();
-  const { createCore } = await import(pathToFileURL(path.join(opsRoot, 'cloudflare-migration/runtime/core.js')).href);
+  const { createCore } = await import(pathToFileURL(path.join(opsDir, 'runtime/core.js')).href);
   const raw = createCore({ DB: db, MEDIA_R2: r2, MEDIA_SIGNING_KEY: 'bench-signing-key', LEGACY_PASSWORD_SALT: 'MEE-FLOWER-V4' });
   const opsHandler = (input, init) => raw(input instanceof Request ? input : new Request(input, init));
   const callOpsApi = async (name, payload) => (await opsHandler(new Request('https://ops.local/api-core', {
@@ -88,11 +103,13 @@ function geminiReply(obj) {
   return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] }), { status: 200 });
 }
 
-async function runCase(mods, botRoot, opsRoot, { gemini, steps, check }) {
-  const h = await createHarness(botRoot, opsRoot);
+async function runCase(mods, botRoot, opsDirOrRoot, c, options = {}) {
+  const { realGemini = false, geminiApiKey = '', geminiModel = 'gemini-4-hydrogen' } = options;
+  const h = await createHarness(botRoot, opsDirOrRoot);
   mods.clearCache?.();
   const sent = [];
   const geminiCalls = [];
+  const geminiLatenciesMs = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, opts) => {
     const u = String(url);
@@ -100,7 +117,14 @@ async function runCase(mods, botRoot, opsRoot, { gemini, steps, check }) {
       const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
       const msg = (prompt.split('"""')[1] || '').trim();
       geminiCalls.push(msg);
-      const out = gemini ? gemini(msg) : {};
+      const t0 = Date.now();
+      if (realGemini && !c.forceErrorMock) {
+        const resp = await originalFetch(url, opts);
+        geminiLatenciesMs.push(Date.now() - t0);
+        return resp;
+      }
+      const out = c.gemini ? c.gemini(msg) : {};
+      geminiLatenciesMs.push(Date.now() - t0);
       return out instanceof Response ? out : geminiReply(out || {});
     }
     if (u.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/s.jpg', file_size: 1024 } }));
@@ -112,7 +136,9 @@ async function runCase(mods, botRoot, opsRoot, { gemini, steps, check }) {
     DB: h.db, MEDIA_R2: h.r2, BOT_TOKEN: 'fake_bot_token', OPS_TOKEN: h.opsToken,
     OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
     OPS_SERVICE: { fetch: h.opsHandler }, TELEGRAM_SECRET_TOKEN: 'bench_secret',
-    ALLOWED_USER_IDS: String(CHAT_ID), GEMINI_API_KEY: 'fake-gemini-key', GEMINI_MODEL: 'gemini-2.5-flash'
+    ALLOWED_USER_IDS: String(CHAT_ID),
+    GEMINI_API_KEY: realGemini ? geminiApiKey : 'fake-gemini-key',
+    GEMINI_MODEL: geminiModel
   };
   let id = 1000;
   const send = msg => {
@@ -124,11 +150,20 @@ async function runCase(mods, botRoot, opsRoot, { gemini, steps, check }) {
     });
     return mods.handleTelegramWebhook(req, env);
   };
+  const caseStart = Date.now();
   try {
-    for (const s of steps) await send(typeof s === 'string' ? { text: s } : s);
+    for (const s of c.steps) await send(typeof s === 'string' ? { text: s } : s);
     const drafts = await mods.loadDrafts(h.db, CHAT_ID);
     const ops = await h.callOpsApi('getOrders', { start: '2026-01-01', end: '2027-12-31', page: 1, pageSize: 100 });
-    return await check({ drafts, ops, sent, geminiCalls, active: drafts[drafts.__active], list: Object.entries(drafts).filter(([k]) => !k.startsWith('__')).map(([, v]) => v) });
+    const reAskCount = sent.filter(m => /Còn thiếu|Chưa có đơn nháp|cần làm rõ|bổ sung/i.test(String(m.text || ''))).length;
+    const out = await c.check({ drafts, ops, sent, geminiCalls, active: drafts[drafts.__active], list: Object.entries(drafts).filter(([k]) => !k.startsWith('__')).map(([, v]) => v) });
+    return {
+      ...out,
+      mode: realGemini && !c.forceErrorMock ? `real:${geminiModel}` : 'mock-gemini',
+      latencyMs: Date.now() - caseStart,
+      geminiLatenciesMs,
+      reAskCount
+    };
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -141,7 +176,7 @@ const norm = s => String(s || '').normalize('NFC').toLowerCase();
 export const CASES = [
   {
     id: 'keep_customer_on_shipping_addon',
-    title: 'Giữ khách "Như" khi lượt sau chỉ bổ sung "Shop book ship" + địa chỉ (AI giả cố tình trả customer sai)',
+    title: 'Giữ tên "Như" khi bổ sung "Shop book ship" + địa chỉ (kể cả khi AI trả customer sai)',
     gemini: msg => (/shop book ship/i.test(msg) ? { customer: 'Shop book ship', shipping: 'Shop book ship', address: '102/34c Phan Huy Ích, P. Tân Sơn' } : {}),
     steps: [
       photo('p_nhu', 'Như + 0394200327\nmẫu: Bó hồng pastel\nTổng 350k\n28/12 & 13h30'),
@@ -154,16 +189,31 @@ export const CASES = [
     }
   },
   {
-    id: 'natural_caption_uses_ai',
-    title: 'Ảnh + caption viết tự nhiên: bot gọi AI để điền phần parser chưa hiểu, không đoán giá/mẫu ngoài caption',
+    id: 'natural_caption_clean_flower',
+    title: 'Tách tên khách khỏi mô tả hoa để trường mẫu chỉ chứa "Bó tulip trắng"',
     gemini: msg => (/tulip/i.test(msg) ? { customer: 'Lan', flower: 'Bó tulip trắng', date: '2026-12-29', time: '10:00', shipping: 'Khách tự book', flowerTotal: 500000 } : {}),
     steps: [photo('p_lan', 'chị Lan lấy bó tulip trắng nha, 500k, nhận 29/12 lúc 10h, khách tự book')],
-    check: ({ active, geminiCalls }) => {
+    check: ({ active }) => {
       const f = active?.fields || {};
-      const ok = geminiCalls.length >= 1 && /lan/i.test(f.customer || '') && /tulip/i.test(f.flower || '') &&
-        !/500k|29\/12|10h|tự book/i.test(f.flower || '') &&
-        Number(f.flowerTotal) === 500000 && f.shipping === 'Khách tự book' && Boolean(f.time);
-      return { pass: ok, detail: { geminiCalls: geminiCalls.length, customer: f.customer, flower: f.flower, flowerTotal: f.flowerTotal, shipping: f.shipping, date: f.date, time: f.time } };
+      const ok = f.customer === 'Lan' && f.flower === 'Bó tulip trắng' &&
+        Number(f.flowerTotal) === 500000 && f.shipping === 'Khách tự book' && f.date === '2026-12-29' && f.time === '10:00';
+      return { pass: ok, detail: { customer: f.customer, flower: f.flower, flowerTotal: f.flowerTotal, shipping: f.shipping, date: f.date, time: f.time } };
+    }
+  },
+  {
+    id: 'explicit_edit_existing_field',
+    title: 'Sửa rõ ràng một trường đã có ("sửa giờ thành 15h", "đổi giá thành 450k") mà giữ nguyên mọi trường khác',
+    gemini: () => ({}),
+    steps: [
+      photo('p_edit', 'Như + 0394200327\nmẫu: Bó hồng pastel\nTổng 350k\n28/12 & 13h30\nship: Ghé lấy'),
+      'sửa giờ thành 15h',
+      'đổi giá thành 450k'
+    ],
+    check: ({ active }) => {
+      const f = active?.fields || {};
+      const ok = f.customer === 'Như' && f.phone === '0394200327' && f.flower === 'Bó hồng pastel' &&
+        f.shipping === 'Ghé lấy' && f.time === '15:00' && Number(f.flowerTotal) === 450000;
+      return { pass: ok, detail: { customer: f.customer, flower: f.flower, time: f.time, flowerTotal: f.flowerTotal, shipping: f.shipping } };
     }
   },
   {
@@ -213,9 +263,10 @@ export const CASES = [
     }
   },
   {
-    id: 'ai_failure_falls_back',
-    title: 'Gemini lỗi HTTP 500: bot không sập, vẫn tạo nháp từ parser và báo phần còn thiếu',
-    gemini: () => new Response('{}', { status: 500 }),
+    id: 'ai_quota_or_error_preserves_draft',
+    title: 'AI lỗi hoặc hết hạn mức (HTTP 429 RESOURCE_EXHAUSTED): bot không sập, vẫn giữ nháp từ parser và báo phần còn thiếu',
+    forceErrorMock: true,
+    gemini: () => new Response(JSON.stringify({ error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded' } }), { status: 429 }),
     steps: [photo('p_err', 'Mai + 0909111222\nbó cúc họa mi, nhận 31/12 khoảng chiều')],
     check: ({ active, sent }) => {
       const f = active?.fields || {};
@@ -226,7 +277,7 @@ export const CASES = [
   }
 ];
 
-export async function runConversationBenchmark(botRoot, opsRoot = botRoot) {
+export async function runConversationBenchmark(botRoot, opsDirOrRoot = botRoot, options = {}) {
   const imp = p => import(pathToFileURL(path.join(botRoot, p)).href);
   const worker = await imp('order-bot/cloudflare/worker.mjs');
   const store = await imp('order-bot/cloudflare/d1-store.mjs');
@@ -235,8 +286,8 @@ export async function runConversationBenchmark(botRoot, opsRoot = botRoot) {
   const results = [];
   for (const c of CASES) {
     try {
-      const r = await runCase(mods, botRoot, opsRoot, c);
-      results.push({ id: c.id, title: c.title, pass: Boolean(r.pass), detail: r.detail });
+      const r = await runCase(mods, botRoot, opsDirOrRoot, c, options);
+      results.push({ id: c.id, title: c.title, pass: Boolean(r.pass), mode: r.mode, latencyMs: r.latencyMs, geminiLatenciesMs: r.geminiLatenciesMs, reAskCount: r.reAskCount, detail: r.detail });
     } catch (err) {
       results.push({ id: c.id, title: c.title, pass: false, detail: { error: String(err?.message || err) } });
     }
@@ -245,11 +296,20 @@ export async function runConversationBenchmark(botRoot, opsRoot = botRoot) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
-  const botRoot = path.resolve(process.argv[2] || '.');
-  const opsRoot = path.resolve(process.argv[3] || botRoot);
+  const args = process.argv.slice(2);
+  const realGemini = args.includes('--real-gemini');
+  const modelIdx = args.indexOf('--model');
+  const geminiModel = modelIdx >= 0 ? args[modelIdx + 1] : 'gemini-4-hydrogen';
+  const positional = args.filter((a, i) => a !== '--real-gemini' && a !== '--model' && i !== modelIdx + 1);
+  const botRoot = path.resolve(positional[0] || '.');
+  const opsDirOrRoot = path.resolve(positional[1] || process.env.OPS_RUNTIME_DIR || botRoot);
   const prevCwd = process.cwd();
   process.chdir(botRoot);
-  const results = await runConversationBenchmark(botRoot, opsRoot);
+  const results = await runConversationBenchmark(botRoot, opsDirOrRoot, {
+    realGemini,
+    geminiApiKey: process.env.GEMINI_API_KEY || '',
+    geminiModel
+  });
   process.chdir(prevCwd);
-  console.log(JSON.stringify({ botRoot, results, passed: results.filter(r => r.pass).length, total: results.length }, null, 2));
+  console.log(JSON.stringify({ botRoot, opsDirOrRoot, realGemini, geminiModel, results, passed: results.filter(r => r.pass).length, total: results.length }, null, 2));
 }

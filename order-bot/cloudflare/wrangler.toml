@@ -7,7 +7,7 @@ workers_dev = true
 [vars]
 OPS_API_URL = "https://meehoasg-ops-staging.meehoasg.workers.dev/api-core"
 ALLOWED_USER_IDS = "5252724920"
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-4-hydrogen"
 
 [[d1_databases]]
 binding = "DB"

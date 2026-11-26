@@ -1024,7 +1024,7 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
     // 6. Flower description detection
     if (FLOWER_PATTERN.test(normLine)) {
       // Keep only the flower description: drop comma-separated fragments that are dates, times, prices or shipping
-      const flowerOnly = cleanLine
+      let flowerOnly = cleanLine
         .split(/\s*[,;]\s*/)
         .filter(seg => {
           const n = seg.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
@@ -1034,6 +1034,25 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
         })
         .join(', ')
         .trim();
+
+      // Separate leading customer + ordering verb (e.g. "chị Lan lấy bó tulip trắng nha" -> customer "Lan", flower "Bó tulip trắng")
+      const mCustFlower = flowerOnly.match(
+        /^(?:chị|anh|em|cô|bác|khách|bạn)\s+([A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]+){0,2})\s+(?:lấy|đặt|mua|chọn|order)\s+(.+)$/i
+      );
+      if (mCustFlower) {
+        if (!fields.customer) fields.customer = mCustFlower[1].trim();
+        flowerOnly = mCustFlower[2].trim();
+      } else {
+        flowerOnly = flowerOnly.replace(/^(?:lấy|đặt|mua|chọn|order)\s+/i, '').trim();
+      }
+      // Strip trailing conversational filler particles ("nha", "nhé", "ạ", "giúp em", ...)
+      const strippedFiller = flowerOnly.replace(/\s+(?:nha\s+(?:em|shop)|nhé\s+(?:em|shop)|giúp\s+em|giùm\s+em|dùm\s+em|nha|nhé|nhe|nhá|ạ)+$/i, '').trim();
+      if (strippedFiller) flowerOnly = strippedFiller;
+      // Capitalize initial letter when natural lead-in/filler was stripped (e.g. "bó tulip trắng" -> "Bó tulip trắng")
+      if (mCustFlower && flowerOnly && /^[a-zà-ỹ]/.test(flowerOnly)) {
+        flowerOnly = flowerOnly[0].toUpperCase() + flowerOnly.slice(1);
+      }
+
       fields.flower = flowerOnly || cleanLine;
       const lineWithoutPhones = cleanLine.replace(/(?:sdt|phone|sđt|số\s*điện\s*thoại)?\s*[:=-]?\s*\b0\d{9,10}\b/gi, ' ');
       const mPrice = lineWithoutPhones.match(/(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)|(?<![\d.])\b[1-9]\d{4,8}\b)/i);
@@ -1077,10 +1096,22 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
 
 function applyFieldLine(draft, line) {
   const cleanLine = line.replace(/^[-*•]\s*/, '').trim();
+  let rawKey = '';
+  let rawVal = '';
   const sep = cleanLine.indexOf(':');
-  if (sep < 1) return null;
-  const rawKey = cleanLine.slice(0, sep).trim();
-  const rawVal = cleanLine.slice(sep + 1).trim();
+  if (sep >= 1) {
+    rawKey = cleanLine.slice(0, sep).trim();
+    rawVal = cleanLine.slice(sep + 1).trim();
+  } else {
+    // Support explicit edit syntax without colon, e.g. "đổi giờ thành 15h", "sửa giá sang 450k", "sửa mẫu hoa thành Bó tulip trắng"
+    const mEdit = cleanLine.match(/^(?:sửa|đổi|chỉnh|cập\s*nhật|thay\s*đổi)\s+(.+?)\s+(?:lại\s+thành|thành|sang|lại\s+là|là)\s+(.+)$/i);
+    if (!mEdit) return null;
+    rawKey = mEdit[1].trim();
+    rawVal = mEdit[2].trim();
+  }
+  // Strip optional leading edit verb from key (e.g. "sửa giờ: 15h" -> "giờ")
+  rawKey = rawKey.replace(/^(?:sửa|đổi|chỉnh|cập\s*nhật|thay\s*đổi)\s+/i, '').trim();
+  if (!rawKey || !rawVal) return null;
 
   // Check forbidden fields (payment, status, admin)
   const normK = normalizeKey(rawKey);
