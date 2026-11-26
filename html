@@ -2195,12 +2195,11 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
       shipFeeAction(o) +
       (isDebt ? settleBtn : ((o.canEdit ? '<button type="button" class="btn primary" data-mee-order-action="edit" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settleBtn));
 
-  var quickBar = '<div class="mee3-quickbar">' +
-    (!isDebt ? '<button type="button" class="mee3-quickbtn" data-mee-copy-order-id="' + attr(o.id) + '" data-mee-order-action="copy" onclick="MEEOPS7.copyOrderById(\'' + o.id + '\')">' + v3Icon('copy', 'mee3-ico-sm') + ' Copy đơn</button>' : '') +
-    (o.phone ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')">' + v3Icon('phone', 'mee3-ico-sm') + ' Copy SĐT</button>' : '') +
-    (String(o.address || '').trim() ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'address\',\'địa chỉ giao hàng\')">' + v3Icon('pin', 'mee3-ico-sm') + ' Copy địa chỉ</button>' : '') +
-    (String(o.tagNoteFree||'').trim() ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'tagNoteFree\',\'Tag note free\')">' + v3Icon('tag', 'mee3-ico-sm') + ' Copy Tag</button>' : '') +
-  '</div>';
+  var quickBar = !isDebt
+    ? '<div class="mee3-quickbar">' +
+        '<button type="button" class="mee3-quickbtn" data-mee-copy-order-id="' + attr(o.id) + '" data-mee-order-action="copy" onclick="MEEOPS7.copyOrderById(\'' + o.id + '\')">' + v3Icon('copy', 'mee3-ico-sm') + ' Copy thông tin đơn hàng</button>' +
+      '</div>'
+    : '';
 
   var isWalkIn = Boolean(o.isWalkIn || o.orderType === 'WALK_IN');
   var thumbBlock = loadingDetail
@@ -2262,15 +2261,15 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
 
   var hasAddr = Boolean(String(o.address || '').trim());
   var addrBlock = hasAddr
-    ? '<div class="mee3-span2 mee3-copyable-block copyable" role="button" tabindex="0" data-mee-copy-address="1" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'address\',\'địa chỉ giao hàng\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
-        '<span class="mee3-kv-label">Địa chỉ giao hàng <span class="mee3-copy-hint">Chạm để copy</span></span>' +
-        '<span class="mee3-kv-val">' + esc(o.address) + '</span>' +
+    ? '<div class="mee3-note-block mee3-addr-block mee3-copyable-block copyable" role="button" tabindex="0" data-mee-copy-address="1" title="Copy địa chỉ giao hàng" aria-label="Copy địa chỉ giao hàng" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'address\',\'địa chỉ giao hàng\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
+        '<div class="mee3-note-block-head"><span>ĐỊA CHỈ GIAO HÀNG</span><span class="mee3-icon-copy" aria-hidden="true">' + v3Icon('copy', 'mee3-ico-sm') + '</span></div>' +
+        '<div class="mee3-note-text">' + multiline(o.address) + '</div>' +
       '</div>'
-    : '<div class="mee3-span2"><span class="mee3-kv-label">Địa chỉ giao hàng</span><span class="mee3-kv-val">Nhận tại cửa hàng</span></div>';
+    : '<div class="mee3-note-block mee3-addr-block"><div class="mee3-note-block-head"><span>ĐỊA CHỈ GIAO HÀNG</span></div><div class="mee3-note-text">Nhận tại cửa hàng</div></div>';
 
   var phoneBlock = String(o.phone || '').trim()
-    ? '<div class="mee3-copyable-block copyable" role="button" tabindex="0" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
-        '<span class="mee3-kv-label">Số điện thoại <span class="mee3-copy-hint">Chạm để copy</span></span>' +
+    ? '<div class="mee3-copyable-block copyable" role="button" tabindex="0" data-mee-copy-phone="1" title="Copy số điện thoại" aria-label="Copy số điện thoại" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
+        '<span class="mee3-kv-label mee3-kv-label-row"><span>Số điện thoại</span><span class="mee3-icon-copy" aria-hidden="true">' + v3Icon('copy', 'mee3-ico-sm') + '</span></span>' +
         '<span class="mee3-kv-val mee3-num">' + esc(o.phone) + '</span>' +
       '</div>'
     : '<div><span class="mee3-kv-label">Số điện thoại</span><span class="mee3-kv-val">—</span></div>';
@@ -2290,14 +2289,14 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
     '</section>' +
     /* UX-02 Step 5: Phụ kiện */
     (accessoryBlocks.length ? '<section class="mee3-detail-card mee3-zone-accessory" data-drawer-zone="accessory"><div class="mee3-detail-card-head"><span>PHỤ KIỆN &amp; NỘI DUNG KÈM THEO</span></div>' + accessoryBlocks.join('') + '</section>' : '') +
-    /* UX-02 Step 6: Giao nhận (kèm UX-01 Chạm để copy địa chỉ) */
+    /* UX-02 Step 6: Giao nhận (Địa chỉ giao hàng thống nhất khối Thiệp/Note + icon Copy gọn) */
     '<section class="mee3-detail-card mee3-zone-delivery" data-drawer-zone="delivery">' +
       '<div class="mee3-detail-card-head"><span>GIAO NHẬN</span></div>' +
       '<div class="mee3-detail-kv">' +
         '<div><span class="mee3-kv-label">Thời gian nhận</span><span class="mee3-kv-val mee3-num">' + dateVN(o.date) + ' · ' + esc(timeVN(o.time)) + '</span></div>' +
         '<div><span class="mee3-kv-label">Hình thức giao</span><span class="mee3-kv-val">' + shipIco + ' ' + esc(o.shipping || '—') + '</span></div>' +
-        addrBlock +
       '</div>' +
+      addrBlock +
     '</section>' +
     /* Khách hàng & Nguồn đơn (TC-19 / TC-20) */
     '<section class="mee3-detail-card mee3-zone-customer" data-drawer-zone="customer">' +

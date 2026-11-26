@@ -3185,14 +3185,39 @@ body .fab {
   border-color: var(--v3-navy);
   outline: none;
 }
-#overlay .mee3-copy-hint {
+#overlay .mee3-note-block.mee3-addr-block {
+  padding: 9px 11px;
+  background: #FFFFFF;
+  border: 1px solid var(--v3-border);
+}
+#overlay .mee3-note-block.mee3-addr-block.mee3-copyable-block:hover,
+#overlay .mee3-note-block.mee3-addr-block.mee3-copyable-block:focus-visible {
+  border-color: var(--v3-navy);
+  background: #FFFFFF;
+}
+#overlay .mee3-kv-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+#overlay .mee3-icon-copy {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  font-weight: 600;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--v3-border-strong);
+  background: var(--v3-surface);
   color: var(--v3-navy);
-  margin-left: 6px;
+  flex: 0 0 24px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+#overlay .mee3-copyable-block:hover .mee3-icon-copy,
+#overlay .mee3-copyable-block:focus-visible .mee3-icon-copy {
+  background: var(--v3-navy-soft);
+  border-color: var(--v3-navy);
 }
 #overlay .mee3-flower-lead {
   font-size: 14.5px;
