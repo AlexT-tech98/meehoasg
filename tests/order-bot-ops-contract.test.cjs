@@ -2407,7 +2407,7 @@ test('Contract 23: conversation benchmark — keep "Như" on ship add-on, clean 
 
 // ─── Contract 24: Repro 17:45 Hydrogen caption ("Khách Thảo My ... 650 ngàn ... 88 Võ Văn Tần quận 3") ───
 
-test('Contract 24: Gemini 4 Hydrogen omits deprecated temperature, uses responseSchema + maxOutputTokens + SSE streaming, skips thought parts, falls back AQ. keys to aiplatform, and logs full telemetry', async () => {
+test('Contract 24: Gemini 4 Hydrogen omits deprecated temperature, uses responseSchema + maxOutputTokens + SSE streaming, skips thought parts, routes AQ. keys to aiplatform as primary, falls back standard keys to aiplatform on 503, and logs full telemetry', async () => {
   const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
   const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
   const { buildGeminiRequestBody, extractFieldsWithGeminiDetailed } = await import('../order-bot/cloudflare/gemini.mjs');
@@ -2553,13 +2553,41 @@ test('Contract 24: Gemini 4 Hydrogen omits deprecated temperature, uses response
     assert.ok(audit.extractedKeys.includes('customer'));
     assert.ok(audit.extractedKeys.includes('flowerTotal'));
 
-    // 6. Vertex Express AQ. fallback when generativelanguage returns HTTP 401
-    const fallbackUrls = [];
-    const fallbackFetcher = async url => {
+    // 6a. AQ. key → aiplatform.googleapis.com as PRIMARY (Vertex Express key routing)
+    //     AQ. keys belong to Vertex Express: use aiplatform directly, NOT generativelanguage first.
+    const aqUrls = [];
+    const aqFetcher = async url => {
       const u = String(url);
-      fallbackUrls.push(u);
+      aqUrls.push(u);
+      if (u.includes('aiplatform.googleapis.com')) {
+        return new Response(
+          `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: fullJson }] }, finishReason: 'STOP' }] })}\n\n`,
+          { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+        );
+      }
+      return new Response('Not found', { status: 404 });
+    };
+    const aqRes = await extractFieldsWithGeminiDetailed('AQ.testExpressKey', caption, 'gemini-4-hydrogen', aqFetcher);
+    // Must call aiplatform FIRST (not generativelanguage) for AQ. keys
+    assert.equal(aqUrls.length, 1, 'AQ. key must call aiplatform directly without trying generativelanguage first');
+    assert.ok(aqUrls[0].includes('aiplatform.googleapis.com/v1/publishers/google/models/gemini-4-hydrogen:streamGenerateContent?alt=sse'));
+    assert.equal(aqRes.ok, true);
+    assert.equal(aqRes.endpoint, 'aiplatform');
+    assert.equal(aqRes.status, 200);
+    assert.equal(aqRes.fields.customer, 'Thảo My');
+    assert.equal(aqRes.fields.flowerTotal, 650000);
+
+    // 6b. Standard key → generativelanguage primary, fallback to aiplatform on HTTP 503 (server overload)
+    //     Root cause of lượt 18:18 (#b0dca9): generativelanguage returned 503 but old code only fell back on 400/401/403.
+    const fbUrls503 = [];
+    const fetcher503 = async url => {
+      const u = String(url);
+      fbUrls503.push(u);
       if (u.includes('generativelanguage.googleapis.com')) {
-        return new Response(JSON.stringify({ error: { code: 401, status: 'UNAUTHENTICATED', message: 'API key not valid' } }), { status: 401 });
+        return new Response(
+          JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'This model is currently experiencing high demand' } }),
+          { status: 503 }
+        );
       }
       if (u.includes('aiplatform.googleapis.com')) {
         return new Response(
@@ -2569,15 +2597,14 @@ test('Contract 24: Gemini 4 Hydrogen omits deprecated temperature, uses response
       }
       return new Response('Not found', { status: 404 });
     };
-    const fbRes = await extractFieldsWithGeminiDetailed('AQ.testExpressKey', caption, 'gemini-4-hydrogen', fallbackFetcher);
-    assert.equal(fallbackUrls.length, 2);
-    assert.ok(fallbackUrls[0].includes('generativelanguage.googleapis.com'));
-    assert.ok(fallbackUrls[1].includes('aiplatform.googleapis.com/v1/publishers/google/models/gemini-4-hydrogen:streamGenerateContent?alt=sse'));
-    assert.equal(fbRes.ok, true);
-    assert.equal(fbRes.endpoint, 'aiplatform');
-    assert.equal(fbRes.status, 200);
-    assert.equal(fbRes.fields.customer, 'Thảo My');
-    assert.equal(fbRes.fields.flowerTotal, 650000);
+    const fbRes503 = await extractFieldsWithGeminiDetailed('standard-key', caption, 'gemini-4-hydrogen', fetcher503);
+    assert.equal(fbUrls503.length, 2, 'Standard key must fallback to aiplatform on 503');
+    assert.ok(fbUrls503[0].includes('generativelanguage.googleapis.com'));
+    assert.ok(fbUrls503[1].includes('aiplatform.googleapis.com/v1/publishers/google/models/gemini-4-hydrogen:streamGenerateContent?alt=sse'));
+    assert.equal(fbRes503.ok, true);
+    assert.equal(fbRes503.endpoint, 'aiplatform');
+    assert.equal(fbRes503.fields.customer, 'Thảo My');
+    assert.equal(fbRes503.fields.flowerTotal, 650000);
   } finally {
     globalThis.fetch = origFetch;
   }

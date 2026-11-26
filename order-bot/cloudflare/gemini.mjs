@@ -324,7 +324,13 @@ async function executeGeminiCall(url, endpointName, apiKey, body, fetcher, activ
 
 /**
  * Extract order fields from conversational text using Gemini SSE streaming API with telemetry.
- * Falls back once to Vertex Express (`aiplatform.googleapis.com`) for `AQ.` keys if `generativelanguage` returns 400/401/403.
+ *
+ * Key routing logic:
+ * - Keys starting with `AQ.` are Vertex Express keys — use `aiplatform.googleapis.com` as PRIMARY.
+ *   Falls back to `generativelanguage.googleapis.com` only on 401/403 (key mismatch).
+ * - All other keys use `generativelanguage.googleapis.com` as primary.
+ *   Falls back to `aiplatform.googleapis.com` on 400/401/403/503 (rate-limit / unavailable).
+ *
  * @returns {Promise<{ok: boolean, fields: object|null, model: string, endpoint?: string, latencyMs: number, headersMs?: number|null, status?: number|null, thoughtParts?: number, textParts?: number, finishReason?: string|null, error?: string}>}
  */
 export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFAULT_GEMINI_MODEL, fetcher = fetch, timeoutMs = DEFAULT_GEMINI_TIMEOUT_MS) {
@@ -334,14 +340,28 @@ export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFA
 
   const body = buildGeminiRequestBody(text, activeModel);
   const effectiveTimeout = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0 ? Number(timeoutMs) : DEFAULT_GEMINI_TIMEOUT_MS;
-  const primaryUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(activeModel)}:streamGenerateContent?alt=sse`;
 
-  const primaryRes = await executeGeminiCall(primaryUrl, 'generativelanguage', apiKey, body, fetcher, activeModel, effectiveTimeout);
-  if (!primaryRes.ok && String(apiKey).startsWith('AQ.') && [400, 401, 403].includes(Number(primaryRes.status))) {
-    const expressUrl = `https://aiplatform.googleapis.com/v1/publishers/google/models/${encodeURIComponent(activeModel)}:streamGenerateContent?alt=sse`;
-    return executeGeminiCall(expressUrl, 'aiplatform', apiKey, body, fetcher, activeModel, effectiveTimeout);
+  const isVertexExpressKey = String(apiKey).startsWith('AQ.');
+  const aiplatformUrl = `https://aiplatform.googleapis.com/v1/publishers/google/models/${encodeURIComponent(activeModel)}:streamGenerateContent?alt=sse`;
+  const genaiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(activeModel)}:streamGenerateContent?alt=sse`;
+
+  if (isVertexExpressKey) {
+    // Vertex Express key → aiplatform.googleapis.com is primary
+    const primaryRes = await executeGeminiCall(aiplatformUrl, 'aiplatform', apiKey, body, fetcher, activeModel, effectiveTimeout);
+    if (!primaryRes.ok && [401, 403].includes(Number(primaryRes.status))) {
+      // Unexpected: try generativelanguage as last resort
+      return executeGeminiCall(genaiUrl, 'generativelanguage', apiKey, body, fetcher, activeModel, effectiveTimeout);
+    }
+    return primaryRes;
+  } else {
+    // Standard API key → generativelanguage.googleapis.com is primary
+    // Fallback to aiplatform on 400/401/403/503 (auth error or server overload)
+    const primaryRes = await executeGeminiCall(genaiUrl, 'generativelanguage', apiKey, body, fetcher, activeModel, effectiveTimeout);
+    if (!primaryRes.ok && [400, 401, 403, 503].includes(Number(primaryRes.status))) {
+      return executeGeminiCall(aiplatformUrl, 'aiplatform', apiKey, body, fetcher, activeModel, effectiveTimeout);
+    }
+    return primaryRes;
   }
-  return primaryRes;
 }
 
 /**
