@@ -91,7 +91,7 @@ async function login(payload) {
   await db('app_sessions', {}, 'POST', { token_hash: await sha256(raw), username, expires_at: new Date(Date.now() + SESSION_MS).toISOString() });
   return { ok: true, token: raw, user: publicUser(user) };
 }
-function accessoryTotal(order) { return (order.card ? Math.max(1,Math.min(99,Math.floor(num(order.card_qty)||1)))*10000 : 0) + (order.banner ? 35000 : 0) + num(order.charm_fee) + num(order.paper_fee); }
+function accessoryTotal(order) { return (order.card ? Math.max(1,Math.min(99,Math.floor(num(order.card_qty)||1)))*10000 : 0) + (order.banner ? Math.max(1,Math.min(99,Math.floor(num(order.banner_qty)||1)))*35000 : 0) + num(order.charm_fee) + num(order.paper_fee); }
 function contactFields(row) {
   const contact = clean(row.address);
   const phoneInContact = contact.match(/(?:SĐT|SDT)\s*:\s*([^\n]+)/i);
@@ -133,7 +133,7 @@ function decorate(row, user, settlement) {
     flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
     fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),paymentVerified:verified,settled: row.settled, status: row.status, shipFee: num(row.ship_fee),
     shipConfirmed: row.ship_confirmed, shipFeePending: norm(row.shipping).includes('shop') && !row.ship_confirmed,
-    card: row.card, cardQty:row.card?Math.max(1,Math.min(99,Math.floor(num(row.card_qty)||1))):0, cardText: row.card_text, banner: row.banner, bannerText: row.banner_text,
+    card: row.card, cardQty:row.card?Math.max(1,Math.min(99,Math.floor(num(row.card_qty)||1))):0, cardText: row.card_text, banner: row.banner, bannerQty:row.banner?Math.max(1,Math.min(99,Math.floor(num(row.banner_qty)||1))):0, bannerFee:row.banner?Math.max(1,Math.min(99,Math.floor(num(row.banner_qty)||1)))*35000:0, bannerText: row.banner_text,
     charmFee: num(row.charm_fee), charmText: row.charm_text, paperFee: num(row.paper_fee),
     paperText: row.paper_text, vat: num(row.vat), accessoryTotal: accessory,
     totalDue: total, debt: verified ? 0 : Math.max(0, total - paid),

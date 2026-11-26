@@ -1,7 +1,7 @@
 const clean = v => String(v ?? '').trim();
 
 export const BASE_ORDER_VALIDATION_RULES = {
-  schemaVersion: '2026-11-26.v2',
+  schemaVersion: '2026-11-26.v3',
   saleDefault: 'cmui',
   saleDefaultName: 'C Mụi',
   required: ['customer', 'flower', 'date', 'time', 'shipping', 'flowerTotal'],
@@ -9,16 +9,22 @@ export const BASE_ORDER_VALIDATION_RULES = {
   minFlowerTotal: 1,
   minDepositRatio: 0.5,
   depositBase: 'flowerTotal',
-  conditionalRequired: [
+  conditionalRequired: [],
+  conditionalReminders: [
     { field: 'address', when: { field: 'shipping', equals: 'Shop book ship' }, rejectPending: true }
   ],
+  accessoryPrices: {
+    cardUnitFee: 10000,
+    bannerUnitFee: 35000
+  },
   enums: {
     shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'],
     statuses: ['Chờ bó', 'Đã bó', 'Đã giao']
   },
   supportedRuleFeatures: [
     'required_fields',
-    'conditional_required',
+    'conditional_reminders',
+    'accessory_unit_pricing',
     'min_deposit_ratio',
     'flower_total_required',
     'shipping_enum',
@@ -42,7 +48,7 @@ export function buildOrderRules(overrides = {}) {
 
   return {
     ...BASE_ORDER_VALIDATION_RULES,
-    schemaVersion: phoneRequired ? '2026-11-26.v2+phone' : BASE_ORDER_VALIDATION_RULES.schemaVersion,
+    schemaVersion: phoneRequired ? '2026-11-26.v3+phone' : BASE_ORDER_VALIDATION_RULES.schemaVersion,
     required: baseRequired,
     requireFlowerTotal,
     minDepositRatio,

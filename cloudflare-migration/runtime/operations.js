@@ -17,7 +17,7 @@ function put(db,table,key,value,existing=false,version){
 }
 function audit(db,user,id,action,before,after){const value={occurred_at:new Date().toISOString(),username:user.username,display_name:user.display_name,role:user.role,order_id:id||null,action,before_data:before||null,after_data:after||null};return db.prepare("WITH next(id) AS (SELECT coalesce(max(cast(row_key AS integer)),0)+1 FROM activity_log) INSERT INTO activity_log(row_key,data) SELECT cast(id AS text),json_set(?,'$.id',id) FROM next").bind(JSON.stringify(value))}
 function owner(order,user){return [clean(user.username).toLowerCase(),clean(user.display_name).toLowerCase()].includes(clean(order.sale).toLowerCase())}
-function total(order){const card=order.card?Math.max(1,Math.floor(amount(order.card_qty)||1))*10000:0;return amount(order.flower_total)+card+(order.banner?35000:0)+amount(order.charm_fee)+amount(order.paper_fee)+amount(order.vat)+(clean(order.shipping).toLowerCase().includes('shop')&&order.ship_confirmed?amount(order.ship_fee):0)}
+function total(order){const card=order.card?Math.max(1,Math.floor(amount(order.card_qty)||1))*10000:0;const banner=order.banner?Math.max(1,Math.floor(amount(order.banner_qty)||1))*35000:0;return amount(order.flower_total)+card+banner+amount(order.charm_fee)+amount(order.paper_fee)+amount(order.vat)+(clean(order.shipping).toLowerCase().includes('shop')&&order.ship_confirmed?amount(order.ship_fee):0)}
 function receipt(db,args,result){const value={actor:args.p_actor,request_id:args.p_request_id,action:args.p_action,fingerprint:args.p_fingerprint,result,created_at:new Date().toISOString()};return put(db,'operation_receipts',`${args.p_actor}:${args.p_request_id}`,value)}
 async function lookup(db,args){const user=await get(db,'app_users',args.p_actor);if(!user?.active)return fail('AUTH_REQUIRED','Tài khoản đã bị khóa.');const r=await db.prepare("SELECT data FROM operation_receipts WHERE json_extract(data,'$.actor')=? AND json_extract(data,'$.request_id')=? LIMIT 1").bind(args.p_actor,args.p_request_id).first();const old=row(r);if(!old)return null;if(old.action!==args.p_action||old.fingerprint!==args.p_fingerprint)return fail('REQUEST_CHANGED','Nội dung đã thay đổi sau lần gửi trước. Kiểm tra kết quả trước khi gửi yêu cầu mới.');return old.result||{idempotent:true}}
 export function createOperationRpc(db){return async function rpc(name,args){
@@ -46,7 +46,7 @@ export function createOperationRpc(db){return async function rpc(name,args){
       !['flower_total','charm_fee','paper_fee','vat','ship_fee'].every(k=>validMoney(data[k]))||
       typeof data.card!=='boolean'||typeof data.banner!=='boolean'||typeof data.ship_confirmed!=='boolean'||
       (data.card&&(!Number.isInteger(Number(data.card_qty))||Number(data.card_qty)<1||Number(data.card_qty)>99||!clean(data.card_text)))||
-      (data.banner&&!clean(data.banner_text)))return fail('ORDER_INPUT_INVALID','Thông tin đơn, thời gian hoặc số tiền không hợp lệ.');
+      (data.banner&&(!Number.isInteger(Number(data.banner_qty??1))||Number(data.banner_qty??1)<1||Number(data.banner_qty??1)>99||!clean(data.banner_text))))return fail('ORDER_INPUT_INVALID','Thông tin đơn, thời gian hoặc số tiền không hợp lệ.');
     try{validateOrderRulesServer(data,input.orderRules||BASE_ORDER_VALIDATION_RULES);}catch(e){return fail(e.code||'ORDER_INPUT_INVALID',e.message);}
     // Match production SQL: normalize whitespace and prefer exact username over display name.
     const saleName=clean(user.role==='SALE'?user.username:data.sale);
@@ -72,7 +72,7 @@ export function createOperationRpc(db){return async function rpc(name,args){
       flower:data.flower,note:data.note??'',shipping:data.shipping,address:data.address??'',
       flower_total:Number(data.flower_total),payment:data.payment??'',sale:canonical,
       card:data.card,card_qty:data.card?Number(data.card_qty):0,card_text:data.card_text??'',
-      banner:data.banner,banner_text:data.banner_text??'',charm_fee:Number(data.charm_fee),
+      banner:data.banner,banner_qty:data.banner?Math.max(1,Math.floor(Number(data.banner_qty??1)||1)):0,banner_text:data.banner_text??'',charm_fee:Number(data.charm_fee),
       charm_text:data.charm_text??'',paper_fee:Number(data.paper_fee),paper_text:data.paper_text??'',
       vat:Number(data.vat),image_urls:images,unverified_bill_urls:unverifiedBills,ship_fee:data.shipping==='Shop book ship'?Number(data.ship_fee):0,
       ship_confirmed:data.shipping==='Shop book ship'?data.ship_confirmed:false,

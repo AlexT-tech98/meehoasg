@@ -726,7 +726,7 @@
 /* Canonical latest ops runtime: order ergonomics, copy and delete flow. Dashboard hourly tracking is owned by v361. */
 (function(){
   'use strict';
-  var DELETE_URL='/delete-order';
+  var DELETE_URL='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-delete-order';
 
   function qs(s,r){return (r||document).querySelector(s)}
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
@@ -790,9 +790,9 @@
 
   function buildCopyText(o){
     if(!o)return'';
-    var q=Math.max(1,Number(o.cardQty||1)),accessory=[];
-    if(o.card)accessory.push('Thiệp: '+(o.cardText||'')+' ('+vnd(q*10000)+')');
-    if(o.banner)accessory.push('Banner: '+(o.bannerText||'')+' (35.000đ)');
+    var q=Math.max(1,Number(o.cardQty||1)),bq=Math.max(1,Number(o.bannerQty||1)),accessory=[];
+    if(o.card)accessory.push('Thiệp'+(q>1?' ×'+q:'')+': '+(o.cardText||'')+' ('+vnd(q*10000)+')');
+    if(o.banner)accessory.push('Banner'+(bq>1?' ×'+bq:'')+': '+(o.bannerText||'')+' ('+vnd(bq*35000)+')');
     if(Number(o.charmFee))accessory.push('Charm: '+(o.charmText||'')+' ('+vnd(o.charmFee)+')');
     if(Number(o.paperFee))accessory.push('Thay giấy: '+(o.paperText||'')+' ('+vnd(o.paperFee)+')');
     var out=[
@@ -920,7 +920,7 @@
 /* Canonical owner: shipping fee and settlement submission business flow. */
 (function(){
   'use strict';
-  var ENDPOINT='/order-actions';
+  var ENDPOINT='https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-order-actions';
   function qs(s,r){return (r||document).querySelector(s)}
   function qsa(s,r){return Array.from((r||document).querySelectorAll(s))}
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}

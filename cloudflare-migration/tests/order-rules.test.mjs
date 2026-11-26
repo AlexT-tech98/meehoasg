@@ -280,7 +280,7 @@ async function createCoreHarness() {
   const { createCore } = await import('../runtime/core.js');
 
   const sqlite = new DatabaseSync(':memory:');
-  sqlite.exec(readFileSync(new URL('../schema/schema.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../generated/schema.sql', import.meta.url), 'utf8'));
 
   const db = {
     sqlite,
@@ -579,5 +579,84 @@ describe('Direct OPS API enforcement (bypassing Bot) & Form-vs-Bot parity', () =
     assert.ok(cmuiKpi);
     assert.equal(cmuiKpi.orders, 2);
     assert.equal(cmuiKpi.revenue, 700000);
+  });
+
+  it('calculates accessories as unit price × qty (cardQty × 10k, bannerQty × 35k) across qty=1 and qty>1', async () => {
+    const { adminToken, call } = await createCoreHarness();
+
+    const oneRes = await call(adminToken, 'createOrder', {
+      requestId: 'req-acc-one',
+      order: {
+        customer: 'Khách PK 1', flower: 'Bó hồng', date: '2026-12-29', time: '14:00',
+        shipping: 'Ghé lấy', flowerTotal: 500000, payment: 'Đã cọc 250.000 đ', sale: 'cmui',
+        card: true, cardQty: 1, cardText: 'Chúc mừng 1',
+        banner: true, bannerQty: 1, bannerText: 'Banner 1',
+        imageFiles: [{ data: TINY_JPEG_DATA_URL }]
+      }
+    });
+    assert.equal(oneRes.ok, true);
+    assert.equal(oneRes.order.cardQty, 1);
+    assert.equal(oneRes.order.cardFee, 10000);
+    assert.equal(oneRes.order.bannerQty, 1);
+    assert.equal(oneRes.order.bannerFee, 35000);
+    assert.equal(oneRes.order.accessoryTotal, 45000);
+    assert.equal(oneRes.order.totalDue, 545000);
+    assert.equal(oneRes.order.debt, 295000);
+
+    const multiRes = await call(adminToken, 'createOrder', {
+      requestId: 'req-acc-multi',
+      order: {
+        customer: 'Khách PK Nhiều', flower: 'Kệ chúc mừng', date: '2026-12-29', time: '15:00',
+        shipping: 'Ghé lấy', flowerTotal: 500000, payment: 'Đã cọc 250.000 đ', sale: 'cmui',
+        card: true, cardQty: 3, cardText: 'Chúc mừng 3',
+        banner: true, bannerQty: 2, bannerText: 'Banner 2 cái',
+        imageFiles: [{ data: TINY_JPEG_DATA_URL }]
+      }
+    });
+    assert.equal(multiRes.ok, true);
+    assert.equal(multiRes.order.cardQty, 3);
+    assert.equal(multiRes.order.cardFee, 30000);
+    assert.equal(multiRes.order.bannerQty, 2);
+    assert.equal(multiRes.order.bannerFee, 70000);
+    assert.equal(multiRes.order.accessoryTotal, 100000);
+    assert.equal(multiRes.order.totalDue, 600000);
+    assert.equal(multiRes.order.debt, 350000);
+  });
+
+  it('handles Shop book ship without shipFee (unconfirmed=false), explicit shipFee (confirmed=true), and missing address (allowed)', async () => {
+    const { adminToken, call } = await createCoreHarness();
+
+    const noShipNoAddr = await call(adminToken, 'createOrder', {
+      requestId: 'req-shop-noship-noaddr',
+      order: {
+        customer: 'Shop No Ship No Addr', flower: 'Giỏ hoa', date: '2026-12-29', time: '16:00',
+        shipping: 'Shop book ship', address: '',
+        flowerTotal: 400000, payment: 'Đã cọc 200.000 đ', sale: 'cmui',
+        imageFiles: [{ data: TINY_JPEG_DATA_URL }]
+      }
+    });
+    assert.equal(noShipNoAddr.ok, true);
+    assert.equal(noShipNoAddr.order.address, '');
+    assert.equal(noShipNoAddr.order.shipFee, 0);
+    assert.equal(noShipNoAddr.order.shipConfirmed, false);
+    assert.equal(noShipNoAddr.order.shipFeePending, true);
+    assert.equal(noShipNoAddr.order.totalDue, 400000);
+
+    const withShip = await call(adminToken, 'createOrder', {
+      requestId: 'req-shop-withship',
+      order: {
+        customer: 'Shop With Ship', flower: 'Giỏ hoa', date: '2026-12-29', time: '17:00',
+        shipping: 'Shop book ship', address: '88 Võ Văn Tần, Quận 3',
+        shipFee: 45000, shipFeeActive: '1',
+        flowerTotal: 400000, payment: 'Đã cọc 200.000 đ', sale: 'cmui',
+        imageFiles: [{ data: TINY_JPEG_DATA_URL }]
+      }
+    });
+    assert.equal(withShip.ok, true);
+    assert.equal(withShip.order.shipFee, 45000);
+    assert.equal(withShip.order.shipConfirmed, true);
+    assert.equal(withShip.order.shipFeePending, false);
+    assert.equal(withShip.order.totalDue, 445000);
+    assert.equal(withShip.order.debt, 245000);
   });
 });
