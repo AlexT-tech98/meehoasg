@@ -1,0 +1,21 @@
+name = "meehoasg-ops-staging"
+main = "runtime/entry.js"
+compatibility_date = "2026-10-13"
+workers_dev = true
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "meehoasg-ops-staging"
+database_id = "16bf0134-64c6-43ea-8098-b40c95251667"
+
+[[kv_namespaces]]
+binding = "MEDIA"
+id = "c483e22ad8c546c5bdf4f6711098fd04"
+
+[[r2_buckets]]
+binding = "MEDIA_R2"
+bucket_name = "meehoasg-media-staging"

@@ -315,7 +315,7 @@ async function main() {
       args: ['--no-sandbox'],
     });
 
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce', timezoneId: 'Asia/Ho_Chi_Minh' });
     const page = await context.newPage();
     const coreProbeStatuses = [];
     const fallbackApiCalls = [];

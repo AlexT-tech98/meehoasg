@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "build": "node build-frontend.mjs",
+    "build:frontend": "node build-frontend.mjs",
+    "build:backend:from-snapshot": "node build-backend.mjs"
+  },
+  "dependencies": {
+    "sharp": "0.35.5"
+  }
+}
