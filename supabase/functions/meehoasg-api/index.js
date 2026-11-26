@@ -539,18 +539,53 @@ async function flowers(payload, user) {
   return { ok: true, status: reviewOrders.length ? 'needs_review' : 'ready', totalOrders: orders.length, analyzedOrders, reviewCount: reviewOrders.length, items, reviewOrders: reviewOrders.slice(0, 100) };
 }
 async function saveUser(payload, admin) {
-  const u = payload.user || {}, username = usernameNorm(u.username), name = clean(u.name), role = clean(u.role).toUpperCase();
-  if (!username || !name || !['ADMIN', 'THO_OPS', 'SALE'].includes(role)) return fail('Thông tin tài khoản chưa hợp lệ.');
-  const found = await one('app_users', { username: 'eq.' + username });
-  if (!found && String(u.password || '').length < 6) return fail('Mật khẩu mới phải có ít nhất 6 ký tự.');
-  const patch = { username, display_name: name, role, active: u.active !== false };
-  if (u.password) patch.password_hash = await sha256(PASSWORD_SALT + '|' + String(u.password));
-  if (found) {
-    await db('app_users', { username: 'eq.' + username }, 'PATCH', patch);
-    if (u.password || !patch.active || role !== found.role) await db('app_sessions', { username: 'eq.' + username }, 'DELETE');
-  } else await db('app_users', {}, 'POST', patch);
-  await audit(admin, null, 'ADMIN_USER', null, { username, role });
-  return { ok: true, name };
+  const u = payload.user || {};
+  const modeRaw = clean(payload.mode || u.mode).toLowerCase();
+  const originalUsername = usernameNorm(payload.originalUsername || u.originalUsername);
+  const mode = modeRaw === 'edit' ? 'edit' : modeRaw === 'create' ? 'create' : (originalUsername ? 'edit' : 'create');
+  const username = usernameNorm(u.username), name = clean(u.name), role = clean(u.role).toUpperCase();
+  if (!username || !name || !['ADMIN', 'THO_OPS', 'SALE'].includes(role)) return fail('Thông tin tài khoản chưa hợp lệ.', 'USER_INPUT_INVALID');
+  const passwordRaw = String(u.password || '');
+
+  if (mode === 'create') {
+    if (passwordRaw.length < 6) return fail('Mật khẩu mới phải có ít nhất 6 ký tự.', 'PASSWORD_TOO_SHORT');
+    const existingUsers = await all('app_users', { select: 'username' });
+    const conflict = existingUsers.find(row => usernameNorm(row.username) === username);
+    if (conflict) return fail(`Tên tài khoản "${username}" đã tồn tại. Vui lòng chọn tên đăng nhập khác.`, 'USERNAME_EXISTS');
+    const patch = {
+      username,
+      display_name: name,
+      role,
+      active: u.active !== false,
+      password_hash: await sha256(PASSWORD_SALT + '|' + passwordRaw)
+    };
+    try {
+      await db('app_users', {}, 'POST', patch);
+    } catch (err) {
+      const msg = String(err?.message || '');
+      if (/DB 409|23505|duplicate key|unique constraint/i.test(msg)) {
+        return fail(`Tên tài khoản "${username}" đã tồn tại. Vui lòng chọn tên đăng nhập khác.`, 'USERNAME_EXISTS');
+      }
+      throw err;
+    }
+    await audit(admin, null, 'ADMIN_USER', null, { mode: 'create', username, role });
+    return { ok: true, mode: 'create', username, name };
+  }
+
+  // Edit mode: strictly target existing user, never allow retargeting or overwriting another account.
+  const targetUsername = originalUsername || username;
+  if (originalUsername && originalUsername !== username) {
+    return fail('Không thể đổi tên đăng nhập của tài khoản đã tạo.', 'USERNAME_IMMUTABLE');
+  }
+  const found = await one('app_users', { username: 'eq.' + targetUsername });
+  if (!found) return fail('Không tìm thấy tài khoản cần chỉnh sửa.', 'USER_NOT_FOUND');
+  if (passwordRaw && passwordRaw.length < 6) return fail('Mật khẩu mới phải có ít nhất 6 ký tự.', 'PASSWORD_TOO_SHORT');
+  const patch = { display_name: name, role, active: u.active !== false };
+  if (passwordRaw) patch.password_hash = await sha256(PASSWORD_SALT + '|' + passwordRaw);
+  await db('app_users', { username: 'eq.' + targetUsername }, 'PATCH', patch);
+  if (passwordRaw || !patch.active || role !== found.role) await db('app_sessions', { username: 'eq.' + targetUsername }, 'DELETE');
+  await audit(admin, null, 'ADMIN_USER', null, { mode: 'edit', username: targetUsername, role });
+  return { ok: true, mode: 'edit', username: targetUsername, name };
 }
 
 async function logPerformanceBatch(payload, user) {

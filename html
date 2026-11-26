@@ -1307,24 +1307,32 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         var ov = document.getElementById('overlay');
         if (!ov)
             return;
+        var isEdit = Boolean(u && u.username);
+        var mode = isEdit ? 'edit' : 'create';
         var source=(S.data.admin&&S.data.admin.employeeOptions)||[],current=u.name||'',names=source.slice();if(current&&!names.some(function(x){return norm(x)===norm(current);}))names.unshift(current);
+        var usernameField = isEdit
+            ? '<label>Tài khoản</label><input type="text" name="username" value="' + attr(u.username || '') + '" readonly required><div class="inline-note">Tên đăng nhập cố định khi chỉnh sửa để tránh ghi đè tài khoản khác.</div>'
+            : field('Tài khoản', 'username', '', true);
         var employee='<label>NHÂN VIÊN TRÊN SHEET</label><select id="userEmployee" name="employeeName" required onchange="MEEOPS7.toggleNewEmployee(this.value)"><option value="">Chọn nhân viên để mapping</option>'+names.map(function(x){return '<option value="'+attr(x)+'" '+(norm(x)===norm(current)?'selected':'')+'>'+esc(x)+'</option>';}).join('')+'<option value="__NEW__">＋ Thêm nhân viên mới…</option></select><div id="newEmployeeWrap" class="hidden"><label>TÊN NHÂN VIÊN MỚI</label><input id="newEmployeeName" name="newEmployeeName" placeholder="Nhập đúng tên hiển thị trên đơn"></div><div class="inline-note">Tên được chọn sẽ được đồng bộ vào dropdown cột Sale của sheet đơn hàng.</div>';
-        ov.innerHTML = "<div class=\"modal-bg\"><form action=\"javascript:void(0)\" class=\"modal\" onsubmit=\"MEEOPS7.saveUserForm(event)\"><div class=\"modal-head\"><h3 style=\"margin:0\">T\u00E0i kho\u1EA3n</h3><button type=\"button\" class=\"close\" onclick=\"MEEOPS7.closeOverlay()\">\u00D7</button></div>".concat(field('Tài khoản', 'username', u.username || '', true)).concat(employee).concat(selectField('Vai trò', 'role', ['SALE', 'THO_OPS', 'ADMIN'], u.role)).concat(field(u.username ? 'Mật khẩu mới (để trống nếu giữ nguyên)' : 'Mật khẩu', 'password', '', !u.username, 'password'), "<label class=\"check\"><input type=\"checkbox\" name=\"active\" ").concat(u.active !== false ? 'checked' : '', "> Ho\u1EA1t \u0111\u1ED9ng</label><button class=\"btn primary full\">L\u01B0u</button></form></div>");if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
+        ov.innerHTML = "<div class=\"modal-bg\"><form action=\"javascript:void(0)\" class=\"modal\" data-user-mode=\"" + mode + "\" data-original-username=\"" + attr(u.username || '') + "\" onsubmit=\"MEEOPS7.saveUserForm(event)\"><div class=\"modal-head\"><h3 style=\"margin:0\">" + (isEdit ? 'Chỉnh sửa tài khoản' : 'Thêm tài khoản mới') + "</h3><button type=\"button\" class=\"close\" onclick=\"MEEOPS7.closeOverlay()\">\u00D7</button></div>".concat(usernameField).concat(employee).concat(selectField('Vai trò', 'role', ['SALE', 'THO_OPS', 'ADMIN'], u.role)).concat(field(isEdit ? 'Mật khẩu mới (để trống nếu giữ nguyên)' : 'Mật khẩu', 'password', '', !isEdit, 'password'), "<label class=\"check\"><input type=\"checkbox\" name=\"active\" ").concat(u.active !== false ? 'checked' : '', "> Ho\u1EA1t \u0111\u1ED9ng</label><button class=\"btn primary full\">" + (isEdit ? 'Cập nhật tài khoản' : 'Tạo tài khoản') + "</button></form></div>");if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
     }
     function toggleNewEmployee(value){var wrap=document.getElementById('newEmployeeWrap'),input=document.getElementById('newEmployeeName'),isNew=value==='__NEW__';if(wrap)wrap.classList.toggle('hidden',!isNew);if(input){input.required=isNew;if(isNew)input.focus();}}
     function saveUserForm(e) {
-        return __awaiter(this, void 0, void 0, function () { var fd, u, r, err_6; return __generator(this, function (_a) {
+        return __awaiter(this, void 0, void 0, function () { var form, mode, originalUsername, fd, u, r, err_6; return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
                     e.preventDefault();
-                    fd = new FormData(e.target), u = Object.fromEntries(fd.entries());
+                    form = e.target;
+                    mode = form && form.dataset && form.dataset.userMode === 'edit' ? 'edit' : 'create';
+                    originalUsername = form && form.dataset ? String(form.dataset.originalUsername || '') : '';
+                    fd = new FormData(form), u = Object.fromEntries(fd.entries());
                     u.name=u.employeeName==='__NEW__'?String(u.newEmployeeName||'').trim():String(u.employeeName||'').trim();
                     delete u.employeeName;delete u.newEmployeeName;
                     u.active = fd.has('active');
                     _a.label = 1;
                 case 1:
                     _a.trys.push([1, 4, , 5]);
-                    return [4 /*yield*/, actionRun(function () { return gas('saveUser', { user: u }); }, 'Đang lưu tài khoản…')];
+                    return [4 /*yield*/, actionRun(function () { return gas('saveUser', { mode: mode, originalUsername: originalUsername, user: u }); }, 'Đang lưu tài khoản…')];
                 case 2:
                     r = _a.sent();
                     if (!r.ok)
@@ -1332,7 +1340,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                     closeOverlay();
                     S.data.admin = null;
                     S.optionsLoaded = false;
-                    toast('Đã lưu tài khoản.');
+                    toast(mode === 'edit' ? 'Đã cập nhật tài khoản.' : 'Đã tạo tài khoản mới.');
                     return [4 /*yield*/, loadAdmin(true)];
                 case 3:
                     _a.sent();
