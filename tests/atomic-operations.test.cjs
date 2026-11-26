@@ -210,3 +210,18 @@ test('SALE cannot submit another owner order and denial writes nothing',async()=
 test('ADMIN cannot submit another owner order; only owner submits, ADMIN reviews',async()=>{const row=await delivered();const denied=await rpc('submitSettlement',{orderId:row.id,expectedUpdatedAt:row.updated_at,newSettlementId:'BAD-ADMIN',newBillUrls:['supabase://settlement-bills/bill.jpg']},{actor:'admin'});assert.equal(denied.code,'NOT_OWNER');const own=await submit(row);assert.equal(own.ok,true);const approved=await rpc('reviewSettlement',{settlementId:own.requestId,decision:'APPROVED'},{actor:'admin'});assert.equal(approved.ok,true);});
 
 test('zero outstanding balance still permits owner settlement with a bill and Admin approval',async()=>{const a=await create({payment:'Đã thanh toán 500000 đ'});await db.query("update orders set status='Đã giao' where id=$1",[a.orderId]);const row=await current(a.orderId);assert.equal(row.full_paid,false);assert.equal(row.settled,false);const submitted=await submit(row);assert.equal(submitted.ok,true,JSON.stringify(submitted));const approved=await rpc('reviewSettlement',{settlementId:submitted.requestId,decision:'APPROVED'},{actor:'admin'});assert.equal(approved.ok,true);assert.equal((await current(row.id)).settled,true);});
+
+test('concurrent duplicate normalized username creation is blocked at DB level without overwriting existing account',async()=>{
+ const variants=['race_user','RACE_USER',' race_user ','Ráce_User'];
+ const results=await Promise.allSettled(variants.map((u,idx)=>db.query(
+   'insert into public.app_users(username,password_hash,display_name,role,active) values ($1,$2,$3,$4,true)',
+   [u,'hash-'+idx,'User '+idx,'SALE']
+ )));
+ const okCount=results.filter(r=>r.status==='fulfilled').length;
+ const dupCount=results.filter(r=>r.status==='rejected'&&String(r.reason?.code||r.reason?.message||'').match(/23505|unique/i)).length;
+ assert.equal(okCount,1,'Exactly one concurrent insert may succeed');
+ assert.equal(dupCount,variants.length-1,'All concurrent normalized duplicates must fail with 23505');
+ const saved=await db.query("select username,password_hash,display_name from public.app_users where public.mee_username_norm(username)='race_user'");
+ assert.equal(saved.rows.length,1);
+ await db.query("delete from public.app_users where public.mee_username_norm(username)='race_user'");
+});

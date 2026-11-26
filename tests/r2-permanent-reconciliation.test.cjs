@@ -188,11 +188,15 @@ test('Auth guards on verify_jwt=false functions (meehoasg-delete-order and meeho
   assert.match(actionsSource,/!\['saveShipFee','submitSettlement'\]\.includes\(action\)/);
 });
 
-test('Release package includes all 3 UI V3 migrations, backfill/rollback SQL, and in-repo Go-Live Runbook',()=>{
+test('Release package includes all 6 UI V3 / V3.1 migrations, backfill/rollback SQL, and in-repo Go-Live Runbook',()=>{
   const buildScript=fs.readFileSync(path.join(ROOT,'scripts/build-release.cjs'),'utf8');
   assert.match(buildScript,/20261125010000_ui_v3_tag_note_soft_delete_server_filter\.sql/);
   assert.match(buildScript,/20261125020000_ui_v3_rc3_order_source_and_walkin\.sql/);
   assert.match(buildScript,/20261126010000_ui_v3_final_deletion_policy_override\.sql/);
+  assert.match(buildScript,/20261126020000_ui_v3_guard_queued_order_trash_compat\.sql/);
+  assert.match(buildScript,/20261126030000_ui_v3_1_username_uniqueness\.sql/);
+  assert.match(buildScript,/20261126040000_ui_v3_1_guard_queued_order_r2_uri_compat\.sql/);
+  assert.doesNotMatch(buildScript,/Apply the 3 UI V3 migrations/);
   assert.match(buildScript,/ui-v3-schema-delta\.sql/);
   assert.match(buildScript,/docs\/UI_V3_GO_LIVE_RUNBOOK\.md/);
   assert.match(buildScript,/scripts\/legacy-deleted-orders-backfill\.sql/);

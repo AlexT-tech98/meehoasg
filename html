@@ -1307,24 +1307,32 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         var ov = document.getElementById('overlay');
         if (!ov)
             return;
+        var isEdit = Boolean(u && u.username);
+        var mode = isEdit ? 'edit' : 'create';
         var source=(S.data.admin&&S.data.admin.employeeOptions)||[],current=u.name||'',names=source.slice();if(current&&!names.some(function(x){return norm(x)===norm(current);}))names.unshift(current);
+        var usernameField = isEdit
+            ? '<label>Tài khoản</label><input type="text" name="username" value="' + attr(u.username || '') + '" readonly required><div class="inline-note">Tên đăng nhập cố định khi chỉnh sửa để tránh ghi đè tài khoản khác.</div>'
+            : field('Tài khoản', 'username', '', true);
         var employee='<label>NHÂN VIÊN TRÊN SHEET</label><select id="userEmployee" name="employeeName" required onchange="MEEOPS7.toggleNewEmployee(this.value)"><option value="">Chọn nhân viên để mapping</option>'+names.map(function(x){return '<option value="'+attr(x)+'" '+(norm(x)===norm(current)?'selected':'')+'>'+esc(x)+'</option>';}).join('')+'<option value="__NEW__">＋ Thêm nhân viên mới…</option></select><div id="newEmployeeWrap" class="hidden"><label>TÊN NHÂN VIÊN MỚI</label><input id="newEmployeeName" name="newEmployeeName" placeholder="Nhập đúng tên hiển thị trên đơn"></div><div class="inline-note">Tên được chọn sẽ được đồng bộ vào dropdown cột Sale của sheet đơn hàng.</div>';
-        ov.innerHTML = "<div class=\"modal-bg\"><form action=\"javascript:void(0)\" class=\"modal\" onsubmit=\"MEEOPS7.saveUserForm(event)\"><div class=\"modal-head\"><h3 style=\"margin:0\">T\u00E0i kho\u1EA3n</h3><button type=\"button\" class=\"close\" onclick=\"MEEOPS7.closeOverlay()\">\u00D7</button></div>".concat(field('Tài khoản', 'username', u.username || '', true)).concat(employee).concat(selectField('Vai trò', 'role', ['SALE', 'THO_OPS', 'ADMIN'], u.role)).concat(field(u.username ? 'Mật khẩu mới (để trống nếu giữ nguyên)' : 'Mật khẩu', 'password', '', !u.username, 'password'), "<label class=\"check\"><input type=\"checkbox\" name=\"active\" ").concat(u.active !== false ? 'checked' : '', "> Ho\u1EA1t \u0111\u1ED9ng</label><button class=\"btn primary full\">L\u01B0u</button></form></div>");if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
+        ov.innerHTML = "<div class=\"modal-bg\"><form action=\"javascript:void(0)\" class=\"modal\" data-user-mode=\"" + mode + "\" data-original-username=\"" + attr(u.username || '') + "\" onsubmit=\"MEEOPS7.saveUserForm(event)\"><div class=\"modal-head\"><h3 style=\"margin:0\">" + (isEdit ? 'Chỉnh sửa tài khoản' : 'Thêm tài khoản mới') + "</h3><button type=\"button\" class=\"close\" onclick=\"MEEOPS7.closeOverlay()\">\u00D7</button></div>".concat(usernameField).concat(employee).concat(selectField('Vai trò', 'role', ['SALE', 'THO_OPS', 'ADMIN'], u.role)).concat(field(isEdit ? 'Mật khẩu mới (để trống nếu giữ nguyên)' : 'Mật khẩu', 'password', '', !isEdit, 'password'), "<label class=\"check\"><input type=\"checkbox\" name=\"active\" ").concat(u.active !== false ? 'checked' : '', "> Ho\u1EA1t \u0111\u1ED9ng</label><button class=\"btn primary full\">" + (isEdit ? 'Cập nhật tài khoản' : 'Tạo tài khoản') + "</button></form></div>");if(window.MEE_V364_OVERLAY_SYNC)window.MEE_V364_OVERLAY_SYNC();
     }
     function toggleNewEmployee(value){var wrap=document.getElementById('newEmployeeWrap'),input=document.getElementById('newEmployeeName'),isNew=value==='__NEW__';if(wrap)wrap.classList.toggle('hidden',!isNew);if(input){input.required=isNew;if(isNew)input.focus();}}
     function saveUserForm(e) {
-        return __awaiter(this, void 0, void 0, function () { var fd, u, r, err_6; return __generator(this, function (_a) {
+        return __awaiter(this, void 0, void 0, function () { var form, mode, originalUsername, fd, u, r, err_6; return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
                     e.preventDefault();
-                    fd = new FormData(e.target), u = Object.fromEntries(fd.entries());
+                    form = e.target;
+                    mode = form && form.dataset && form.dataset.userMode === 'edit' ? 'edit' : 'create';
+                    originalUsername = form && form.dataset ? String(form.dataset.originalUsername || '') : '';
+                    fd = new FormData(form), u = Object.fromEntries(fd.entries());
                     u.name=u.employeeName==='__NEW__'?String(u.newEmployeeName||'').trim():String(u.employeeName||'').trim();
                     delete u.employeeName;delete u.newEmployeeName;
                     u.active = fd.has('active');
                     _a.label = 1;
                 case 1:
                     _a.trys.push([1, 4, , 5]);
-                    return [4 /*yield*/, actionRun(function () { return gas('saveUser', { user: u }); }, 'Đang lưu tài khoản…')];
+                    return [4 /*yield*/, actionRun(function () { return gas('saveUser', { mode: mode, originalUsername: originalUsername, user: u }); }, 'Đang lưu tài khoản…')];
                 case 2:
                     r = _a.sent();
                     if (!r.ok)
@@ -1332,7 +1340,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                     closeOverlay();
                     S.data.admin = null;
                     S.optionsLoaded = false;
-                    toast('Đã lưu tài khoản.');
+                    toast(mode === 'edit' ? 'Đã cập nhật tài khoản.' : 'Đã tạo tài khoản mới.');
                     return [4 /*yield*/, loadAdmin(true)];
                 case 3:
                     _a.sent();
@@ -2195,12 +2203,11 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
       shipFeeAction(o) +
       (isDebt ? settleBtn : ((o.canEdit ? '<button type="button" class="btn primary" data-mee-order-action="edit" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settleBtn));
 
-  var quickBar = '<div class="mee3-quickbar">' +
-    (!isDebt ? '<button type="button" class="mee3-quickbtn" data-mee-copy-order-id="' + attr(o.id) + '" data-mee-order-action="copy" onclick="MEEOPS7.copyOrderById(\'' + o.id + '\')">' + v3Icon('copy', 'mee3-ico-sm') + ' Copy đơn</button>' : '') +
-    (o.phone ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')">' + v3Icon('phone', 'mee3-ico-sm') + ' Copy SĐT</button>' : '') +
-    (String(o.address || '').trim() ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'address\',\'địa chỉ giao hàng\')">' + v3Icon('pin', 'mee3-ico-sm') + ' Copy địa chỉ</button>' : '') +
-    (String(o.tagNoteFree||'').trim() ? '<button type="button" class="mee3-quickbtn" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'tagNoteFree\',\'Tag note free\')">' + v3Icon('tag', 'mee3-ico-sm') + ' Copy Tag</button>' : '') +
-  '</div>';
+  var quickBar = !isDebt
+    ? '<div class="mee3-quickbar">' +
+        '<button type="button" class="mee3-quickbtn" data-mee-copy-order-id="' + attr(o.id) + '" data-mee-order-action="copy" onclick="MEEOPS7.copyOrderById(\'' + o.id + '\')">' + v3Icon('copy', 'mee3-ico-sm') + ' Copy thông tin đơn hàng</button>' +
+      '</div>'
+    : '';
 
   var isWalkIn = Boolean(o.isWalkIn || o.orderType === 'WALK_IN');
   var thumbBlock = loadingDetail
@@ -2233,6 +2240,7 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
   if (allowFullCopy === void 0) allowFullCopy = true;
   if (thumbBlock === void 0) thumbBlock = '';
   var shipIco = typeof v3ShipIcon === 'function' ? v3ShipIcon(o.shipping) : '';
+  var copyIco = typeof v3Icon === 'function' ? v3Icon('copy', 'mee3-ico-sm') : '⧉';
   var cardQty=Math.max(1,Number(o.cardQty||1)),cardFee=Number(o.cardFee)||cardQty*10000,bannerQtyVal=Math.max(1,Number(o.bannerQty||1));
   var accessoryRows=[],accessoryBlocks=[];
   if(o.card){
@@ -2262,15 +2270,15 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
 
   var hasAddr = Boolean(String(o.address || '').trim());
   var addrBlock = hasAddr
-    ? '<div class="mee3-span2 mee3-copyable-block copyable" role="button" tabindex="0" data-mee-copy-address="1" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'address\',\'địa chỉ giao hàng\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
-        '<span class="mee3-kv-label">Địa chỉ giao hàng <span class="mee3-copy-hint">Chạm để copy</span></span>' +
-        '<span class="mee3-kv-val">' + esc(o.address) + '</span>' +
+    ? '<div class="mee3-note-block mee3-addr-block mee3-copyable-block copyable" role="button" tabindex="0" data-mee-copy-address="1" title="Copy địa chỉ giao hàng" aria-label="Copy địa chỉ giao hàng" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'address\',\'địa chỉ giao hàng\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
+        '<div class="mee3-note-block-head"><span>ĐỊA CHỈ GIAO HÀNG</span><span class="mee3-icon-copy" aria-hidden="true">' + copyIco + '</span></div>' +
+        '<div class="mee3-note-text">' + multiline(o.address) + '</div>' +
       '</div>'
-    : '<div class="mee3-span2"><span class="mee3-kv-label">Địa chỉ giao hàng</span><span class="mee3-kv-val">Nhận tại cửa hàng</span></div>';
+    : '<div class="mee3-note-block mee3-addr-block"><div class="mee3-note-block-head"><span>ĐỊA CHỈ GIAO HÀNG</span></div><div class="mee3-note-text">Nhận tại cửa hàng</div></div>';
 
   var phoneBlock = String(o.phone || '').trim()
-    ? '<div class="mee3-copyable-block copyable" role="button" tabindex="0" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
-        '<span class="mee3-kv-label">Số điện thoại <span class="mee3-copy-hint">Chạm để copy</span></span>' +
+    ? '<div class="mee3-copyable-block copyable" role="button" tabindex="0" data-mee-copy-phone="1" title="Copy số điện thoại" aria-label="Copy số điện thoại" onclick="MEEOPS7.copyOrderField(\'' + o.id + '\',\'phone\',\'SĐT\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click();}">' +
+        '<span class="mee3-kv-label mee3-kv-label-row"><span>Số điện thoại</span><span class="mee3-icon-copy" aria-hidden="true">' + copyIco + '</span></span>' +
         '<span class="mee3-kv-val mee3-num">' + esc(o.phone) + '</span>' +
       '</div>'
     : '<div><span class="mee3-kv-label">Số điện thoại</span><span class="mee3-kv-val">—</span></div>';
@@ -2290,14 +2298,14 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
     '</section>' +
     /* UX-02 Step 5: Phụ kiện */
     (accessoryBlocks.length ? '<section class="mee3-detail-card mee3-zone-accessory" data-drawer-zone="accessory"><div class="mee3-detail-card-head"><span>PHỤ KIỆN &amp; NỘI DUNG KÈM THEO</span></div>' + accessoryBlocks.join('') + '</section>' : '') +
-    /* UX-02 Step 6: Giao nhận (kèm UX-01 Chạm để copy địa chỉ) */
+    /* UX-02 Step 6: Giao nhận (Địa chỉ giao hàng thống nhất khối Thiệp/Note + icon Copy gọn) */
     '<section class="mee3-detail-card mee3-zone-delivery" data-drawer-zone="delivery">' +
       '<div class="mee3-detail-card-head"><span>GIAO NHẬN</span></div>' +
       '<div class="mee3-detail-kv">' +
         '<div><span class="mee3-kv-label">Thời gian nhận</span><span class="mee3-kv-val mee3-num">' + dateVN(o.date) + ' · ' + esc(timeVN(o.time)) + '</span></div>' +
         '<div><span class="mee3-kv-label">Hình thức giao</span><span class="mee3-kv-val">' + shipIco + ' ' + esc(o.shipping || '—') + '</span></div>' +
-        addrBlock +
       '</div>' +
+      addrBlock +
     '</section>' +
     /* Khách hàng & Nguồn đơn (TC-19 / TC-20) */
     '<section class="mee3-detail-card mee3-zone-customer" data-drawer-zone="customer">' +
