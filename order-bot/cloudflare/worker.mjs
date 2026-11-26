@@ -561,16 +561,86 @@ function buildProbeFaultFetcher(faultConfig, captionForMock = '') {
         { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
       );
     }
+    if (type === 'corrupted_control_char_address') {
+      if (callCount > 1 && !spec.persistent) {
+        const cleanPayload = JSON.stringify({
+          customer: null,
+          phone: null,
+          flower: 'Ly nhuộm xanh navy',
+          date: null,
+          time: null,
+          shipping: 'Shop book ship',
+          address: '102/34c Phan Huy Ích, P. Tân Sơn',
+          flowerTotal: null,
+          note: null,
+          cardText: null,
+          bannerText: null,
+          cardQty: null,
+          bannerQty: null,
+          shipFee: null
+        });
+        return new Response(
+          `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: cleanPayload }] }, finishReason: 'STOP' }] })}\n\n`,
+          { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+        );
+      }
+      const corruptedPayload = JSON.stringify({
+        customer: null,
+        phone: null,
+        flower: 'Ly nhuộm xanh navy',
+        date: null,
+        time: null,
+        shipping: 'Shop book ship',
+        address: '102/34c Phan Huy \u0016\u0011\u0012, P. T\u0003n S\u0001n',
+        flowerTotal: null,
+        note: null,
+        cardText: null,
+        bannerText: null,
+        cardQty: null,
+        bannerQty: null,
+        shipFee: null
+      });
+      return new Response(
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: corruptedPayload }] }, finishReason: 'STOP' }] })}\n\n`,
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+      );
+    }
     return new Response(JSON.stringify({ error: { code: 500, status: 'INTERNAL', message: `Unknown fault type: ${type}` } }), { status: 500 });
   };
 }
 
 function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probeOptions = {}) {
   const draftRows = new Map();
-  if (initialDraftState) {
+  const seededDraftsObj = initialDraftState?.drafts ? JSON.parse(JSON.stringify(initialDraftState.drafts)) : {};
+  const seededActiveId = initialDraftState?.activeDraftId || null;
+  if (probeOptions.seedForeignDraft) {
+    const fId = 'foreign-draft-001';
+    seededDraftsObj[fId] = {
+      id: fId,
+      userId: '999999999',
+      ownerUserId: '999999999',
+      status: 'submitted',
+      opsOrderId: 'MEE-FOREIGN000000001',
+      paymentSynced: false,
+      fields: {
+        customer: 'Khách Khác Quyền',
+        flower: 'Bó hồng ngoại',
+        flowerTotal: '350000',
+        date: '2026-12-28',
+        time: '13:30',
+        shipping: 'Ghé lấy',
+        paymentState: 'deposit',
+        depositAmount: 200000,
+        sale: 'cmui'
+      },
+      sampleRefs: [],
+      draftBillRefs: [{ r2_key: 'settlement-bills/foreign-bill-001.jpg' }]
+    };
+  }
+  if (initialDraftState || probeOptions.seedForeignDraft) {
     draftRows.set(Number(userId), {
-      active_draft_id: initialDraftState.activeDraftId || null,
-      drafts_json: JSON.stringify(initialDraftState.drafts || {}),
+      active_draft_id: seededActiveId,
+      drafts_json: JSON.stringify(seededDraftsObj),
       lock_acquired_at: null
     });
   }
@@ -712,12 +782,31 @@ function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probe
 
   let currentStepIndex = 0;
   const liveOpsCalls = [];
+  let simulatedCreateUnpaidDone = false;
+  let simulatedUpdateFailDone = false;
   const realOpsFetcher = realEnv.OPS_SERVICE
     ? realEnv.OPS_SERVICE.fetch.bind(realEnv.OPS_SERVICE)
     : fetch;
 
   const forwardRealOps = async (input, init, actionName, bodyObj) => {
-    const res = await realOpsFetcher(input, init);
+    let effectiveInput = input;
+    let effectiveInit = init;
+    if (actionName === 'createOrder' && probeOptions.simulateStep2PaymentInterruptionOnce && !simulatedCreateUnpaidDone && bodyObj?.payload?.order) {
+      simulatedCreateUnpaidDone = true;
+      const modified = {
+        ...bodyObj,
+        payload: {
+          ...bodyObj.payload,
+          order: { ...bodyObj.payload.order, payment: 'Chưa thanh toán' }
+        }
+      };
+      if (effectiveInit && typeof effectiveInit.body === 'string') {
+        effectiveInit = { ...effectiveInit, body: JSON.stringify(modified) };
+      } else {
+        effectiveInput = new Request(input, { body: JSON.stringify(modified) });
+      }
+    }
+    const res = await realOpsFetcher(effectiveInput, effectiveInit);
     const txt = await res.text();
     let parsed = null;
     try { parsed = JSON.parse(txt); } catch {}
@@ -747,6 +836,14 @@ function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probe
         }
       } catch {}
       const name = String(body?.name || '');
+      if (name === 'updateOrder' && probeOptions.simulateStep2PaymentInterruptionOnce && !simulatedUpdateFailDone) {
+        simulatedUpdateFailDone = true;
+        return new Response(JSON.stringify({
+          ok: false,
+          code: 'SIMULATED_STEP2_OUTAGE',
+          message: 'Simulated transient Step 2 payment sync failure'
+        }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+      }
       if (name === 'getOrderRules') {
         if (probeOptions.useLiveOpsRules || probeOptions.allowLiveOpsWrites) {
           return forwardRealOps(input, init, name, body);
@@ -818,6 +915,7 @@ function formatProbeAiCalls(aiCalls = []) {
     stage: c.stage || null,
     finishReason: c.finishReason || null,
     error: c.ok ? null : (c.error || null),
+    corruptedFields: c.corruptedFields || [],
     attempts: c.attempts || [],
     extractedFields: c.ok ? sanitizeAiFields(c.fields) : null
   }));
@@ -1270,7 +1368,9 @@ async function handleOpsProbe(request, env) {
       useLiveOpsRules: true,
       allowLiveOpsWrites: true,
       useRealR2: Boolean(env.MEDIA_R2),
-      samplePhotoBytes
+      samplePhotoBytes,
+      seedForeignDraft: Boolean(probeBody?.seedForeignDraft),
+      simulateStep2PaymentInterruptionOnce: Boolean(probeBody?.simulateStep2PaymentInterruptionOnce)
     });
 
     await loadCurrentOpsRules(probeCtx.isolatedEnv, { forceRefresh: true });
@@ -1925,6 +2025,7 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
       textParts: aiRes.textParts ?? 0,
       finishReason: aiRes.finishReason || null,
       error: aiRes.ok ? null : (aiRes.error || null),
+      corruptedFields: aiRes.corruptedFields || [],
       attempts: aiRes.attempts || [],
       fields: aiRes.ok ? aiRes.fields : null
     });

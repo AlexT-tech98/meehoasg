@@ -947,6 +947,7 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
     const raw = line;
     const cleanLine = raw.replace(/^[-*•—_]+\s*/, '').replace(/\s*[-*•—_]+$/, '').trim();
     if (!cleanLine) continue;
+    if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFD]/.test(cleanLine)) continue;
     const normLine = cleanLine.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
 
     // 1. Payment detection (also handles combined lines like "Tổng 350k cọc 200k")
@@ -1095,7 +1096,7 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
           const n = seg.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
           if (!n) return false;
           if (FLOWER_PATTERN.test(n)) return true;
-          return !/(\d{1,2}[/-]\d{1,2}|\d{1,2}h|\d{1,2}:\d{2}|\b(nhan|giao|lay|ngay|gio|sang|chieu|toi|trua|mai)\b|\d+\s*(k|tr|trieu)\b|\d{4,}|ship|book|ghe\s*lay)/.test(n);
+          return !/(\d{1,2}[/-]\d{1,2}|\d{1,2}h|\d{1,2}:\d{2}|(?:^|\s)[pq]\.(?:\s|$)|\b(?:nhan|giao|lay|ngay|gio|sang|chieu|toi|trua|mai|phuong|quan|duong|hem|tp\.?\s*hcm|dia\s*chi|dc)\b|\d+\/\d+|\d+\s*(k|tr|trieu)\b|\d{4,}|ship|book|ghe\s*lay)/.test(n);
         })
         .join(', ')
         .trim();
@@ -1177,6 +1178,9 @@ function applyFieldLine(draft, line) {
   // Strip optional leading edit verb from key (e.g. "sửa giờ: 15h" -> "giờ")
   rawKey = rawKey.replace(/^(?:sửa|đổi|chỉnh|cập\s*nhật|thay\s*đổi)\s+/i, '').trim();
   if (!rawKey || !rawVal) return null;
+  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFD]/.test(rawVal)) {
+    return { warning: '⚠️ Dữ liệu vừa nhập chứa ký tự điều khiển không hợp lệ — đã chặn để bảo toàn đơn nháp.' };
+  }
 
   // Check forbidden fields (payment, status, admin)
   const normK = normalizeKey(rawKey);

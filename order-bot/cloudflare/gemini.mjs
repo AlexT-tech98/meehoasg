@@ -70,8 +70,28 @@ const PLACEHOLDER_VALUES = new Set([
   'chua co'
 ]);
 
+export const CORRUPTED_CONTROL_CHAR_REGEX = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFD]/;
+
+export function hasCorruptedControlChars(value) {
+  return typeof value === 'string' && CORRUPTED_CONTROL_CHAR_REGEX.test(value);
+}
+
+export function findCorruptedAiFields(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
+  const corrupted = [];
+  for (const [k, v] of Object.entries(parsed)) {
+    if (!ALLOWED_AI_FIELDS.has(k)) continue;
+    if (typeof v === 'string' && hasCorruptedControlChars(v)) {
+      corrupted.push(k);
+    }
+  }
+  return corrupted;
+}
+
 /**
  * Sanitize AI-extracted fields against strict allowlist and anti-guesswork rules.
+ * Strips fields containing ASCII control characters or Unicode replacement chars so corrupted
+ * model tokens can never pollute drafts or OPS orders, while preserving valid Vietnamese fields.
  * @param {object} parsed
  * @returns {object|null}
  */
@@ -82,6 +102,7 @@ export function sanitizeAiFields(parsed) {
     if (!ALLOWED_AI_FIELDS.has(k)) continue;
     if (typeof v !== 'string' && typeof v !== 'number') continue;
     if (typeof v === 'number' && !Number.isFinite(v)) continue;
+    if (typeof v === 'string' && hasCorruptedControlChars(v)) continue;
     const cleaned = String(v).replace(/[\r\n]+/g, ' ').trim();
     if (!cleaned) continue;
     if (PLACEHOLDER_VALUES.has(cleaned.toLowerCase())) continue;
@@ -370,9 +391,11 @@ async function executeGeminiCall(url, endpointName, apiKey, body, fetcher, activ
     const parsed = JSON.parse(jsonStr);
 
     stage = 'sanitize';
+    const corruptedFields = findCorruptedAiFields(parsed);
     return {
       ok: true,
       fields: sanitizeAiFields(parsed),
+      corruptedFields: corruptedFields.length ? corruptedFields : undefined,
       model: activeModel,
       endpoint: endpointName,
       status: state.status,
@@ -524,10 +547,11 @@ export async function extractFieldsWithGeminiDetailed(
       finishReason: res.finishReason || null,
       stage: res.stage || null,
       error: res.ok ? null : (res.error || 'UNKNOWN'),
-      retryAfterMs: res.retryAfterMs || 0
+      retryAfterMs: res.retryAfterMs || 0,
+      corruptedFields: res.corruptedFields || []
     });
 
-    if (res.ok) {
+    if (res.ok && (!res.corruptedFields || res.corruptedFields.length === 0)) {
       return {
         ...res,
         latencyMs: Date.now() - budgetStart,
@@ -535,6 +559,34 @@ export async function extractFieldsWithGeminiDetailed(
         budgetExhausted: false,
         attempts
       };
+    }
+
+    if (res.ok && Array.isArray(res.corruptedFields) && res.corruptedFields.length > 0) {
+      if (retries >= effectiveMaxRetries) {
+        return {
+          ...res,
+          latencyMs: Date.now() - budgetStart,
+          retries,
+          budgetExhausted: false,
+          attempts
+        };
+      }
+      const delay = retryDelayMs(retries, 0, 8000, effectiveBaseDelayMs);
+      const budgetLeft = effectiveBudgetMs - (Date.now() - budgetStart);
+      if (delay + minReserve > budgetLeft) {
+        return {
+          ...res,
+          latencyMs: Date.now() - budgetStart,
+          retries,
+          budgetExhausted: true,
+          attempts
+        };
+      }
+      if (delay > 0) {
+        await new Promise(r => setTimeout(r, delay));
+      }
+      retries += 1;
+      continue;
     }
 
     // Secondary endpoint fallback ONLY on true auth/credential errors ([401, 403]) for AQ. keys or aiplatform probes.

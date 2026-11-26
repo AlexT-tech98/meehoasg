@@ -3238,3 +3238,136 @@ test('Contract 27: Bot-to-OPS sync for bannerQty*35k + cardQty*10k, explicit-onl
     globalThis.fetch = origFetch;
   }
 });
+
+test('Contract 28: Corrupted AI address with ASCII control chars is retried, stripped from draft/summary/OPS if persistent, and keeps valid Vietnamese & customer fields intact', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { clearOpsOrderRulesCache } = await import('../order-bot/cloudflare/ops-client.mjs');
+  const { applyFields } = await import('../order-bot/core.mjs');
+  const {
+    sanitizeAiFields,
+    findCorruptedAiFields,
+    extractFieldsWithGeminiDetailed,
+    CORRUPTED_CONTROL_CHAR_REGEX
+  } = await import('../order-bot/cloudflare/gemini.mjs');
+
+  const corruptAddress = '102/34c Phan Huy \u0016\u0011\u0012, P. T\u0003n S\u0001n';
+  assert.deepEqual(findCorruptedAiFields({ address: corruptAddress, flower: 'Ly nhuộm xanh navy' }), ['address']);
+  assert.deepEqual(sanitizeAiFields({ address: corruptAddress, flower: 'Ly nhuộm xanh navy', shipping: 'Shop book ship' }), {
+    flower: 'Ly nhuộm xanh navy',
+    shipping: 'Shop book ship'
+  });
+
+  // Defense-in-depth in applyFields: direct control-char address line never mutates draft
+  const guardRes = applyFields({ id: 'd-guard', fields: { customer: 'Như', address: '88 Võ Văn Tần' } }, `địa chỉ: ${corruptAddress}`);
+  assert.equal(guardRes.draft.fields.address, '88 Võ Văn Tần');
+
+  // Auto-retry recovers cleanly when second Gemini attempt returns valid UTF-8 Vietnamese address
+  let retryAttempt = 0;
+  const retryFetcher = async () => {
+    retryAttempt += 1;
+    const payload = retryAttempt === 1
+      ? { flower: 'Ly nhuộm xanh navy', shipping: 'Shop book ship', address: corruptAddress }
+      : { flower: 'Ly nhuộm xanh navy', shipping: 'Shop book ship', address: '102/34c Phan Huy Ích, P. Tân Sơn' };
+    return new Response(
+      `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] }, finishReason: 'STOP' }] })}\n\n`,
+      { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+    );
+  };
+  const retryResult = await extractFieldsWithGeminiDetailed('test-key', 'Ly nhuộm xanh navy, Shop book ship 102/34c Phan Huy Ích, P. Tân Sơn', 'gemini-3.5-flash-lite', retryFetcher, 5000, { maxRetries: 2, baseDelayMs: 5 });
+  assert.equal(retryResult.ok, true);
+  assert.equal(retryResult.retries, 1);
+  assert.equal(retryResult.fields.address, '102/34c Phan Huy Ích, P. Tân Sơn');
+
+  // Persistent corrupted address: blocked from draft, summary, and OPS while preserving "Như" & "Ly nhuộm xanh navy"
+  const { callOpsApi, opsHandler, opsToken } = await createRealOpsHarness();
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const sentMessages = [];
+  clearOpsOrderRulesCache();
+
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/flower.jpg', file_size: 256 } }));
+    if (u.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]));
+    if (u.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    if (u.includes('googleapis.com')) {
+      const payload = {
+        customer: null,
+        phone: null,
+        flower: 'Ly nhuộm xanh navy',
+        date: null,
+        time: null,
+        shipping: 'Shop book ship',
+        address: corruptAddress,
+        flowerTotal: null
+      };
+      return new Response(
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] }, finishReason: 'STOP' }] })}\n\n`,
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+      );
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  try {
+    const env = {
+      DB: db,
+      MEDIA_R2: r2,
+      BOT_TOKEN: 'fake_bot_token',
+      OPS_TOKEN: opsToken,
+      OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+      OPS_SERVICE: { fetch: (input, init) => opsHandler(input instanceof Request ? input : new Request(input, init)) },
+      TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+      ALLOWED_USER_IDS: '5252724920',
+      GEMINI_API_KEY: 'AIzaSyFakeCorruptTestKey',
+      GEMINI_MODEL: 'gemini-3.5-flash-lite',
+      GEMINI_OPTIONS: { maxRetries: 1, baseDelayMs: 5 }
+    };
+    const sendMsg = (id, msg) => handleTelegramWebhook(
+      makeWebhookRequest({ update_id: id, message: { message_id: id, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, ...msg } }),
+      env
+    );
+
+    await sendMsg(99951, {
+      photo: [{ file_id: 'p_nhu', file_unique_id: 'u_nhu' }],
+      caption: 'Như + 0394200327\nmẫu: Bó hồng pastel\nTổng 350k\n28/12 & 13h30'
+    });
+    await sendMsg(99952, {
+      text: 'Ly nhuộm xanh navy, Shop book ship 102/34c Phan Huy Ích, P. Tân Sơn'
+    });
+
+    const draftsBeforeConfirm = await loadDrafts(db, 5252724920);
+    const active = draftsBeforeConfirm[draftsBeforeConfirm.__active];
+    assert.equal(active.fields.customer, 'Như');
+    assert.equal(active.fields.phone, '0394200327');
+    assert.equal(active.fields.flower, 'Ly nhuộm xanh navy');
+    assert.equal(active.fields.shipping, 'Shop book ship');
+    assert.equal(active.fields.flowerTotal, '350000');
+    assert.equal(active.fields.address, undefined, 'Corrupted address must NEVER be written to draft.fields');
+
+    const updateReply = sentMessages[sentMessages.length - 1].text;
+    assert.equal(CORRUPTED_CONTROL_CHAR_REGEX.test(updateReply), false, 'Summary reply must contain zero control chars');
+    assert.ok(updateReply.includes('Ly nhuộm xanh navy'));
+
+    await sendMsg(99953, { text: '/show' });
+    const showReply = sentMessages[sentMessages.length - 1].text;
+    assert.ok(showReply.includes('💡 Nhắc bổ sung: địa chỉ giao hàng (Shop book ship)'));
+    assert.equal(CORRUPTED_CONTROL_CHAR_REGEX.test(showReply), false);
+
+    await sendMsg(99954, { text: '/confirm' });
+    const draftsAfterConfirm = await loadDrafts(db, 5252724920);
+    const submitted = draftsAfterConfirm[draftsAfterConfirm.__active];
+    assert.equal(submitted.status, 'submitted');
+    const opsOrder = (await callOpsApi('getOrder', { orderId: submitted.opsOrderId })).order;
+    assert.equal(opsOrder.customer, 'Như');
+    assert.equal(opsOrder.flower, 'Ly nhuộm xanh navy');
+    assert.equal(opsOrder.address, '', 'Corrupted address must NEVER reach OPS');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
