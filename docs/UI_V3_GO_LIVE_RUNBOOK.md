@@ -22,13 +22,14 @@
 
 ---
 
-## 2. Database Migration (Exact Order — 3 UI V3 Migrations Only)
+## 2. Database Migration (Exact Order — 4 UI V3 Migrations Only)
 
-Execute ONLY these 3 approved UI V3 migrations in order (do **NOT** run `reviewed-schema-delta.sql` from older packages):
+Execute ONLY these 4 approved UI V3 migrations in order (do **NOT** run `reviewed-schema-delta.sql` from older packages):
 
 1. `supabase/migrations/20261125010000_ui_v3_tag_note_soft_delete_server_filter.sql`
 2. `supabase/migrations/20261125020000_ui_v3_rc3_order_source_and_walkin.sql`
 3. `supabase/migrations/20261126010000_ui_v3_final_deletion_policy_override.sql`
+4. `supabase/migrations/20261126020000_ui_v3_guard_queued_order_trash_compat.sql`
 
 Verify after each migration:
 - Columns exist on `public.orders`: `tag_note_free`, `is_deleted`, `deleted_at`, `deleted_by`, `deleted_by_role`, `deleted_reason`, `deleted_reason_code`, `restored_at`, `restored_by`, `order_source`, `order_type`, `walk_in_payment_method`, `created_by`.

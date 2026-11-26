@@ -570,13 +570,55 @@ test('Section V: 21-order Production-shape legacy conversion (2 unpaid, 17 depos
     assert.equal(histCount, 21, 'Idempotent re-run creates zero duplicate history rows');
     assert.equal(backupCount, 21, 'Backup retains exact 21 original rows');
 
-    // Verify compatible rollback restores all 21 orders cleanly!
+    // Verify Admin restoreOrder works cleanly on a legacy migrated order with trg_guard_queued_order_update active,
+    // while non-Admin restore and arbitrary operational edits remain strictly blocked!
+    const fp1RowBeforeRestore = (await pg.query("select updated_at from public.orders where id = 'LEG-21-FP1'")).rows[0];
+    await assert.rejects(
+      pg.query("update public.orders set flower_total = 999999 where id = 'LEG-21-FP1'"),
+      /ORDER_DELETING/,
+      'Direct unauthorized edit on delete_after_sheet_sync=true row remains blocked by guard trigger'
+    );
+    await assert.rejects(
+      pg.query("update public.orders set is_deleted = false, delete_after_sheet_sync = false, restored_at = now(), restored_by = 'sale1' where id = 'LEG-21-FP1'"),
+      /ORDER_DELETING/,
+      'Non-Admin restore on delete_after_sheet_sync=true row is rejected at trigger level'
+    );
+    const nonAdminRestore = await mutate(pg, 'sale1', 'req-nonadmin-restore-fp1', 'restoreOrder', {
+      orderId: 'LEG-21-FP1',
+      expectedUpdatedAt: fp1RowBeforeRestore.updated_at.toISOString(),
+      reason: 'Sale cannot restore'
+    });
+    assert.equal(nonAdminRestore.ok, false);
+    assert.equal(nonAdminRestore.code, 'NOT_OWNER');
+
+    const adminRestore = await mutate(pg, 'admin', 'req-admin-restore-fp1', 'restoreOrder', {
+      orderId: 'LEG-21-FP1',
+      expectedUpdatedAt: fp1RowBeforeRestore.updated_at.toISOString(),
+      reason: 'Admin kiểm chứng khôi phục đơn cũ'
+    });
+    assert.equal(adminRestore.ok, true, 'Admin restores legacy migrated order cleanly through guard_queued_order_update()');
+    assert.equal(adminRestore.row.is_deleted, false);
+    assert.equal(adminRestore.row.delete_after_sheet_sync, false);
+    assert.equal(adminRestore.row.restored_by, 'admin');
+    assert.equal(adminRestore.row.full_paid, true);
+    assert.equal(Number(adminRestore.row.full_paid_total), 500000);
+
+    // Re-soft-delete via UI V3 and verify rollback still works on the remaining LEGACY_MIGRATION rows
+    const adminReDelete = await mutate(pg, 'admin', 'req-admin-redelete-fp1', 'deleteOrder', {
+      orderId: 'LEG-21-FP1',
+      expectedUpdatedAt: adminRestore.row.updated_at,
+      reasonCode: 'OTHER',
+      reason: 'Đưa lại vào Thùng rác sau kiểm chứng khôi phục'
+    });
+    assert.equal(adminReDelete.ok, true);
+
+    // Verify compatible rollback restores remaining LEGACY_MIGRATION rows cleanly!
     await pg.exec(fs.readFileSync(ROLLBACK_SQL_PATH, 'utf8'));
     const afterRbDeleted = (await pg.query("select count(*)::int as c from public.orders where is_deleted = true")).rows[0].c;
     const afterRbFlags = (await pg.query("select count(*)::int as c from public.orders where delete_after_sheet_sync = true")).rows[0].c;
     const afterRbHist = (await pg.query("select count(*)::int as c from public.order_deletion_history where reason_code = 'LEGACY_MIGRATION'")).rows[0].c;
     assert.equal(afterRbDeleted, 0);
-    assert.equal(afterRbFlags, 21, 'Original delete_after_sheet_sync flags restored so old deleted orders still do NOT reappear');
+    assert.equal(afterRbFlags, 21, 'Original delete_after_sheet_sync flags restored on rolled-back rows so old deleted orders still do NOT reappear');
     assert.equal(afterRbHist, 0);
   } finally {
     await pg.close();
