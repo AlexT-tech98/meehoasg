@@ -36,16 +36,27 @@ export function bytesToBase64(bytes) {
 }
 
 /**
+ * Verify an authentication secret header using constant-time comparison (fail-closed).
+ * @param {Request} request
+ * @param {string} headerName
+ * @param {string} [expectedSecret]
+ * @returns {boolean}
+ */
+export function verifySecretHeader(request, headerName, expectedSecret) {
+  if (!expectedSecret || typeof expectedSecret !== 'string' || !headerName) return false;
+  const headerSecret = request.headers.get(headerName);
+  if (!headerSecret) return false;
+  return timingSafeEqual(headerSecret, expectedSecret);
+}
+
+/**
  * Verify Telegram Webhook Secret Token header (fail-closed).
  * @param {Request} request
  * @param {string} [expectedSecret]
  * @returns {boolean}
  */
 export function verifyWebhookSecret(request, expectedSecret) {
-  if (!expectedSecret || typeof expectedSecret !== 'string') return false;
-  const headerSecret = request.headers.get('x-telegram-bot-api-secret-token');
-  if (!headerSecret) return false;
-  return timingSafeEqual(headerSecret, expectedSecret);
+  return verifySecretHeader(request, 'x-telegram-bot-api-secret-token', expectedSecret);
 }
 
 /**

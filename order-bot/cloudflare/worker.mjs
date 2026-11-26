@@ -53,6 +53,7 @@ import {
 } from './d1-store.mjs';
 
 import {
+  verifySecretHeader,
   verifyWebhookSecret,
   sendTelegramMessage,
   downloadTelegramPhoto,
@@ -62,12 +63,39 @@ import {
 } from './telegram.mjs';
 
 import { callCreateOrder, syncOrderPaymentToOps, fetchOpsOrderRules, getCachedOpsOrderRules } from './ops-client.mjs';
-import { extractFieldsWithGeminiDetailed, sanitizeAiFields, DEFAULT_GEMINI_MODEL } from './gemini.mjs';
+import {
+  extractFieldsWithGeminiDetailed,
+  sanitizeAiFields,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_GEMINI_TIMEOUT_MS
+} from './gemini.mjs';
 
 const DEFAULT_ALLOWED_USER_ID = 5252724920;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_OPS_PAYLOAD_BYTES = Math.floor(11.5 * 1024 * 1024);
 const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const replyTg = (env, chatId, text, parseMode = null) =>
+  sendTelegramMessage(env.BOT_TOKEN, chatId, text, parseMode, env.TELEGRAM_FETCHER || fetch);
+
+const downloadTgPhoto = (env, fileId, maxBytes = MAX_IMAGE_BYTES) =>
+  downloadTelegramPhoto(env.BOT_TOKEN, fileId, maxBytes, env.TELEGRAM_FETCHER || fetch);
+
+function formatAiFailureNotice(aiRes) {
+  if (!aiRes || aiRes.ok) return null;
+  const status = Number(aiRes.status);
+  const err = String(aiRes.error || 'UNKNOWN');
+  if (status === 429 || /RESOURCE_EXHAUSTED|QUOTA/i.test(err)) {
+    return '⚠️ AI đang tạm hết hạn mức (HTTP 429). Ảnh mẫu và chú thích vẫn được giữ nguyên trong nháp — bạn có thể gõ /reparse sau ít phút để đọc lại cùng nháp hoặc bổ sung thủ công.';
+  }
+  if ([400, 401, 403, 404].includes(status) || err === 'NO_API_KEY') {
+    return `⚠️ Dịch vụ AI đang gặp lỗi cấu hình/xác thực (${status ? 'HTTP ' + status : err}). Ảnh mẫu và chú thích vẫn được giữ nguyên trong nháp — vui lòng nhập bổ sung thủ công các trường còn thiếu.`;
+  }
+  if (err === 'STREAM_INTERRUPTED' || err === 'EMPTY_RESPONSE' || err === 'INVALID_JSON' || aiRes.stage === 'sse_read' || aiRes.stage === 'json_parse') {
+    return `⚠️ Phản hồi từ AI bị gián đoạn hoặc chưa đúng định dạng (${err}). Ảnh mẫu và chú thích vẫn được giữ nguyên trong nháp — gõ /reparse để thử đọc lại cùng nháp hoặc bổ sung thủ công.`;
+  }
+  return `⚠️ AI đang quá tải tạm thời hoặc hết thời gian chờ (${status ? 'HTTP ' + status : err}). Ảnh mẫu và chú thích vẫn được giữ nguyên trong nháp — gõ /reparse để thử đọc lại cùng nháp hoặc bổ sung thủ công.`;
+}
 
 const html = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;',
@@ -320,114 +348,14 @@ export default {
       }
     }
 
-    // 3. AI Probe endpoint (POST /ai-probe) — Staging-only internal test harness.
-    //    Runs the full AI extraction pipeline (caption → Gemini → merge) on the Worker
-    //    using the production GEMINI_API_KEY Secret, without touching Telegram or creating
-    //    any OPS orders. Requires the internal OPS_TOKEN header as a lightweight guard
-    //    (same token already stored as a Secret — never sent over chat).
-    //    Caller provides: { caption: string, draftFields?: object, model?: string }
-    //    Returns: { ok, endpoint, model, status, latencyMs, retries, extractedKeys, fields,
-    //               mergeChanges, draftAfter, source, isolationNote }
+    // 3. AI Probe endpoint (POST /ai-probe) — Staging-only authenticated test harness.
+    //    Supports two modes:
+    //    - mode: "minimal"  → calls extractFieldsWithGeminiDetailed directly using Worker's GEMINI_API_KEY Secret.
+    //    - mode: "bot-flow" → runs the real handleTelegramWebhook flow (caption/photo, Gemini, merge, /reparse,
+    //                         deduplication) inside an in-memory D1/R2 sandbox with OPS writes strictly blocked.
+    //    Protected by AI_PROBE_TOKEN (x-ai-probe-token) or OPS_TOKEN (x-ops-token). Never weakens /webhook auth.
     if (request.method === 'POST' && path === '/ai-probe') {
-      // Guard: require OPS_TOKEN header (kept as Secret, never echoed back)
-      const probeToken = request.headers.get('x-ops-token') || '';
-      if (!env.OPS_TOKEN || probeToken !== env.OPS_TOKEN) {
-        return new Response(JSON.stringify({ ok: false, error: 'UNAUTHORIZED' }), {
-          status: 403,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      if (!env.GEMINI_API_KEY) {
-        return new Response(JSON.stringify({ ok: false, error: 'NO_GEMINI_API_KEY' }), {
-          status: 503,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      let probeBody;
-      try { probeBody = await request.json(); } catch {
-        return new Response(JSON.stringify({ ok: false, error: 'BAD_JSON' }), {
-          status: 400, headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      const probeCaption = String(probeBody?.caption || '').trim();
-      if (!probeCaption || probeCaption.length < 5) {
-        return new Response(JSON.stringify({ ok: false, error: 'CAPTION_REQUIRED' }), {
-          status: 400, headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      const probeModel = String(probeBody?.model || env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim();
-
-      // Build a minimal synthetic draft to test merge logic (no D1 write, no OPS call)
-      const { cmdNew: mkNew, applyFields: af } = await import('../core.mjs').catch(() => ({ cmdNew: null, applyFields: null }));
-      let syntheticDraft = { id: 'probe-synthetic', status: 'pending', fields: { sale: 'cmui', ...(probeBody?.draftFields || {}) }, sampleRefs: [], draftBillRefs: [] };
-
-      const probeStart = Date.now();
-      let aiRes = null;
-      try {
-        aiRes = await extractFieldsWithGeminiDetailed(env.GEMINI_API_KEY, probeCaption, probeModel);
-      } catch (err) {
-        return new Response(JSON.stringify({
-          ok: false, error: String(err?.message || 'GEMINI_THREW'), model: probeModel,
-          caption: probeCaption.slice(0, 200), isolationNote: 'NO_OPS_WRITE NO_DRAFT_SAVE NO_TELEGRAM'
-        }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-      }
-      const aiExtracted = aiRes.ok ? sanitizeAiFields(aiRes.fields) : null;
-
-      // Simulate the same merge logic mergeAiFallback uses, without any DB/OPS/Telegram side effects
-      let mergeChanges = [];
-      let draftAfter = syntheticDraft;
-      if (aiExtracted && Object.keys(aiExtracted).length) {
-        const { applyFields: applyF } = await import('../core.mjs').catch(() => ({ applyFields: null }));
-        if (applyF) {
-          const lines = Object.entries(aiExtracted)
-            .filter(([k, v]) => v !== null && v !== undefined)
-            .map(([k, v]) => `${k}: ${String(v).trim()}`);
-          const merged = applyF(syntheticDraft, lines.join('\n'), {});
-          draftAfter = merged.draft || syntheticDraft;
-          mergeChanges = merged.changes || [];
-        }
-      }
-
-      // Log to audit table (non-blocking, tagged as probe)
-      if (env.DB) {
-        try {
-          await logAudit(env.DB, null, 'geminiExtract', 'probe-synthetic', null, {
-            model: aiRes.model,
-            endpoint: aiRes.endpoint || null,
-            ok: aiRes.ok,
-            status: aiRes.status ?? null,
-            headersMs: aiRes.headersMs ?? null,
-            latencyMs: aiRes.latencyMs,
-            thoughtParts: aiRes.thoughtParts ?? 0,
-            textParts: aiRes.textParts ?? 0,
-            finishReason: aiRes.finishReason || null,
-            error: aiRes.ok ? null : String(aiRes.error || 'UNKNOWN').slice(0, 180),
-            extractedKeys: aiExtracted ? Object.keys(aiExtracted) : [],
-            probeRun: true
-          });
-        } catch { /* non-critical */ }
-      }
-
-      return new Response(JSON.stringify({
-        ok: aiRes.ok,
-        source: 'worker-real-secret',
-        model: aiRes.model,
-        endpoint: aiRes.endpoint || null,
-        status: aiRes.status ?? null,
-        headersMs: aiRes.headersMs ?? null,
-        latencyMs: aiRes.latencyMs,
-        retries: aiRes.retries ?? 0,
-        thoughtParts: aiRes.thoughtParts ?? 0,
-        textParts: aiRes.textParts ?? 0,
-        finishReason: aiRes.finishReason || null,
-        error: aiRes.ok ? null : String(aiRes.error || 'UNKNOWN'),
-        extractedKeys: aiExtracted ? Object.keys(aiExtracted) : [],
-        extractedFields: aiExtracted || null,
-        mergeChanges,
-        draftFieldsAfter: draftAfter?.fields || null,
-        caption: probeCaption.slice(0, 300),
-        isolationNote: 'NO_OPS_WRITE NO_DRAFT_SAVE NO_TELEGRAM NO_OPS_ORDER'
-      }), { headers: { 'Content-Type': 'application/json' } });
+      return handleAiProbe(request, env);
     }
 
     // 4. Telegram Webhook endpoint (POST /webhook or POST /)
@@ -435,8 +363,621 @@ export default {
       return handleTelegramWebhook(request, env);
     }
 
-    return new Response('Not Found', { status: 404 });  }
+    return new Response('Not Found', { status: 404 });
+  }
 };
+
+function buildProbeFaultFetcher(faultConfig, captionForMock = '') {
+  if (!faultConfig) return null;
+  const spec = typeof faultConfig === 'string' ? { type: faultConfig } : faultConfig;
+  const type = String(spec.type || '').trim();
+  let callCount = 0;
+
+  const thmJson = JSON.stringify({
+    customer: 'Thảo My',
+    flower: 'kệ chúc mừng tông vàng',
+    flowerTotal: 650000,
+    shipping: 'Shop book ship',
+    address: '88 Võ Văn Tần, Quận 3',
+    date: '29/12',
+    time: '16:00',
+    phone: null,
+    note: null,
+    cardText: null,
+    bannerText: null
+  });
+  const okText = spec.mockJson ? JSON.stringify(spec.mockJson) : (
+    /thảo my|thao my/i.test(captionForMock) ? thmJson : JSON.stringify({ customer: 'Khách Test', flower: 'Bó hoa test', flowerTotal: 500000, shipping: 'Ghé lấy', date: '29/12', time: '10:00' })
+  );
+  const sseOk = () => new Response(
+    `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: okText }] }, finishReason: 'STOP' }] })}\n\n`,
+    { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+  );
+
+  return async (_url, opts) => {
+    callCount += 1;
+    if (type === '503_then_200') {
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'Simulated 503 overload' } }),
+          { status: 503, headers: { 'Retry-After': String(spec.retryAfterSec ?? 0) } }
+        );
+      }
+      return sseOk();
+    }
+    if (type === '503_persistent') {
+      return new Response(
+        JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'Simulated persistent 503 overload' } }),
+        { status: 503, headers: { 'Retry-After': String(spec.retryAfterSec ?? 0) } }
+      );
+    }
+    if (type === '429' || type === '429_quota') {
+      return new Response(
+        JSON.stringify({ error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Simulated quota exceeded' } }),
+        { status: 429, headers: { 'Retry-After': String(spec.retryAfterSec ?? 0) } }
+      );
+    }
+    if (type === 'timeout') {
+      return new Promise((_, reject) => {
+        const abortErr = () => {
+          const e = new Error('The operation was aborted.');
+          e.name = 'AbortError';
+          reject(e);
+        };
+        if (opts?.signal?.aborted) { abortErr(); return; }
+        opts?.signal?.addEventListener('abort', abortErr, { once: true });
+      });
+    }
+    if (type === 'stream_cut') {
+      if (callCount === 1 && !spec.persistent) {
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: {"candidates":[{"content":{"parts":[{"text":"{\\"customer\\":\\"Thảo"}]}}]}\n\n'));
+            controller.error(new Error('Simulated SSE stream reset'));
+          }
+        });
+        return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      if (spec.persistent) {
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: {"candidates":[{"content":{"parts":[{"text":"{\\"customer\\":\\"Thảo"}]}}]}\n\n'));
+            controller.error(new Error('Simulated SSE stream reset'));
+          }
+        });
+        return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      return sseOk();
+    }
+    if (type === 'malformed_json') {
+      return new Response(
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"customer": "Thảo My", BROKEN_JSON' }] }, finishReason: 'STOP' }] })}\n\n`,
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+      );
+    }
+    return new Response(JSON.stringify({ error: { code: 500, status: 'INTERNAL', message: `Unknown fault type: ${type}` } }), { status: 500 });
+  };
+}
+
+function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probeOptions = {}) {
+  const draftRows = new Map();
+  if (initialDraftState) {
+    draftRows.set(Number(userId), {
+      active_draft_id: initialDraftState.activeDraftId || null,
+      drafts_json: JSON.stringify(initialDraftState.drafts || {}),
+      lock_acquired_at: null
+    });
+  }
+  const processedUpdates = new Set();
+  const sandboxAuditLogs = [];
+  const r2Objects = new Map();
+  const telegramReplies = [];
+  const blockedOpsWrites = [];
+  const aiCalls = [];
+
+  if (initialDraftState?.sampleR2Keys?.length) {
+    const dummyJpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+    for (const k of initialDraftState.sampleR2Keys) {
+      r2Objects.set(k, { body: dummyJpeg, httpMetadata: { contentType: 'image/jpeg' } });
+    }
+  }
+
+  const sandboxDb = {
+    prepare(sql) {
+      const bindStmt = (args = []) => ({
+        bind: (...a) => bindStmt(a),
+        first: async () => {
+          if (/SELECT 1 as alive/i.test(sql)) return { alive: 1 };
+          if (/FROM bot_drafts WHERE user_id/i.test(sql)) {
+            const row = draftRows.get(Number(args[0]));
+            return row ? { active_draft_id: row.active_draft_id, drafts_json: row.drafts_json } : null;
+          }
+          if (/FROM bot_processed_updates WHERE update_id/i.test(sql)) {
+            const uid = Number(args[0]);
+            return processedUpdates.has(uid) ? { update_id: uid } : null;
+          }
+          return null;
+        },
+        all: async () => ({ results: [], success: true, meta: { changes: 0 } }),
+        run: async () => {
+          if (/INSERT INTO bot_drafts[\s\S]*ON CONFLICT\(user_id\) DO NOTHING/i.test(sql)) {
+            const uid = Number(args[0]);
+            if (!draftRows.has(uid)) {
+              draftRows.set(uid, { active_draft_id: null, drafts_json: '{}', lock_acquired_at: null });
+            }
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (/UPDATE bot_drafts\s+SET lock_acquired_at = datetime/i.test(sql)) {
+            const uid = Number(args[0]);
+            const row = draftRows.get(uid) || { active_draft_id: null, drafts_json: '{}', lock_acquired_at: null };
+            row.lock_acquired_at = new Date().toISOString();
+            draftRows.set(uid, row);
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (/UPDATE bot_drafts SET lock_acquired_at = NULL/i.test(sql)) {
+            const row = draftRows.get(Number(args[0]));
+            if (row) row.lock_acquired_at = null;
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (/INSERT INTO bot_drafts[\s\S]*ON CONFLICT\(user_id\) DO UPDATE/i.test(sql)) {
+            const uid = Number(args[0]);
+            const prev = draftRows.get(uid) || { lock_acquired_at: null };
+            draftRows.set(uid, {
+              active_draft_id: args[1] || null,
+              drafts_json: String(args[2] || '{}'),
+              lock_acquired_at: prev.lock_acquired_at
+            });
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (/INSERT INTO bot_processed_updates/i.test(sql)) {
+            processedUpdates.add(Number(args[0]));
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (/INSERT INTO bot_audit_logs/i.test(sql)) {
+            let parsedPayload = null;
+            try { parsedPayload = args[4] ? JSON.parse(args[4]) : null; } catch {}
+            sandboxAuditLogs.push({
+              userId: args[0],
+              action: args[1],
+              draftId: args[2],
+              requestId: args[3],
+              payload: parsedPayload
+            });
+            return { success: true, meta: { changes: 1 } };
+          }
+          return { success: true, meta: { changes: 0 } };
+        }
+      });
+      return bindStmt([]);
+    }
+  };
+
+  const sandboxR2 = {
+    async put(key, value, opts) {
+      const buf = value instanceof ArrayBuffer ? new Uint8Array(value) : (value instanceof Uint8Array ? value : new TextEncoder().encode(String(value)));
+      r2Objects.set(key, { body: buf, httpMetadata: opts?.httpMetadata || {} });
+      return { key };
+    },
+    async get(key) {
+      const o = r2Objects.get(key);
+      if (!o) return null;
+      return {
+        key,
+        body: o.body,
+        httpMetadata: o.httpMetadata,
+        size: o.body.length,
+        async arrayBuffer() { return o.body.buffer.slice(o.body.byteOffset, o.body.byteOffset + o.body.byteLength); }
+      };
+    },
+    async delete(key) {
+      r2Objects.delete(key);
+    }
+  };
+
+  const sampleBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff, 0xd9]);
+  const telegramFetcher = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('/getFile')) {
+      return new Response(JSON.stringify({
+        ok: true,
+        result: { file_path: 'photos/sample-flower-staging-test.jpg', file_size: sampleBytes.length }
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (u.includes('/file/bot')) {
+      return new Response(sampleBytes, { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+    }
+    if (u.includes('/sendMessage')) {
+      let body = {};
+      try { body = JSON.parse(opts?.body || '{}'); } catch {}
+      telegramReplies.push({
+        chatId: body.chat_id,
+        parseMode: body.parse_mode || null,
+        text: String(body.text || '')
+      });
+      return new Response(JSON.stringify({ ok: true, result: { message_id: telegramReplies.length } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    return new Response('Probe Telegram mock: unsupported route', { status: 404 });
+  };
+
+  const opsService = {
+    async fetch(input, init) {
+      let body = {};
+      try {
+        if (init && typeof init.body === 'string') {
+          body = JSON.parse(init.body);
+        } else if (input && typeof input.json === 'function') {
+          body = await input.json();
+        }
+      } catch {}
+      const name = String(body?.name || '');
+      if (name === 'getOrderRules') {
+        return new Response(JSON.stringify({
+          ok: true,
+          rules: probeOptions.opsRules || DEFAULT_OPS_ORDER_RULES,
+          caller: { username: 'cmui', role: 'ADMIN', canAssignDefaultSale: true }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      blockedOpsWrites.push({ action: name, at: new Date().toISOString() });
+      return new Response(JSON.stringify({
+        ok: false,
+        code: 'PROBE_OPS_BLOCKED',
+        message: 'OPS write operations are strictly blocked in /ai-probe'
+      }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+    }
+  };
+
+  const probeWebhookSecret = 'probe-internal-webhook-secret';
+  const isolatedEnv = {
+    ...realEnv,
+    DB: sandboxDb,
+    MEDIA_R2: sandboxR2,
+    BOT_TOKEN: realEnv.BOT_TOKEN || realEnv.TELEGRAM_BOT_TOKEN || 'probe-bot-token',
+    OPS_TOKEN: realEnv.OPS_TOKEN || 'probe-ops-token',
+    OPS_SERVICE: opsService,
+    TELEGRAM_SECRET_TOKEN: probeWebhookSecret,
+    ALLOWED_USER_IDS: String(userId),
+    GEMINI_MODEL: probeOptions.model || realEnv.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
+    GEMINI_TIMEOUT_MS: probeOptions.timeoutMs,
+    GEMINI_OPTIONS: probeOptions.geminiOptions,
+    GEMINI_FETCHER: probeOptions.geminiFetcher || undefined,
+    TELEGRAM_FETCHER: telegramFetcher,
+    PROBE_COLLECTOR: aiCalls
+  };
+
+  return {
+    isolatedEnv,
+    probeWebhookSecret,
+    readDraftsState: () => {
+      const row = draftRows.get(Number(userId));
+      if (!row) return { activeDraftId: null, drafts: {} };
+      return { activeDraftId: row.active_draft_id, drafts: JSON.parse(row.drafts_json || '{}') };
+    },
+    sandboxAuditLogs,
+    telegramReplies,
+    blockedOpsWrites,
+    r2Keys: () => [...r2Objects.keys()],
+    aiCalls
+  };
+}
+
+async function handleAiProbe(request, env) {
+  const authorized =
+    verifySecretHeader(request, 'x-ai-probe-token', env.AI_PROBE_TOKEN) ||
+    verifySecretHeader(request, 'x-ops-token', env.OPS_TOKEN);
+  if (!authorized) {
+    return new Response(JSON.stringify({ ok: false, error: 'UNAUTHORIZED' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  if (!env.GEMINI_API_KEY) {
+    return new Response(JSON.stringify({ ok: false, error: 'NO_GEMINI_API_KEY' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  let probeBody;
+  try {
+    probeBody = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ ok: false, error: 'BAD_JSON' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const mode = probeBody?.mode === 'minimal' ? 'minimal' : 'bot-flow';
+  const probeModel = String(probeBody?.model || env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim();
+  const preferredEndpoint = probeBody?.preferredEndpoint || null;
+  const geminiOptions = {
+    ...(probeBody?.geminiOptions && typeof probeBody.geminiOptions === 'object' ? probeBody.geminiOptions : {}),
+    ...(preferredEndpoint ? { preferredEndpoint } : {})
+  };
+  const timeoutMs = Number.isFinite(Number(probeBody?.timeoutMs)) ? Number(probeBody.timeoutMs) : undefined;
+  const faultInjection = probeBody?.faultInjection || null;
+  const recordAudit = probeBody?.recordAudit !== false && !faultInjection;
+
+  // Mode 1: minimal direct AI probe (verifies endpoint, key, model, SSE reading, latency, attempts)
+  if (mode === 'minimal') {
+    const probeCaption = String(probeBody?.caption || '').trim();
+    if (!probeCaption || probeCaption.length < 5) {
+      return new Response(JSON.stringify({ ok: false, error: 'CAPTION_REQUIRED' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    const faultFetcher = buildProbeFaultFetcher(faultInjection, probeCaption);
+    const aiRes = await extractFieldsWithGeminiDetailed(
+      env.GEMINI_API_KEY,
+      probeCaption,
+      probeModel,
+      faultFetcher || fetch,
+      timeoutMs || DEFAULT_GEMINI_TIMEOUT_MS,
+      geminiOptions
+    );
+    const aiExtracted = aiRes.ok ? sanitizeAiFields(aiRes.fields) : null;
+
+    let realD1AuditLogged = false;
+    if (recordAudit && env.DB) {
+      try {
+        await logAudit(env.DB, null, 'geminiExtract', 'probe-minimal', null, {
+          model: aiRes.model,
+          endpoint: aiRes.endpoint || null,
+          ok: aiRes.ok,
+          status: aiRes.status ?? null,
+          headersMs: aiRes.headersMs ?? null,
+          latencyMs: aiRes.latencyMs,
+          retries: aiRes.retries ?? 0,
+          stage: aiRes.stage || null,
+          thoughtParts: aiRes.thoughtParts ?? 0,
+          textParts: aiRes.textParts ?? 0,
+          finishReason: aiRes.finishReason || null,
+          error: aiRes.ok ? null : String(aiRes.error || 'UNKNOWN').slice(0, 180),
+          extractedKeys: aiExtracted ? Object.keys(aiExtracted) : [],
+          probeRun: true,
+          probeMode: 'minimal'
+        });
+        realD1AuditLogged = true;
+      } catch {}
+    }
+
+    return new Response(JSON.stringify({
+      ok: aiRes.ok,
+      mode: 'minimal',
+      source: faultInjection ? 'worker-fault-injection' : 'worker-real-secret',
+      model: aiRes.model,
+      endpoint: aiRes.endpoint || null,
+      status: aiRes.status ?? null,
+      headersMs: aiRes.headersMs ?? null,
+      latencyMs: aiRes.latencyMs,
+      retries: aiRes.retries ?? 0,
+      budgetExhausted: Boolean(aiRes.budgetExhausted),
+      stage: aiRes.stage || null,
+      thoughtParts: aiRes.thoughtParts ?? 0,
+      textParts: aiRes.textParts ?? 0,
+      finishReason: aiRes.finishReason || null,
+      error: aiRes.ok ? null : String(aiRes.error || 'UNKNOWN'),
+      attempts: aiRes.attempts || [],
+      extractedKeys: aiExtracted ? Object.keys(aiExtracted) : [],
+      extractedFields: aiExtracted || null,
+      executionProof: {
+        workerRuntime: true,
+        handleTelegramWebhookUsed: false,
+        realGeminiSecretUsed: !faultInjection,
+        realD1AuditLogged,
+        d1DraftsSavedToRealDb: false,
+        r2SavedToRealBucket: false,
+        telegramNetworkSent: false,
+        opsOrderCreationBlocked: true
+      },
+      isolationNote: 'NO_OPS_WRITE NO_REAL_D1_DRAFT_WRITE NO_REAL_R2_WRITE NO_TELEGRAM_SEND'
+    }), { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  // Mode 2: full handleTelegramWebhook bot-flow in an isolated in-memory D1/R2 sandbox
+  const rawSteps = Array.isArray(probeBody?.steps) ? probeBody.steps : null;
+  const singleCaption = String(probeBody?.caption || '').trim();
+  const cloneFromDraftId = String(probeBody?.cloneFromDraftId || '').trim();
+  if (!rawSteps?.length && !singleCaption && !cloneFromDraftId) {
+    return new Response(JSON.stringify({ ok: false, error: 'CAPTION_OR_STEPS_REQUIRED' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const probeUserId = Number((env.ALLOWED_USER_IDS || String(DEFAULT_ALLOWED_USER_ID)).split(',')[0].trim()) || DEFAULT_ALLOWED_USER_ID;
+
+  // Read-only clone of a specific Staging draft (e.g. #b0dca9) into isolated memory without touching real D1
+  let initialDraftState = null;
+  if (cloneFromDraftId && env.DB) {
+    const row = await env.DB.prepare('SELECT active_draft_id, drafts_json FROM bot_drafts WHERE user_id = ?')
+      .bind(probeUserId)
+      .first();
+    if (!row?.drafts_json) {
+      return new Response(JSON.stringify({ ok: false, error: 'CLONE_SOURCE_NOT_FOUND' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    const parsedDrafts = JSON.parse(row.drafts_json);
+    const matchedKey = Object.keys(parsedDrafts).find(k =>
+      !k.startsWith('__') && (k === cloneFromDraftId || k.endsWith(cloneFromDraftId))
+    );
+    if (!matchedKey || !parsedDrafts[matchedKey]) {
+      return new Response(JSON.stringify({ ok: false, error: 'CLONE_DRAFT_NOT_FOUND', cloneFromDraftId }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    const clonedDraft = JSON.parse(JSON.stringify(parsedDrafts[matchedKey]));
+    const sampleR2Keys = (clonedDraft.sampleRefs || []).map(r => r?.r2_key).filter(Boolean);
+    initialDraftState = {
+      activeDraftId: matchedKey,
+      drafts: { [matchedKey]: clonedDraft, __active: matchedKey },
+      sampleR2Keys
+    };
+  }
+
+  const steps = rawSteps?.length
+    ? rawSteps
+    : (cloneFromDraftId
+      ? [{ text: String(probeBody?.command || '/reparse') }]
+      : [{ photo: probeBody?.withPhoto !== false, caption: singleCaption }]);
+
+  const firstCaptionText = singleCaption || String(steps.find(s => typeof s === 'object' && (s.caption || s.text))?.caption || '');
+  const globalFaultFetcher = buildProbeFaultFetcher(faultInjection, firstCaptionText);
+
+  const probeCtx = createIsolatedProbeEnv(env, probeUserId, initialDraftState, {
+    model: probeModel,
+    timeoutMs,
+    geminiOptions,
+    geminiFetcher: globalFaultFetcher,
+    opsRules: probeBody?.opsRules || null
+  });
+
+  const stepResults = [];
+  let seq = Number(probeBody?.baseUpdateId || 900001);
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const stepObj = typeof s === 'string' ? { text: s } : (s || {});
+    const updateId = stepObj.update_id ?? (seq + i);
+    const msgId = stepObj.message_id ?? (seq + i);
+    const msgDate = stepObj.date ?? (1795700000 + i * 2);
+
+    // Allow per-step faultInjection override so callers can test 503 failure -> /reparse recovery
+    if (stepObj.faultInjection !== undefined) {
+      const stepFault = buildProbeFaultFetcher(stepObj.faultInjection, stepObj.caption || stepObj.text || firstCaptionText);
+      probeCtx.isolatedEnv.GEMINI_FETCHER = stepFault || undefined;
+    } else {
+      probeCtx.isolatedEnv.GEMINI_FETCHER = globalFaultFetcher || undefined;
+    }
+
+    const message = {
+      message_id: msgId,
+      date: msgDate,
+      chat: { id: probeUserId, type: 'private' },
+      from: { id: probeUserId }
+    };
+    if (stepObj.photo) {
+      message.photo = [{ file_id: stepObj.file_id || `probe_photo_${i}`, file_unique_id: stepObj.file_unique_id || `probe_u_${i}` }];
+      if (stepObj.caption !== undefined) message.caption = stepObj.caption;
+    } else {
+      message.text = String(stepObj.text || '');
+    }
+
+    const replyCountBefore = probeCtx.telegramReplies.length;
+    const req = new Request('https://meehoa-order-bot-staging.meehoasg.workers.dev/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Telegram-Bot-Api-Secret-Token': probeCtx.probeWebhookSecret
+      },
+      body: JSON.stringify({ update_id: updateId, message })
+    });
+    const res = await handleTelegramWebhook(req, probeCtx.isolatedEnv);
+    const resText = await res.text();
+    stepResults.push({
+      step: i + 1,
+      updateId,
+      httpStatus: res.status,
+      webhookResponse: resText,
+      replies: probeCtx.telegramReplies.slice(replyCountBefore)
+    });
+  }
+
+  let realD1AuditLogged = false;
+  if (recordAudit && env.DB && probeCtx.sandboxAuditLogs.length) {
+    for (const entry of probeCtx.sandboxAuditLogs) {
+      if (entry.action !== 'geminiExtract' || !entry.payload) continue;
+      try {
+        const auditDraftId = cloneFromDraftId
+          ? `probe-clone-${cloneFromDraftId.slice(-6)}`
+          : `probe-${String(entry.draftId || 'botflow').slice(-12)}`;
+        await logAudit(env.DB, null, 'geminiExtract', auditDraftId, null, {
+          ...entry.payload,
+          probeRun: true,
+          probeMode: 'bot-flow'
+        });
+        realD1AuditLogged = true;
+      } catch {}
+    }
+  }
+
+  const finalState = probeCtx.readDraftsState();
+  const draftEntries = Object.entries(finalState.drafts || {})
+    .filter(([k, d]) => !k.startsWith('__') && d && d.id)
+    .map(([, d]) => d);
+  const activeDraftObj = finalState.activeDraftId ? finalState.drafts[finalState.activeDraftId] || null : null;
+  const latestAi = probeCtx.aiCalls[probeCtx.aiCalls.length - 1] || null;
+  const anyRealGeminiFail = !faultInjection && probeCtx.aiCalls.some(c => !c.ok);
+
+  return new Response(JSON.stringify({
+    ok: !anyRealGeminiFail && stepResults.every(s => s.httpStatus === 200),
+    mode: 'bot-flow',
+    source: faultInjection ? 'worker-fault-injection' : 'worker-real-secret',
+    model: latestAi?.model || probeModel,
+    endpoint: latestAi?.endpoint || null,
+    status: latestAi?.status ?? null,
+    headersMs: latestAi?.headersMs ?? null,
+    latencyMs: latestAi?.latencyMs ?? null,
+    retries: latestAi?.retries ?? 0,
+    error: latestAi && !latestAi.ok ? latestAi.error : null,
+    extractedKeys: latestAi?.ok && latestAi.fields ? Object.keys(sanitizeAiFields(latestAi.fields) || {}) : [],
+    extractedFields: latestAi?.ok ? sanitizeAiFields(latestAi.fields) : null,
+    aiCalls: probeCtx.aiCalls.map(c => ({
+      model: c.model,
+      endpoint: c.endpoint || null,
+      ok: c.ok,
+      status: c.status ?? null,
+      headersMs: c.headersMs ?? null,
+      latencyMs: c.latencyMs,
+      retries: c.retries ?? 0,
+      budgetExhausted: Boolean(c.budgetExhausted),
+      stage: c.stage || null,
+      finishReason: c.finishReason || null,
+      error: c.ok ? null : (c.error || null),
+      attempts: c.attempts || [],
+      extractedFields: c.ok ? sanitizeAiFields(c.fields) : null
+    })),
+    stepResults,
+    draftsCount: draftEntries.length,
+    activeDraftId: finalState.activeDraftId,
+    activeDraft: activeDraftObj ? {
+      id: activeDraftObj.id,
+      status: activeDraftObj.status,
+      fields: activeDraftObj.fields || {},
+      sampleCount: (activeDraftObj.sampleRefs || []).length,
+      billCount: (activeDraftObj.draftBillRefs || []).length,
+      pendingAiText: activeDraftObj.pendingAiText || null,
+      lastAiError: activeDraftObj.lastAiError || null,
+      uncertainFields: activeDraftObj.uncertainFields || {}
+    } : null,
+    draftsSummaryList: draftEntries.map(d => ({
+      id: d.id,
+      status: d.status,
+      fields: d.fields,
+      sampleCount: (d.sampleRefs || []).length
+    })),
+    auditLogs: probeCtx.sandboxAuditLogs,
+    executionProof: {
+      workerRuntime: true,
+      handleTelegramWebhookUsed: true,
+      realGeminiSecretUsed: !faultInjection,
+      realD1AuditLogged,
+      d1DraftsSavedToRealDb: false,
+      r2SavedToRealBucket: false,
+      telegramNetworkSent: false,
+      opsOrderCreationBlocked: true,
+      opsWriteAttemptsCount: probeCtx.blockedOpsWrites.length,
+      sandboxR2ObjectsCount: probeCtx.r2Keys().length
+    },
+    isolationNote: 'NO_OPS_WRITE NO_REAL_D1_DRAFT_WRITE NO_REAL_R2_WRITE NO_TELEGRAM_SEND'
+  }), { headers: { 'Content-Type': 'application/json' } });
+}
 
 /**
  * Handle incoming Telegram Webhook updates
@@ -506,8 +1047,8 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
   if (!userId || !allowedUserIds.includes(userId)) {
     if (chatId) {
-      await sendTelegramMessage(
-        env.BOT_TOKEN,
+      await replyTg(
+        env,
         chatId,
         '⛔ Bạn không có quyền sử dụng bot này. Chỉ tài khoản quản trị được phân quyền mới có thể truy cập.'
       );
@@ -523,14 +1064,14 @@ export async function handleTelegramWebhook(request, rawEnv) {
     // 1. Photo message handler
     if (Array.isArray(message.photo) && message.photo.length > 0) {
       if (!env.MEDIA_R2) {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Kho ảnh chưa sẵn sàng. Ảnh chưa được thêm vào đơn nháp.');
+        await replyTg(env, chatId, '⚠️ Kho ảnh chưa sẵn sàng. Ảnh chưa được thêm vào đơn nháp.');
         return;
       }
 
       const highestPhoto = message.photo[message.photo.length - 1];
       const caption = (message.caption || '').trim();
       if (caption && detectPromptInjection(caption)) {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '🛡️ Tin nhắn bị từ chối do chứa nội dung can thiệp hệ thống hoặc quyền hạn.');
+        await replyTg(env, chatId, '🛡️ Tin nhắn bị từ chối do chứa nội dung can thiệp hệ thống hoặc quyền hạn.');
         return;
       }
 
@@ -538,30 +1079,30 @@ export async function handleTelegramWebhook(request, rawEnv) {
       const decision = classifyIncomingPhotoDraft(drafts, caption, isBill);
 
       if (decision.action === 'reject_no_draft') {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa có đơn nháp nào đang chọn. Gửi ảnh mẫu kèm chú thích đơn hàng hoặc gõ /new để tạo đơn mới.');
+        await replyTg(env, chatId, '⚠️ Chưa có đơn nháp nào đang chọn. Gửi ảnh mẫu kèm chú thích đơn hàng hoặc gõ /new để tạo đơn mới.');
         return;
       }
       if (decision.action === 'reject_confirming') {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⏳ Đơn đang trong tiến trình xác nhận với OPS, không thể bổ sung ảnh.');
+        await replyTg(env, chatId, '⏳ Đơn đang trong tiến trình xác nhận với OPS, không thể bổ sung ảnh.');
         return;
       }
       if (decision.action === 'reject_submitted') {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Đơn này đã được tạo thành công trên OPS. Gửi ảnh mẫu kèm chú thích đơn mới hoặc gõ /new để tạo đơn mới.');
+        await replyTg(env, chatId, '⚠️ Đơn này đã được tạo thành công trên OPS. Gửi ảnh mẫu kèm chú thích đơn mới hoặc gõ /new để tạo đơn mới.');
         return;
       }
 
       const currentActive = activeDraft(drafts);
       if (decision.action === 'attach_active' && currentActive) {
         if ((isBill ? currentActive.draftBillRefs : currentActive.sampleRefs)?.length >= 10) {
-          await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Mỗi nhóm chỉ nhận tối đa 10 ảnh. Ảnh này chưa được thêm vào đơn nháp.');
+          await replyTg(env, chatId, '⚠️ Mỗi nhóm chỉ nhận tối đa 10 ảnh. Ảnh này chưa được thêm vào đơn nháp.');
           return;
         }
       }
 
       // Download photo with 5MB validation
-      const downloadResult = await downloadTelegramPhoto(env.BOT_TOKEN, highestPhoto.file_id, MAX_IMAGE_BYTES);
+      const downloadResult = await downloadTgPhoto(env, highestPhoto.file_id, MAX_IMAGE_BYTES);
       if (!downloadResult.ok) {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, `⚠️ Không thể tải ảnh: ${downloadResult.error}`);
+        await replyTg(env, chatId, `⚠️ Không thể tải ảnh: ${downloadResult.error}`);
         return;
       }
 
@@ -579,7 +1120,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
         const pendingKey = `order-images/pending-${pendingId}-${fileHash}.${ext}`;
         const stored = await savePhotoToR2(env.MEDIA_R2, pendingKey, downloadResult.buffer, downloadResult.mimeType);
         if (!stored) {
-          await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa lưu được ảnh vào kho lưu trữ. Vui lòng gửi lại; ảnh này chưa được thêm vào đơn nháp.');
+          await replyTg(env, chatId, '⚠️ Chưa lưu được ảnh vào kho lưu trữ. Vui lòng gửi lại; ảnh này chưa được thêm vào đơn nháp.');
           return;
         }
 
@@ -619,8 +1160,8 @@ export async function handleTelegramWebhook(request, rawEnv) {
         const conflictText = decision.conflicts?.length
           ? ` (${decision.conflicts.join(', ')})`
           : '';
-        await sendTelegramMessage(
-          env.BOT_TOKEN,
+        await replyTg(
+          env,
           chatId,
           `❓ Ảnh kèm chú thích vừa gửi có thông tin chưa chắc thuộc nháp hiện tại #${oldShort} — ${oldCust}${conflictText}.\n` +
           `Bot KHÔNG tự gộp để tránh trộn dữ liệu hai đơn.\n\n` +
@@ -647,7 +1188,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
       const stored = await savePhotoToR2(env.MEDIA_R2, r2Key, downloadResult.buffer, downloadResult.mimeType);
       if (!stored) {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa lưu được ảnh vào kho lưu trữ. Vui lòng gửi lại; ảnh này chưa được thêm vào đơn nháp.');
+        await replyTg(env, chatId, '⚠️ Chưa lưu được ảnh vào kho lưu trữ. Vui lòng gửi lại; ảnh này chưa được thêm vào đơn nháp.');
         return;
       }
 
@@ -675,9 +1216,10 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
         let extraReply = '';
         let captionApplied = false;
+        let aiNotice = null;
         const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
         if (caption && !isBill) {
-          const { draft: updatedDraft, changes, warnings } = await mergeAiFallback(
+          const mergedRes = await mergeAiFallback(
             drafts[drafts.__active],
             caption,
             applyFields(drafts[drafts.__active], caption, { rules: opsRules }),
@@ -685,14 +1227,21 @@ export async function handleTelegramWebhook(request, rawEnv) {
             opsRules,
             userId
           );
+          const { draft: updatedDraft, changes, warnings } = mergedRes;
+          aiNotice = mergedRes.aiNotice || null;
           if (changes && changes.length > 0) {
             drafts[drafts.__active] = updatedDraft;
             captionApplied = true;
             const changedText = changes.map(c => c.uncertain ? `  ⚠️ ${c.field}: ${c.reason}` : `  ${c.field}: ${c.value}`).join('\n');
             extraReply = `\n\n✏️ Đã nhận thông tin từ chú thích:\n${changedText}`;
+          } else if (aiNotice && updatedDraft) {
+            drafts[drafts.__active] = updatedDraft;
           }
           if (warnings?.length) {
             extraReply += `\n${warnings.join('\n')}`;
+          }
+          if (aiNotice) {
+            extraReply += `\n\n${aiNotice}`;
           }
         }
 
@@ -710,26 +1259,27 @@ export async function handleTelegramWebhook(request, rawEnv) {
           const header = prevDraft && prevDraft.status !== 'submitted'
             ? `🆕 Phát hiện đơn mới khác với nháp cũ #${prevDraft.id.slice(-6)} (${prevDraft.fields?.customer || 'chưa có tên'}).\nĐã giữ nguyên nháp cũ (dùng /list hoặc /select ${prevDraft.id.slice(-6)} để xem lại) và tạo nháp mới #${newShort}:`
             : `🆕 Đã tạo đơn nháp mới #${newShort} kèm 1 ảnh mẫu:`;
-          await sendTelegramMessage(
-            env.BOT_TOKEN,
+          const noticeBlock = aiNotice ? `\n\n${html(aiNotice)}` : '';
+          await replyTg(
+            env,
             chatId,
-            `${html(header)}\n\n${html(draftSummary(newDraft, opsRules))}`,
+            `${html(header)}${noticeBlock}\n\n${html(draftSummary(newDraft, opsRules))}`,
             'HTML'
           );
-        } else if (captionApplied) {
+        } else if (captionApplied || aiNotice) {
           const updatedNow = drafts[drafts.__active];
-          await sendTelegramMessage(
-            env.BOT_TOKEN,
+          await replyTg(
+            env,
             chatId,
             `${html(result.reply)}${html(extraReply)}\n\n${html(draftSummary(updatedNow, opsRules))}`,
             'HTML'
           );
         } else {
-          await sendTelegramMessage(env.BOT_TOKEN, chatId, `${html(result.reply)}${html(extraReply)}`, 'HTML');
+          await replyTg(env, chatId, `${html(result.reply)}${html(extraReply)}`, 'HTML');
         }
       } else {
         await deletePhotoFromR2(env.MEDIA_R2, r2Key);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, `⚠️ ${result.reply}`);
+        await replyTg(env, chatId, `⚠️ ${result.reply}`);
       }
       return;
     }
@@ -741,11 +1291,11 @@ export async function handleTelegramWebhook(request, rawEnv) {
     // Check Prompt Injection
     const injectionType = detectPromptInjection(rawText);
     if (injectionType) {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '🛡️ Tin nhắn bị từ chối do chứa nội dung can thiệp hệ thống hoặc quyền hạn.');
+      await replyTg(env, chatId, '🛡️ Tin nhắn bị từ chối do chứa nội dung can thiệp hệ thống hoặc quyền hạn.');
       return;
     }
 
-    // A. Commands: /new, /list, /select, /show, /cancel, /confirm, and pending-photo choices
+    // A. Commands: /new, /list, /select, /show, /reparse, /cancel, /confirm, and pending-photo choices
     if (drafts.__pendingPhoto) {
       const choiceNorm = rawText.toLowerCase();
       if (choiceNorm === '1' || choiceNorm === 'mới' || choiceNorm === 'moi') {
@@ -777,10 +1327,10 @@ export async function handleTelegramWebhook(request, rawEnv) {
         const res = cmdNew(drafts, arg);
         drafts = res.drafts;
         if (env.DB && !res.reused) await saveDrafts(env.DB, userId, drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
+        await replyTg(env, chatId, res.reply);
       } else if (cmd === '/list') {
         const res = cmdList(drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
+        await replyTg(env, chatId, res.reply);
       } else if (cmd === '/select') {
         const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
         const res = cmdSelect(drafts, arg);
@@ -788,11 +1338,13 @@ export async function handleTelegramWebhook(request, rawEnv) {
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
         const selected = activeDraft(drafts);
         const reply = selected ? `Đang xem đơn #${selected.id.slice(-6)}.\n\n${draftSummary(selected, opsRules)}` : res.reply;
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, reply);
+        await replyTg(env, chatId, reply);
       } else if (cmd === '/show') {
         const { rules: opsRules } = await loadCurrentOpsRules(env, { forceRefresh: false });
         const res = cmdShow(drafts, arg, opsRules);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
+        await replyTg(env, chatId, res.reply);
+      } else if (cmd === '/reparse' || cmd === '/retry_ai') {
+        await handleReparseCommand(drafts, arg, env, userId, chatId);
       } else if (cmd === '/cancel') {
         const draftToCancel = activeDraft(drafts);
         const res = cmdCancel(drafts, arg);
@@ -809,7 +1361,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
         if (orphanPendingKey && env.MEDIA_R2) {
           await deletePhotoFromR2(env.MEDIA_R2, orphanPendingKey);
         }
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
+        await replyTg(env, chatId, res.reply);
       } else if (cmd === '/confirm') {
         await handleConfirmCommand(drafts, env, userId, chatId);
       } else if (cmd === '/retry_payment' || cmd === '/sync_payment') {
@@ -817,7 +1369,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
       } else if (cmd === '/relink' || cmd === '/retry_bill') {
         await handleRelinkCommand(drafts, arg, env, userId, chatId);
       } else {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '❓ Lệnh không nhận ra. Các lệnh hỗ trợ:\n/new — Tạo đơn mới\n/list — Danh sách đơn nháp\n/select <id> — Chọn đơn nháp\n/show — Xem chi tiết đơn\n/confirm — Xác nhận tạo đơn OPS\n/retry_payment — Đồng bộ lại thanh toán/cọc vào đơn OPS đã tạo\n/relink — Gắn lại bill vào đơn OPS đã tạo\n/cancel — Xóa đơn nháp đang chọn');
+        await replyTg(env, chatId, '❓ Lệnh không nhận ra. Các lệnh hỗ trợ:\n/new — Tạo đơn mới\n/list — Danh sách đơn nháp\n/select <id> — Chọn đơn nháp\n/show — Xem chi tiết đơn\n/reparse — Đọc lại chú thích của nháp hiện tại bằng AI\n/confirm — Xác nhận tạo đơn OPS\n/retry_payment — Đồng bộ lại thanh toán/cọc vào đơn OPS đã tạo\n/relink — Gắn lại bill vào đơn OPS đã tạo\n/cancel — Xóa đơn nháp đang chọn');
       }
       return;
     }
@@ -825,16 +1377,16 @@ export async function handleTelegramWebhook(request, rawEnv) {
     // B. Field updates
     const draft = activeDraft(drafts);
     if (!draft) {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Dùng /new để tạo đơn nháp trước khi nhập thông tin.');
+      await replyTg(env, chatId, '⚠️ Dùng /new để tạo đơn nháp trước khi nhập thông tin.');
       return;
     }
 
     if (draft.status === 'confirming') {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⏳ Đơn đang trong tiến trình xác nhận với OPS, không thể chỉnh sửa.');
+      await replyTg(env, chatId, '⏳ Đơn đang trong tiến trình xác nhận với OPS, không thể chỉnh sửa.');
       return;
     }
     if (draft.status === 'submitted') {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Đơn này đã được tạo thành công trên OPS. Gõ /new để tạo đơn mới.');
+      await replyTg(env, chatId, '⚠️ Đơn này đã được tạo thành công trên OPS. Gõ /new để tạo đơn mới.');
       return;
     }
 
@@ -849,7 +1401,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
     // Apply structured fields via core applyFields against cached/default OPS validation rules
     const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
-    let { draft: updated, changes, warnings } = await mergeAiFallback(
+    const mergedText = await mergeAiFallback(
       draft,
       rawText,
       applyFields(draft, rawText, { rules: opsRules }),
@@ -857,12 +1409,16 @@ export async function handleTelegramWebhook(request, rawEnv) {
       opsRules,
       userId
     );
+    let updated = mergedText.draft;
+    let changes = mergedText.changes;
+    const warnings = mergedText.warnings;
+    const aiNotice = mergedText.aiNotice || null;
 
     if (isOutOfOrder && changes?.length) {
       // If an older message arrives after a newer message, do NOT overwrite fields that are already set
       changes = changes.filter(c => !draft.fields[c.field] || String(draft.fields[c.field]).trim() === '');
       if (changes.length === 0) {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, 'ℹ️ Đã nhận tin nhắn gửi trước đó nhưng các thông tin này đã được cập nhật bởi tin nhắn mới hơn.');
+        await replyTg(env, chatId, 'ℹ️ Đã nhận tin nhắn gửi trước đó nhưng các thông tin này đã được cập nhật bởi tin nhắn mới hơn.');
         return;
       }
       // Re-apply only non-conflicting changes
@@ -894,12 +1450,22 @@ export async function handleTelegramWebhook(request, rawEnv) {
       if (uncertainCount) extra += `\n❓ Có ${uncertainCount} trường cần làm rõ trước khi xác nhận.`;
       if (validation.ok) extra += `\n✅ Đã đủ dữ liệu (Sale: ${formatSaleDisplay(updated.fields?.sale, opsRules)}) — dùng /confirm để tạo đơn.`;
       const warnMsg = warnings?.length ? `\n${warnings.join('\n')}` : '';
+      const aiMsg = aiNotice ? `\n\n${aiNotice}` : '';
 
       const prefix = changedText ? `✏️ Đã cập nhật:\n${changedText}` : '';
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, `${prefix}${extra}${warnMsg}`.trim());
+      await replyTg(env, chatId, `${prefix}${extra}${warnMsg}${aiMsg}`.trim());
+    } else if (aiNotice) {
+      if (!isOutOfOrder) {
+        updated.lastUpdateId = Math.max(lastUpdateId, updateId || 0);
+        updated.lastMessageDate = Math.max(lastMessageDate, messageDate || 0);
+        updated.lastMessageId = Math.max(lastMessageId, messageId || 0);
+      }
+      drafts = { ...drafts, [draft.id]: updated };
+      if (env.DB) await saveDrafts(env.DB, userId, drafts);
+      await replyTg(env, chatId, `${aiNotice}\n\n${draftSummary(updated, opsRules)}`);
     } else {
-      await sendTelegramMessage(
-        env.BOT_TOKEN,
+      await replyTg(
+        env,
         chatId,
         '⚠️ Không nhận ra trường nào. Dùng dạng:\n  tên khách: Nguyễn A\n  hoa: Bó hồng đỏ\n  ngày: 2026-12-01\nhoặc gõ /show để xem đơn.'
       );
@@ -910,7 +1476,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
   try {
     const lockResult = await withLock(env.DB, userId, executeProcess);
     if (lockResult.busy) {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⏳ Hệ thống đang xử lý yêu cầu trước của bạn hoặc đang xác nhận đơn. Vui lòng thử lại sau giây lát.');
+      await replyTg(env, chatId, '⏳ Hệ thống đang xử lý yêu cầu trước của bạn hoặc đang xác nhận đơn. Vui lòng thử lại sau giây lát.');
       return new Response('Busy: Update Queued or System Confirming', {
         status: 503,
         headers: { 'Retry-After': '3' }
@@ -919,8 +1485,8 @@ export async function handleTelegramWebhook(request, rawEnv) {
     await markUpdateProcessed(env.DB, updateId, userId);
   } catch {
     console.error('[worker] Storage failure during webhook execution');
-    await sendTelegramMessage(
-      env.BOT_TOKEN,
+    await replyTg(
+      env,
       chatId,
       '⚠️ Hệ thống lưu trữ đang tạm gián đoạn. Dữ liệu đơn nháp của bạn vẫn được bảo toàn; vui lòng thử lại sau giây lát.'
     );
@@ -945,29 +1511,67 @@ const isShippingLikeName = val => {
 };
 
 /**
- * Run Gemini AI fallback on top of the deterministic parser for both photo captions and text.
- * - Called when the parser found nothing, when user expresses explicit edit intent, or when important fields are still blank.
- * - By default AI may ONLY fill fields that are still blank and untouched by the parser;
- *   it never overwrites an existing customer/price/date (e.g. keeps "Như" when "Shop book ship" is added).
- * - When explicit edit intent is present (e.g. "đổi sang giao lúc 15h30"), AI may update fields explicitly extracted
- *   for that edit, while still refusing to overwrite customer with shipping phrases.
- * - Any AI failure/quota error silently falls back to the parser result and preserves the draft.
+ * Run Gemini AI fallback on top of the deterministic parser for photo captions, text, and /reparse.
+ * - Preserves all previously confirmed fields unless explicit edit intent is active (and not disabled via preserveExisting).
+ * - When AI fails after retries/budget, preserves pendingAiText + lastAiError on the draft and returns an actionable aiNotice.
  */
-export async function mergeAiFallback(baseDraft, text, structured, env, opsRules, userId = null) {
+export async function mergeAiFallback(baseDraft, text, structured, env, opsRules, userId = null, options = {}) {
   const result = structured || { draft: baseDraft, changes: [], warnings: [] };
-  if (!env?.GEMINI_API_KEY || !text || String(text).trim().length < 5) return result;
+  if (!env?.GEMINI_API_KEY || !text || String(text).trim().length < 5) {
+    return { ...result, aiNotice: null, aiResult: null };
+  }
   const after = result.draft || baseDraft;
-  const explicitEdit = hasExplicitEditIntent(text);
+  const preserveExisting = Boolean(options?.preserveExisting);
+  const explicitEdit = !preserveExisting && hasExplicitEditIntent(text);
   const stillMissing = AI_FILLABLE_FIELDS.filter(f => isBlankField(after?.fields?.[f]));
-  if (result.changes?.length && stillMissing.length === 0 && !explicitEdit) return result;
+  if (result.changes?.length && stillMissing.length === 0 && !explicitEdit) {
+    return { ...result, aiNotice: null, aiResult: null };
+  }
 
   let aiRes = null;
   let aiExtracted = null;
   try {
-    aiRes = await extractFieldsWithGeminiDetailed(env.GEMINI_API_KEY, text, env.GEMINI_MODEL);
+    aiRes = await extractFieldsWithGeminiDetailed(
+      env.GEMINI_API_KEY,
+      text,
+      env.GEMINI_MODEL,
+      env.GEMINI_FETCHER || fetch,
+      env.GEMINI_TIMEOUT_MS,
+      env.GEMINI_OPTIONS || {}
+    );
     aiExtracted = aiRes.ok ? sanitizeAiFields(aiRes.fields) : null;
-  } catch {
-    return result;
+  } catch (err) {
+    aiRes = {
+      ok: false,
+      fields: null,
+      model: env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
+      endpoint: null,
+      status: null,
+      latencyMs: 0,
+      retries: 0,
+      stage: 'connect',
+      error: String(err?.name || 'NETWORK_ERROR')
+    };
+  }
+
+  if (Array.isArray(env?.PROBE_COLLECTOR) && aiRes) {
+    env.PROBE_COLLECTOR.push({
+      model: aiRes.model,
+      endpoint: aiRes.endpoint || null,
+      ok: aiRes.ok,
+      status: aiRes.status ?? null,
+      headersMs: aiRes.headersMs ?? null,
+      latencyMs: aiRes.latencyMs,
+      retries: aiRes.retries ?? 0,
+      budgetExhausted: Boolean(aiRes.budgetExhausted),
+      stage: aiRes.stage || null,
+      thoughtParts: aiRes.thoughtParts ?? 0,
+      textParts: aiRes.textParts ?? 0,
+      finishReason: aiRes.finishReason || null,
+      error: aiRes.ok ? null : (aiRes.error || null),
+      attempts: aiRes.attempts || [],
+      fields: aiRes.ok ? aiRes.fields : null
+    });
   }
 
   if (env?.DB && aiRes) {
@@ -979,6 +1583,8 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
         status: aiRes.status ?? null,
         headersMs: aiRes.headersMs ?? null,
         latencyMs: aiRes.latencyMs,
+        retries: aiRes.retries ?? 0,
+        stage: aiRes.stage || null,
         thoughtParts: aiRes.thoughtParts ?? 0,
         textParts: aiRes.textParts ?? 0,
         finishReason: aiRes.finishReason || null,
@@ -990,7 +1596,48 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
     }
   }
 
-  if (!aiExtracted || !Object.keys(aiExtracted).length) return result;
+  if (!aiRes?.ok) {
+    const failedDraft = after
+      ? {
+          ...after,
+          pendingAiText: String(text),
+          lastAiError: {
+            status: aiRes?.status ?? null,
+            endpoint: aiRes?.endpoint || null,
+            stage: aiRes?.stage || null,
+            error: String(aiRes?.error || 'UNKNOWN').slice(0, 120),
+            at: new Date().toISOString()
+          }
+        }
+      : after;
+    const shouldNotify = stillMissing.length > 0 || !(result.changes?.length);
+    return {
+      draft: failedDraft,
+      changes: result.changes || [],
+      warnings: result.warnings || [],
+      aiNotice: shouldNotify ? formatAiFailureNotice(aiRes) : null,
+      aiResult: aiRes
+    };
+  }
+
+  // AI succeeded: clear any stale pendingAiText / lastAiError markers
+  const clearAiPending = d => {
+    if (!d) return d;
+    const nextD = { ...d };
+    delete nextD.pendingAiText;
+    delete nextD.lastAiError;
+    return nextD;
+  };
+
+  if (!aiExtracted || !Object.keys(aiExtracted).length) {
+    return {
+      draft: clearAiPending(after),
+      changes: result.changes || [],
+      warnings: result.warnings || [],
+      aiNotice: null,
+      aiResult: aiRes
+    };
+  }
 
   const touched = new Set((result.changes || []).map(c => c.field));
   const lines = Object.entries(aiExtracted)
@@ -1001,15 +1648,116 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
       return explicitEdit && k !== 'customer';
     })
     .map(([k, v]) => `${k}: ${String(v).replace(/[\r\n]+/g, ' ').trim()}`);
-  if (!lines.length) return result;
+  if (!lines.length) {
+    return {
+      draft: clearAiPending(after),
+      changes: result.changes || [],
+      warnings: result.warnings || [],
+      aiNotice: null,
+      aiResult: aiRes
+    };
+  }
 
   const aiApplied = applyFields(after, lines.join('\n'), { rules: opsRules });
-  if (!aiApplied.changes?.length) return result;
+  if (!aiApplied.changes?.length) {
+    return {
+      draft: clearAiPending(after),
+      changes: result.changes || [],
+      warnings: result.warnings || [],
+      aiNotice: null,
+      aiResult: aiRes
+    };
+  }
   return {
-    draft: aiApplied.draft,
+    draft: clearAiPending(aiApplied.draft),
     changes: [...(result.changes || []), ...aiApplied.changes.map(c => ({ ...c, source: 'ai' }))],
-    warnings: [...(result.warnings || []), ...(aiApplied.warnings || [])]
+    warnings: [...(result.warnings || []), ...(aiApplied.warnings || [])],
+    aiNotice: null,
+    aiResult: aiRes
   };
+}
+
+/**
+ * Re-run caption/text AI extraction on the exact same pending draft without creating duplicates
+ * and while strictly preserving all already confirmed fields.
+ */
+async function handleReparseCommand(drafts, arg, env, userId, chatId) {
+  const shortArg = String(arg || '').trim();
+  let target = null;
+
+  if (shortArg) {
+    const matches = Object.entries(drafts || {})
+      .filter(([k, d]) => !k.startsWith('__') && d && d.id && (d.id === shortArg || d.id.endsWith(shortArg)))
+      .map(([, d]) => d);
+    if (matches.length === 0) {
+      await replyTg(env, chatId, `⚠️ Không tìm thấy nháp #${shortArg} để đọc lại. Dùng /list để xem.`);
+      return;
+    }
+    if (matches.length > 1) {
+      await replyTg(env, chatId, `⚠️ Mã #${shortArg} khớp nhiều nháp. Vui lòng nhập đầy đủ hơn.`);
+      return;
+    }
+    target = matches[0];
+  } else {
+    target = activeDraft(drafts);
+  }
+
+  if (!target) {
+    await replyTg(env, chatId, '⚠️ Chưa có đơn nháp nào để đọc lại. Gửi ảnh kèm chú thích hoặc /new để tạo mới.');
+    return;
+  }
+  if (target.status === 'submitted') {
+    await replyTg(env, chatId, `⚠️ Nháp #${target.id.slice(-6)} đã tạo đơn trên OPS (${target.opsOrderId || ''}), không thể đọc lại.`);
+    return;
+  }
+  if (target.status === 'confirming') {
+    await replyTg(env, chatId, '⏳ Đơn đang trong tiến trình xác nhận với OPS, không thể cập nhật.');
+    return;
+  }
+
+  const refCaption = [...(target.sampleRefs || [])]
+    .reverse()
+    .find(r => r?.caption && String(r.caption).trim())?.caption || '';
+  const textToParse = String(target.pendingAiText || refCaption || '').trim();
+  if (!textToParse || textToParse.length < 5) {
+    await replyTg(env, chatId, `ℹ️ Nháp #${target.id.slice(-6)} không có chú thích đã lưu để đọc lại.`);
+    return;
+  }
+
+  const { rules: opsRules } = await loadCurrentOpsRules(env, { forceRefresh: false });
+  const detProbe = applyFields({ ...target, fields: {}, uncertainFields: {} }, textToParse, { rules: opsRules });
+  const detBlankLines = (detProbe.changes || [])
+    .filter(c => !c.uncertain && isBlankField(target.fields?.[c.field]))
+    .map(c => `${c.field}: ${c.value}`);
+  const structuredForBlank = detBlankLines.length
+    ? applyFields(target, detBlankLines.join('\n'), { rules: opsRules })
+    : { draft: target, changes: [], warnings: [] };
+
+  const merged = await mergeAiFallback(
+    target,
+    textToParse,
+    structuredForBlank,
+    env,
+    opsRules,
+    userId,
+    { preserveExisting: true }
+  );
+
+  const updated = merged.draft || target;
+  drafts = { ...drafts, [target.id]: updated, __active: target.id };
+  if (env.DB) await saveDrafts(env.DB, userId, drafts);
+
+  const changes = merged.changes || [];
+  const shortId = target.id.slice(-6);
+  if (merged.aiNotice) {
+    await replyTg(env, chatId, `🔄 Đã giữ nguyên nháp #${shortId}.\n${merged.aiNotice}\n\n${draftSummary(updated, opsRules)}`);
+    return;
+  }
+  const changedText = changes.length
+    ? `✏️ Đã đọc lại chú thích cho nháp #${shortId} và cập nhật:\n` +
+      changes.map(c => c.uncertain ? `  ⚠️ ${c.field}: ${c.reason}` : `  ${c.field}: ${c.value}`).join('\n')
+    : `ℹ️ Đã kiểm tra lại nháp #${shortId} (giữ nguyên các trường đã xác nhận).`;
+  await replyTg(env, chatId, `${changedText}\n\n${draftSummary(updated, opsRules)}`);
 }
 
 async function loadCurrentOpsRules(env, { forceRefresh = false } = {}) {
@@ -1038,15 +1786,15 @@ function expectedPaymentDetails(fields = {}) {
 async function handleConfirmCommand(drafts, env, userId, chatId) {
   const draft = activeDraft(drafts);
   if (!draft) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa có đơn nháp nào để xác nhận. Gõ /new để tạo đơn mới.');
+    await replyTg(env, chatId, '⚠️ Chưa có đơn nháp nào để xác nhận. Gõ /new để tạo đơn mới.');
     return;
   }
 
   // If order was already created on OPS but payment sync failed previously,
   // retry ONLY payment sync — NEVER call createOrder a second time.
   if (draft.status === 'submitted' && draft.opsOrderId && draft.paymentSynced === false) {
-    await sendTelegramMessage(
-      env.BOT_TOKEN,
+    await replyTg(
+      env,
       chatId,
       `ℹ️ Đơn ${draft.opsOrderId} đã được tạo trên OPS (không tạo đơn trùng). Đang đồng bộ lại trạng thái thanh toán...`
     );
@@ -1060,8 +1808,8 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   // 1a. Pre-check: can the connected OPS account assign the default sale (cmui)?
   const expectedSale = String(draft.fields?.sale || opsRules.saleDefault || DEFAULT_BOT_SALE).trim();
   if (opsCaller && opsCaller.canAssignDefaultSale === false) {
-    await sendTelegramMessage(
-      env.BOT_TOKEN,
+    await replyTg(
+      env,
       chatId,
       `❌ Tài khoản OPS hiện tại (<code>${html(opsCaller.username || '?')}</code>, vai trò: ${html(opsCaller.role || '?')}) không có quyền gán Sale phụ trách <code>${html(expectedSale)}</code>.\n\n` +
       `Đơn nháp được giữ nguyên. Vui lòng đổi tài khoản OPS hoặc liên hệ Admin.`,
@@ -1072,7 +1820,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
 
   const confirmResult = cmdConfirm(drafts, '', opsRules);
   if (confirmResult.reply !== '__CONFIRM__') {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, confirmResult.reply);
+    await replyTg(env, chatId, confirmResult.reply);
     return;
   }
 
@@ -1086,7 +1834,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   });
   if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
-  await sendTelegramMessage(env.BOT_TOKEN, chatId, '⏳ Đang kiểm tra ảnh và gửi yêu cầu tạo đơn sang MEEHOA OPS Staging...');
+  await replyTg(env, chatId, '⏳ Đang kiểm tra ảnh và gửi yêu cầu tạo đơn sang MEEHOA OPS Staging...');
 
   // 3. Prepare images: load durably from R2 (fallback to Telegram ONLY for legacy refs without r2_key)
   const expectedSampleCount = (draft.sampleRefs || []).length;
@@ -1098,23 +1846,23 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       if (!dataUrl) {
         drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Không đọc được ảnh mẫu đã lưu trong kho ảnh. Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.');
+        await replyTg(env, chatId, '❌ Xác nhận bị hủy: Không đọc được ảnh mẫu đã lưu trong kho ảnh. Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.');
         return;
       }
     } else if (ref.fileId || ref.file_id) {
       const fileId = ref.fileId || ref.file_id;
-      const dl = await downloadTelegramPhoto(env.BOT_TOKEN, fileId, MAX_IMAGE_BYTES);
+      const dl = await downloadTgPhoto(env, fileId, MAX_IMAGE_BYTES);
       if (!dl.ok) {
         drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, `❌ Xác nhận bị hủy: Không thể tải ảnh mẫu từ Telegram (${dl.error}). Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.`);
+        await replyTg(env, chatId, `❌ Xác nhận bị hủy: Không thể tải ảnh mẫu từ Telegram (${dl.error}). Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.`);
         return;
       }
       dataUrl = dl.base64Url;
     } else {
       drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
       if (env.DB) await saveDrafts(env.DB, userId, drafts);
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Thiếu tham chiếu ảnh mẫu hợp lệ. Vui lòng gửi lại ảnh.');
+      await replyTg(env, chatId, '❌ Xác nhận bị hủy: Thiếu tham chiếu ảnh mẫu hợp lệ. Vui lòng gửi lại ảnh.');
       return;
     }
     sampleFiles.push({ data: dataUrl });
@@ -1129,23 +1877,23 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       if (!dataUrl) {
         drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Không đọc được ảnh bill đã lưu trong kho ảnh. Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.');
+        await replyTg(env, chatId, '❌ Xác nhận bị hủy: Không đọc được ảnh bill đã lưu trong kho ảnh. Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.');
         return;
       }
     } else if (ref.fileId || ref.file_id) {
       const fileId = ref.fileId || ref.file_id;
-      const dl = await downloadTelegramPhoto(env.BOT_TOKEN, fileId, MAX_IMAGE_BYTES);
+      const dl = await downloadTgPhoto(env, fileId, MAX_IMAGE_BYTES);
       if (!dl.ok) {
         drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, `❌ Xác nhận bị hủy: Không thể tải ảnh bill từ Telegram (${dl.error}). Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.`);
+        await replyTg(env, chatId, `❌ Xác nhận bị hủy: Không thể tải ảnh bill từ Telegram (${dl.error}). Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.`);
         return;
       }
       dataUrl = dl.base64Url;
     } else {
       drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
       if (env.DB) await saveDrafts(env.DB, userId, drafts);
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Thiếu tham chiếu ảnh bill hợp lệ. Vui lòng gửi lại ảnh.');
+      await replyTg(env, chatId, '❌ Xác nhận bị hủy: Thiếu tham chiếu ảnh bill hợp lệ. Vui lòng gửi lại ảnh.');
       return;
     }
     unverifiedBillFiles.push({ data: dataUrl });
@@ -1154,7 +1902,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   if (sampleFiles.length !== expectedSampleCount || unverifiedBillFiles.length !== expectedBillCount) {
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Số lượng ảnh đọc được không khớp với bản nháp. Vui lòng thử lại.');
+    await replyTg(env, chatId, '❌ Xác nhận bị hủy: Số lượng ảnh đọc được không khớp với bản nháp. Vui lòng thử lại.');
     return;
   }
 
@@ -1164,7 +1912,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   if (samplePayloadBytes > MAX_OPS_PAYLOAD_BYTES) {
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh mẫu vượt quá giới hạn một lần gửi của OPS (tối đa ~8.5 MB tổng ảnh). Vui lòng gửi ảnh nhỏ hơn hoặc giảm số lượng ảnh.');
+    await replyTg(env, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh mẫu vượt quá giới hạn một lần gửi của OPS (tối đa ~8.5 MB tổng ảnh). Vui lòng gửi ảnh nhỏ hơn hoặc giảm số lượng ảnh.');
     return;
   }
 
@@ -1177,7 +1925,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   if (samplePayloadBytes + billsForCreateOrder.reduce((sum, f) => sum + (f.data?.length || 0), 0) > MAX_OPS_PAYLOAD_BYTES) {
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh vượt quá giới hạn một lần gửi của OPS. Vui lòng giảm dung lượng ảnh và thử lại.');
+    await replyTg(env, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh vượt quá giới hạn một lần gửi của OPS. Vui lòng giảm dung lượng ảnh và thử lại.');
     return;
   }
 
@@ -1387,14 +2135,14 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     }
 
     successMsg += `\nGõ /new để bắt đầu đơn hàng mới.`;
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, successMsg, 'HTML');
+    await replyTg(env, chatId, successMsg, 'HTML');
   } else {
     // Failure or network issue: rollback confirming -> confirmed so user can retry safely
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
-    await sendTelegramMessage(
-      env.BOT_TOKEN,
+    await replyTg(
+      env,
       chatId,
       `❌ Không thể tạo đơn trên OPS Staging:\n${opsRes.message}\n\nĐơn nháp vẫn được giữ nguyên. Bạn có thể kiểm tra lại và gõ /confirm để thử lại.`
     );
@@ -1407,7 +2155,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
 async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
   const pending = drafts.__pendingPhoto;
   if (!pending) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, 'ℹ️ Hiện không có ảnh nào đang chờ chọn nháp.');
+    await replyTg(env, chatId, 'ℹ️ Hiện không có ảnh nào đang chờ chọn nháp.');
     return;
   }
 
@@ -1418,12 +2166,12 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
     if (pending.r2_key && env.MEDIA_R2) {
       await deletePhotoFromR2(env.MEDIA_R2, pending.r2_key);
     }
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '🗑 Đã hủy ảnh đang chờ xử lý. Đơn nháp hiện tại vẫn được giữ nguyên.');
+    await replyTg(env, chatId, '🗑 Đã hủy ảnh đang chờ xử lý. Đơn nháp hiện tại vẫn được giữ nguyên.');
     return;
   }
 
   if (!env.MEDIA_R2 || !pending.r2_key) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Kho ảnh chưa sẵn sàng. Vui lòng gửi lại ảnh.');
+    await replyTg(env, chatId, '⚠️ Kho ảnh chưa sẵn sàng. Vui lòng gửi lại ảnh.');
     return;
   }
 
@@ -1442,7 +2190,7 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
     const nextDrafts = { ...drafts };
     delete nextDrafts.__pendingPhoto;
     if (env.DB) await saveDrafts(env.DB, userId, nextDrafts);
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '❌ Không đọc được ảnh đang chờ trong kho R2. Vui lòng gửi lại ảnh.');
+    await replyTg(env, chatId, '❌ Không đọc được ảnh đang chờ trong kho R2. Vui lòng gửi lại ảnh.');
     return;
   }
 
@@ -1458,15 +2206,15 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
   } else if (choice === 'attach') {
     const target = workingDrafts[pending.activeDraftId] || activeDraft(workingDrafts);
     if (!target) {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Nháp cũ không còn tồn tại. Dùng /new_from_photo để tạo nháp mới.');
+      await replyTg(env, chatId, '⚠️ Nháp cũ không còn tồn tại. Dùng /new_from_photo để tạo nháp mới.');
       return;
     }
     if (target.status === 'submitted' || target.status === 'confirming') {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Nháp cũ không thể chỉnh sửa nữa. Dùng /new_from_photo để tạo nháp mới.');
+      await replyTg(env, chatId, '⚠️ Nháp cũ không thể chỉnh sửa nữa. Dùng /new_from_photo để tạo nháp mới.');
       return;
     }
     if ((target.sampleRefs || []).length >= 10) {
-      await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Nháp hiện tại đã đủ tối đa 10 ảnh mẫu.');
+      await replyTg(env, chatId, '⚠️ Nháp hiện tại đã đủ tối đa 10 ảnh mẫu.');
       return;
     }
     workingDrafts.__active = target.id;
@@ -1476,14 +2224,14 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
   const newKey = `order-images/sample-${targetDraft.id}-${pending.fileHash || 'img'}.${pending.ext || 'jpg'}`;
   const stored = await savePhotoToR2(env.MEDIA_R2, newKey, sourceBytes, pending.mimeType || 'image/jpeg');
   if (!stored) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa lưu được ảnh vào kho lưu trữ. Vui lòng thử lại.');
+    await replyTg(env, chatId, '⚠️ Chưa lưu được ảnh vào kho lưu trữ. Vui lòng thử lại.');
     return;
   }
 
   const added = addSampleRef(workingDrafts, pending.fileId, pending.caption || '');
   if (!added.ok) {
     await deletePhotoFromR2(env.MEDIA_R2, newKey);
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, `⚠️ ${added.reply}`);
+    await replyTg(env, chatId, `⚠️ ${added.reply}`);
     return;
   }
 
@@ -1495,10 +2243,20 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
   lastRef.mimeType = pending.mimeType || 'image/jpeg';
   lastRef.byteSize = pending.byteSize || 0;
 
+  const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
+  let aiNotice = null;
   if (pending.caption) {
-    const applied = applyFields(workingDrafts[targetDraft.id], pending.caption);
-    if (applied.changes?.length) {
-      workingDrafts[targetDraft.id] = applied.draft;
+    const mergedRes = await mergeAiFallback(
+      workingDrafts[targetDraft.id],
+      pending.caption,
+      applyFields(workingDrafts[targetDraft.id], pending.caption, { rules: opsRules }),
+      env,
+      opsRules,
+      userId
+    );
+    aiNotice = mergedRes.aiNotice || null;
+    if (mergedRes.changes?.length || aiNotice) {
+      workingDrafts[targetDraft.id] = mergedRes.draft;
     }
   }
 
@@ -1521,7 +2279,8 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
   const header = choice === 'new'
     ? `🆕 Đã tạo đơn nháp mới #${finalDraft.id.slice(-6)} (giữ nguyên nháp cũ #${prevDraft?.id?.slice(-6) || ''}):`
     : `📎 Đã gộp ảnh và cập nhật vào nháp #${finalDraft.id.slice(-6)}:`;
-  await sendTelegramMessage(env.BOT_TOKEN, chatId, `${html(header)}\n\n${html(draftSummary(finalDraft))}`, 'HTML');
+  const noticeBlock = aiNotice ? `\n\n${html(aiNotice)}` : '';
+  await replyTg(env, chatId, `${html(header)}${noticeBlock}\n\n${html(draftSummary(finalDraft, opsRules))}`, 'HTML');
 }
 
 /**
@@ -1620,21 +2379,21 @@ function formatTargetResolutionError(resolved, commandName) {
 async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
   const resolved = resolveSubmittedDraftTarget(drafts, arg, userId);
   if (!resolved.ok || !resolved.draft?.opsOrderId) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, formatTargetResolutionError(resolved, '/retry_payment'));
+    await replyTg(env, chatId, formatTargetResolutionError(resolved, '/retry_payment'));
     return;
   }
   const targetDraft = resolved.draft;
 
   const { expectedPayment, expectedPaid } = expectedPaymentDetails(targetDraft.fields);
   if (expectedPaid <= 0 && expectedPayment === 'Chưa thanh toán') {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, `ℹ️ Đơn ${targetDraft.opsOrderId} đang ở trạng thái Chưa thanh toán, không có khoản cọc/thu nào cần ghi nhận thêm.`);
+    await replyTg(env, chatId, `ℹ️ Đơn ${targetDraft.opsOrderId} đang ở trạng thái Chưa thanh toán, không có khoản cọc/thu nào cần ghi nhận thêm.`);
     return;
   }
 
   // Double-deposit guard at D1 draft level
   if (targetDraft.paymentSynced === true) {
-    await sendTelegramMessage(
-      env.BOT_TOKEN,
+    await replyTg(
+      env,
       chatId,
       `ℹ️ Khoản thanh toán của đơn ${targetDraft.opsOrderId} đã được ghi nhận trước đó (${Number(targetDraft.paymentRecordedAmount || expectedPaid).toLocaleString('vi-VN')} đ). Bot chặn ghi lặp để tránh ghi cọc hai lần.`
     );
@@ -1682,8 +2441,8 @@ async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
       ? 'ℹ️ <b>THANH TOÁN ĐÃ ĐƯỢC GHI NHẬN TRƯỚC ĐÓ TRÊN OPS</b>'
       : '✅ <b>ĐÃ ĐỒNG BỘ THANH TOÁN VÀO ĐƠN OPS THÀNH CÔNG!</b>';
 
-    await sendTelegramMessage(
-      env.BOT_TOKEN,
+    await replyTg(
+      env,
       chatId,
       `${prefix}\n\n` +
       `🆔 Đơn: <code>${html(targetDraft.opsOrderId)}</code>\n` +
@@ -1699,8 +2458,8 @@ async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
     targetDraft.paymentSyncError = syncRes.message || 'Lỗi không xác định';
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
-    await sendTelegramMessage(
-      env.BOT_TOKEN,
+    await replyTg(
+      env,
       chatId,
       `❌ Đồng bộ thanh toán thất bại cho đơn ${targetDraft.opsOrderId}:\n${targetDraft.paymentSyncError}\n\nĐơn trên OPS vẫn được giữ nguyên (không tạo đơn trùng). Bạn có thể gõ /retry_payment để thử lại.`
     );
@@ -1714,23 +2473,23 @@ async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
 async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
   const resolved = resolveSubmittedDraftTarget(drafts, arg, userId);
   if (!resolved.ok || !resolved.draft?.opsOrderId) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, formatTargetResolutionError(resolved, '/relink'));
+    await replyTg(env, chatId, formatTargetResolutionError(resolved, '/relink'));
     return;
   }
   const targetDraft = resolved.draft;
 
   const billCount = targetDraft.draftBillRefs?.length || 0;
   if (billCount === 0) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, `ℹ️ Đơn ${targetDraft.opsOrderId} không có ảnh bill nào được lưu trong bản nháp.`);
+    await replyTg(env, chatId, `ℹ️ Đơn ${targetDraft.opsOrderId} không có ảnh bill nào được lưu trong bản nháp.`);
     return;
   }
 
   if (!env.DB) {
-    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ D1 Database chưa được cấu hình.');
+    await replyTg(env, chatId, '⚠️ D1 Database chưa được cấu hình.');
     return;
   }
 
-  await sendTelegramMessage(env.BOT_TOKEN, chatId, `⏳ Đang kiểm tra và liên kết lại ${billCount} bill vào đơn ${targetDraft.opsOrderId}...`);
+  await replyTg(env, chatId, `⏳ Đang kiểm tra và liên kết lại ${billCount} bill vào đơn ${targetDraft.opsOrderId}...`);
 
   const linkResult = await linkUnverifiedBillsToD1Order(
     env.DB,
@@ -1751,8 +2510,8 @@ async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
       uris: linkResult.uris
     });
 
-    await sendTelegramMessage(
-      env.BOT_TOKEN,
+    await replyTg(
+      env,
       chatId,
       `✅ <b>LIÊN KẾT BILL THÀNH CÔNG!</b>\n\n` +
       `🆔 Đơn: <code>${html(targetDraft.opsOrderId)}</code>\n` +
@@ -1763,8 +2522,8 @@ async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
   } else {
     targetDraft.billLinkError = linkResult.error;
     await saveDrafts(env.DB, userId, drafts);
-    await sendTelegramMessage(
-      env.BOT_TOKEN,
+    await replyTg(
+      env,
       chatId,
       `❌ Liên kết lại bill thất bại:\n${linkResult.error || 'Lỗi không xác định'}\n\nMã đơn ${targetDraft.opsOrderId} vẫn an toàn trên OPS (không bị tạo trùng).`
     );
