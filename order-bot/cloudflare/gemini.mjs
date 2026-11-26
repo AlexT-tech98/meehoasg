@@ -84,22 +84,42 @@ export function sanitizeAiFields(parsed) {
 }
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-4-hydrogen';
-export const DEFAULT_GEMINI_TIMEOUT_MS = 28000;
+export const DEFAULT_GEMINI_TIMEOUT_MS = 40000;
+
+export const ORDER_EXTRACTION_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    customer: { type: 'STRING', nullable: true },
+    phone: { type: 'STRING', nullable: true },
+    flower: { type: 'STRING', nullable: true },
+    date: { type: 'STRING', nullable: true },
+    time: { type: 'STRING', nullable: true },
+    shipping: { type: 'STRING', nullable: true },
+    address: { type: 'STRING', nullable: true },
+    flowerTotal: { type: 'INTEGER', nullable: true },
+    note: { type: 'STRING', nullable: true },
+    cardText: { type: 'STRING', nullable: true },
+    bannerText: { type: 'STRING', nullable: true }
+  }
+};
 
 /**
- * Build the Gemini generateContent request body.
- * Gemini 4 models (e.g. gemini-4-hydrogen) default to thinkingLevel="high", which can exceed
- * webhook latency budgets on short JSON extraction prompts. Use thinkingLevel="low" for Gemini 3/4
- * models (never send thinkingBudget or "minimal" on Gemini 4, which causes HTTP 400).
+ * Build the Gemini generateContent/streamGenerateContent request body.
+ * - Gemini 4 models (e.g. gemini-4-hydrogen) deprecate `temperature` and default to `thinkingLevel="HIGH"`,
+ *   so we omit `temperature` on Gemini 3/4 and force `thinkingLevel: "LOW"`.
+ * - We enforce structured JSON output with `responseSchema` + `maxOutputTokens: 2048` to prevent long/runaway loops.
  */
 export function buildGeminiRequestBody(text, model = DEFAULT_GEMINI_MODEL) {
   const activeModel = String(model || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
   const generationConfig = {
-    temperature: 0.1,
-    responseMimeType: 'application/json'
+    responseMimeType: 'application/json',
+    responseSchema: ORDER_EXTRACTION_RESPONSE_SCHEMA,
+    maxOutputTokens: 2048
   };
   if (/^gemini-[34]/i.test(activeModel)) {
-    generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+    generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+  } else {
+    generationConfig.temperature = 0.1;
   }
   return {
     contents: [
@@ -114,22 +134,38 @@ export function buildGeminiRequestBody(text, model = DEFAULT_GEMINI_MODEL) {
   };
 }
 
-/**
- * Extract order fields from conversational text using Gemini API with telemetry.
- * @returns {Promise<{ok: boolean, fields: object|null, model: string, latencyMs: number, status?: number, error?: string}>}
- */
-export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFAULT_GEMINI_MODEL, fetcher = fetch, timeoutMs = DEFAULT_GEMINI_TIMEOUT_MS) {
-  const activeModel = String(model || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
-  if (!apiKey) return { ok: false, fields: null, model: activeModel, latencyMs: 0, error: 'NO_API_KEY' };
-  if (!text || text.trim().length < 5) return { ok: false, fields: null, model: activeModel, latencyMs: 0, error: 'TEXT_TOO_SHORT' };
+function collectCandidateChunk(payload, state) {
+  const candidate = payload?.candidates?.[0];
+  if (!candidate) return;
+  if (candidate.finishReason) {
+    state.finishReason = candidate.finishReason;
+  }
+  const parts = candidate.content?.parts || [];
+  for (const p of parts) {
+    if (!p || typeof p.text !== 'string') continue;
+    if (p.thought === true) {
+      state.thoughtParts += 1;
+      continue;
+    }
+    if (p.text.length > 0) {
+      state.textParts += 1;
+      state.textBuffer += p.text;
+    }
+  }
+}
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(activeModel)}:generateContent`;
-  const body = buildGeminiRequestBody(text, activeModel);
-
+async function executeGeminiCall(url, endpointName, apiKey, body, fetcher, activeModel, effectiveTimeout) {
   const controller = new AbortController();
-  const effectiveTimeout = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0 ? Number(timeoutMs) : DEFAULT_GEMINI_TIMEOUT_MS;
   const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
   const startedAt = Date.now();
+  const state = {
+    status: null,
+    headersMs: null,
+    thoughtParts: 0,
+    textParts: 0,
+    textBuffer: '',
+    finishReason: null
+  };
 
   try {
     const res = await fetcher(url, {
@@ -142,39 +178,170 @@ export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFA
       signal: controller.signal
     });
 
-    clearTimeout(timeoutId);
-    const latencyMs = Date.now() - startedAt;
+    state.status = res.status;
+    state.headersMs = Date.now() - startedAt;
 
     if (!res.ok) {
+      clearTimeout(timeoutId);
+      const latencyMs = Date.now() - startedAt;
       let errMsg = `HTTP_${res.status}`;
       try {
-        const errJson = await res.json();
+        const errText = await res.text();
+        const errJson = JSON.parse(errText);
         if (errJson?.error?.status || errJson?.error?.message) {
           errMsg = `${res.status} ${errJson.error.status || ''}: ${String(errJson.error.message || '').slice(0, 180)}`.trim();
         }
       } catch {}
-      console.warn(`[gemini] API responded with HTTP ${res.status} (model=${activeModel})`);
-      return { ok: false, fields: null, model: activeModel, latencyMs, status: res.status, error: errMsg };
+      console.warn(`[gemini] API responded with HTTP ${res.status} (model=${activeModel}, endpoint=${endpointName})`);
+      return {
+        ok: false,
+        fields: null,
+        model: activeModel,
+        endpoint: endpointName,
+        status: state.status,
+        headersMs: state.headersMs,
+        latencyMs,
+        thoughtParts: 0,
+        textParts: 0,
+        finishReason: null,
+        error: errMsg
+      };
     }
 
-    const data = await res.json();
-    const parts = data.candidates?.[0]?.content?.parts || [];
-    const answerPart = parts.find(p => !p?.thought && typeof p?.text === 'string' && p.text.trim())
-      || parts.find(p => typeof p?.text === 'string' && p.text.trim());
-    const rawText = answerPart?.text;
-    if (!rawText) return { ok: false, fields: null, model: activeModel, latencyMs, status: res.status, error: 'EMPTY_RESPONSE' };
+    const contentType = String(res.headers?.get?.('content-type') || '').toLowerCase();
+    const isSseHeader = contentType.includes('text/event-stream');
+    let rawBody = '';
+    let sseParsedCount = 0;
+    let sseLineBuffer = '';
+
+    const processSseLine = rawLine => {
+      const line = rawLine.replace(/\r$/, '');
+      if (!line.startsWith('data:')) return;
+      const dataStr = line.slice(5).trim();
+      if (!dataStr || dataStr === '[DONE]') return;
+      try {
+        const chunkJson = JSON.parse(dataStr);
+        collectCandidateChunk(chunkJson, state);
+        sseParsedCount += 1;
+      } catch {
+        // Ignore malformed partial/heartbeat frame
+      }
+    };
+
+    if (res.body && typeof res.body.getReader === 'function') {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const textChunk = decoder.decode(value, { stream: true });
+        rawBody += textChunk;
+        sseLineBuffer += textChunk;
+        if (isSseHeader || /^\s*data:/.test(rawBody)) {
+          const lines = sseLineBuffer.split('\n');
+          sseLineBuffer = lines.pop() ?? '';
+          for (const line of lines) processSseLine(line);
+        }
+      }
+      const tail = decoder.decode();
+      if (tail) {
+        rawBody += tail;
+        sseLineBuffer += tail;
+      }
+      if (sseLineBuffer && (isSseHeader || /^\s*data:/.test(rawBody))) {
+        for (const line of sseLineBuffer.split('\n')) processSseLine(line);
+      }
+    } else if (typeof res.text === 'function') {
+      rawBody = await res.text();
+      if (isSseHeader || /^\s*data:/.test(rawBody)) {
+        for (const line of rawBody.split('\n')) processSseLine(line);
+      }
+    } else {
+      const jsonObj = await res.json();
+      collectCandidateChunk(jsonObj, state);
+    }
+
+    clearTimeout(timeoutId);
+    const latencyMs = Date.now() - startedAt;
+
+    if (sseParsedCount === 0 && !state.textBuffer && rawBody.trim()) {
+      const parsedPayload = JSON.parse(rawBody);
+      collectCandidateChunk(parsedPayload, state);
+    }
+
+    const rawText = state.textBuffer.trim();
+    if (!rawText) {
+      return {
+        ok: false,
+        fields: null,
+        model: activeModel,
+        endpoint: endpointName,
+        status: state.status,
+        headersMs: state.headersMs,
+        latencyMs,
+        thoughtParts: state.thoughtParts,
+        textParts: state.textParts,
+        finishReason: state.finishReason,
+        error: 'EMPTY_RESPONSE'
+      };
+    }
 
     // Clean JSON markdown fences if any
     const jsonStr = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
     const parsed = JSON.parse(jsonStr);
 
-    return { ok: true, fields: sanitizeAiFields(parsed), model: activeModel, latencyMs, status: res.status };
+    return {
+      ok: true,
+      fields: sanitizeAiFields(parsed),
+      model: activeModel,
+      endpoint: endpointName,
+      status: state.status,
+      headersMs: state.headersMs,
+      latencyMs,
+      thoughtParts: state.thoughtParts,
+      textParts: state.textParts,
+      finishReason: state.finishReason
+    };
   } catch (err) {
     clearTimeout(timeoutId);
     const latencyMs = Date.now() - startedAt;
     console.warn('[gemini] Extraction failed or timed out:', err?.name || 'Error');
-    return { ok: false, fields: null, model: activeModel, latencyMs, error: err?.name || 'NETWORK_ERROR' };
+    return {
+      ok: false,
+      fields: null,
+      model: activeModel,
+      endpoint: endpointName,
+      status: state.status,
+      headersMs: state.headersMs,
+      latencyMs,
+      thoughtParts: state.thoughtParts,
+      textParts: state.textParts,
+      finishReason: state.finishReason,
+      error: err?.name || 'NETWORK_ERROR'
+    };
   }
+}
+
+/**
+ * Extract order fields from conversational text using Gemini SSE streaming API with telemetry.
+ * Falls back once to Vertex Express (`aiplatform.googleapis.com`) for `AQ.` keys if `generativelanguage` returns 400/401/403.
+ * @returns {Promise<{ok: boolean, fields: object|null, model: string, endpoint?: string, latencyMs: number, headersMs?: number|null, status?: number|null, thoughtParts?: number, textParts?: number, finishReason?: string|null, error?: string}>}
+ */
+export async function extractFieldsWithGeminiDetailed(apiKey, text, model = DEFAULT_GEMINI_MODEL, fetcher = fetch, timeoutMs = DEFAULT_GEMINI_TIMEOUT_MS) {
+  const activeModel = String(model || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
+  if (!apiKey) return { ok: false, fields: null, model: activeModel, latencyMs: 0, error: 'NO_API_KEY' };
+  if (!text || text.trim().length < 5) return { ok: false, fields: null, model: activeModel, latencyMs: 0, error: 'TEXT_TOO_SHORT' };
+
+  const body = buildGeminiRequestBody(text, activeModel);
+  const effectiveTimeout = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0 ? Number(timeoutMs) : DEFAULT_GEMINI_TIMEOUT_MS;
+  const primaryUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(activeModel)}:streamGenerateContent?alt=sse`;
+
+  const primaryRes = await executeGeminiCall(primaryUrl, 'generativelanguage', apiKey, body, fetcher, activeModel, effectiveTimeout);
+  if (!primaryRes.ok && String(apiKey).startsWith('AQ.') && [400, 401, 403].includes(Number(primaryRes.status))) {
+    const expressUrl = `https://aiplatform.googleapis.com/v1/publishers/google/models/${encodeURIComponent(activeModel)}:streamGenerateContent?alt=sse`;
+    return executeGeminiCall(expressUrl, 'aiplatform', apiKey, body, fetcher, activeModel, effectiveTimeout);
+  }
+  return primaryRes;
 }
 
 /**

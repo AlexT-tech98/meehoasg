@@ -2407,22 +2407,49 @@ test('Contract 23: conversation benchmark — keep "Như" on ship add-on, clean 
 
 // ─── Contract 24: Repro 17:45 Hydrogen caption ("Khách Thảo My ... 650 ngàn ... 88 Võ Văn Tần quận 3") ───
 
-test('Contract 24: Gemini 4 Hydrogen sends thinkingLevel=low, skips thought parts, merges all 5 AI fields into pending draft with cmui & logs geminiExtract audit', async () => {
+test('Contract 24: Gemini 4 Hydrogen omits deprecated temperature, uses responseSchema + maxOutputTokens + SSE streaming, skips thought parts, falls back AQ. keys to aiplatform, and logs full telemetry', async () => {
   const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
   const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
-  const { buildGeminiRequestBody } = await import('../order-bot/cloudflare/gemini.mjs');
+  const { buildGeminiRequestBody, extractFieldsWithGeminiDetailed } = await import('../order-bot/cloudflare/gemini.mjs');
 
-  // Verify Gemini 4 uses thinkingLevel="low" (never thinkingBudget) while 2.5 Flash omits thinkingConfig
+  // 1. Verify Gemini 4 uses thinkingLevel="LOW", omits deprecated temperature, enforces responseSchema + maxOutputTokens=2048
   const hBody = buildGeminiRequestBody('test text', 'gemini-4-hydrogen');
-  assert.equal(hBody.generationConfig.thinkingConfig?.thinkingLevel, 'low');
+  assert.equal(hBody.generationConfig.temperature, undefined);
+  assert.equal(hBody.generationConfig.thinkingConfig?.thinkingLevel, 'LOW');
   assert.equal(hBody.generationConfig.thinkingConfig?.thinkingBudget, undefined);
+  assert.equal(hBody.generationConfig.maxOutputTokens, 2048);
+  assert.equal(hBody.generationConfig.responseSchema?.type, 'OBJECT');
+  assert.ok(hBody.generationConfig.responseSchema?.properties?.customer);
+  assert.ok(hBody.generationConfig.responseSchema?.properties?.flower);
+  assert.ok(hBody.generationConfig.responseSchema?.properties?.flowerTotal);
+  assert.ok(hBody.generationConfig.responseSchema?.properties?.shipping);
+  assert.ok(hBody.generationConfig.responseSchema?.properties?.address);
+  assert.equal(Object.keys(hBody.generationConfig.responseSchema.properties).length, 11);
+
   const fBody = buildGeminiRequestBody('test text', 'gemini-2.5-flash');
+  assert.equal(fBody.generationConfig.temperature, 0.1);
   assert.equal(fBody.generationConfig.thinkingConfig, undefined);
+  assert.equal(fBody.generationConfig.maxOutputTokens, 2048);
 
   const db = createMockD1();
   const r2 = createMockR2();
   const sentMessages = [];
   const geminiRequests = [];
+
+  const fullJson = JSON.stringify({
+    customer: 'Thảo My',
+    phone: null,
+    flower: 'Kệ chúc mừng tông vàng',
+    date: '29/12',
+    time: '16:00',
+    shipping: 'Shop book ship',
+    address: '88 Võ Văn Tần, Quận 3',
+    flowerTotal: 650000,
+    note: null,
+    cardText: null,
+    bannerText: null
+  });
+  const half = Math.floor(fullJson.length / 2);
 
   const origFetch = globalThis.fetch;
   globalThis.fetch = async (url, opts) => {
@@ -2430,31 +2457,22 @@ test('Contract 24: Gemini 4 Hydrogen sends thinkingLevel=low, skips thought part
     if (u.includes('generativelanguage.googleapis.com')) {
       const reqBody = JSON.parse(opts.body);
       geminiRequests.push({ url: u, body: reqBody });
-      // Simulate Gemini 4 Hydrogen returning a thought part at parts[0] + JSON answer at parts[1]
-      return new Response(JSON.stringify({
-        candidates: [{
-          content: {
-            parts: [
-              { thought: true, text: 'Extracting Vietnamese flower order fields...' },
-              {
-                text: JSON.stringify({
-                  customer: 'Thảo My',
-                  phone: null,
-                  flower: 'Kệ chúc mừng tông vàng',
-                  date: '29/12',
-                  time: '16:00',
-                  shipping: 'Shop book ship',
-                  address: '88 Võ Văn Tần, Quận 3',
-                  flowerTotal: 650000,
-                  note: null,
-                  cardText: null,
-                  bannerText: null
-                })
-              }
-            ]
-          }
-        }]
-      }), { status: 200 });
+      const ssePayload = [
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ thought: true, text: 'analyzing Vietnamese order...' }] } }] })}\n\n`,
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: fullJson.slice(0, half) }] } }] })}\n\n`,
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: fullJson.slice(half) }] }, finishReason: 'STOP' }] })}\n\n`
+      ];
+      const stream = new ReadableStream({
+        start(controller) {
+          const enc = new TextEncoder();
+          for (const chunk of ssePayload) controller.enqueue(enc.encode(chunk));
+          controller.close();
+        }
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' }
+      });
     }
     if (u.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/tm.jpg', file_size: 1024 } }));
     if (u.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 9]));
@@ -2493,12 +2511,14 @@ test('Contract 24: Gemini 4 Hydrogen sends thinkingLevel=low, skips thought part
       env
     );
 
-    // 1. Hydrogen endpoint called with thinkingLevel="low"
+    // 2. Hydrogen SSE endpoint called with thinkingLevel="LOW", no temperature, responseSchema & maxOutputTokens
     assert.equal(geminiRequests.length, 1);
-    assert.ok(geminiRequests[0].url.includes('/models/gemini-4-hydrogen:generateContent'));
-    assert.equal(geminiRequests[0].body.generationConfig.thinkingConfig?.thinkingLevel, 'low');
+    assert.ok(geminiRequests[0].url.includes('/models/gemini-4-hydrogen:streamGenerateContent?alt=sse'));
+    assert.equal(geminiRequests[0].body.generationConfig.temperature, undefined);
+    assert.equal(geminiRequests[0].body.generationConfig.thinkingConfig?.thinkingLevel, 'LOW');
+    assert.equal(geminiRequests[0].body.generationConfig.maxOutputTokens, 2048);
 
-    // 2. All 5 AI fields + date/time + Sale cmui present in pending draft (no OPS order created)
+    // 3. All 5 AI fields + date/time + Sale cmui present in pending draft (no OPS order created)
     const drafts = await loadDrafts(db, 5252724920);
     const active = drafts[drafts.__active];
     assert.equal(active.status, 'pending');
@@ -2512,21 +2532,52 @@ test('Contract 24: Gemini 4 Hydrogen sends thinkingLevel=low, skips thought part
     assert.equal(active.fields.sale, 'cmui');
     assert.equal((active.sampleRefs || []).length, 1);
 
-    // 3. Telegram summary shows all 5 fields + C Mụi
+    // 4. Telegram summary shows all 5 fields + C Mụi
     const reply = sentMessages[sentMessages.length - 1]?.text || '';
     for (const expected of ['Thảo My', 'Kệ chúc mừng tông vàng', '650.000', 'Shop book ship', '88 Võ Văn Tần, Quận 3', '2026-12-29', '16:00', 'C Mụi']) {
       assert.ok(reply.includes(expected), `Summary missing "${expected}": ${reply}`);
     }
 
-    // 4. bot_audit_logs records geminiExtract telemetry with model, ok=true, status=200, extractedKeys
+    // 5. bot_audit_logs records geminiExtract telemetry with endpoint, headersMs, thoughtParts, textParts, finishReason
     const auditRow = await db.prepare("SELECT payload_json FROM bot_audit_logs WHERE action = 'geminiExtract' ORDER BY id DESC LIMIT 1").first();
     assert.ok(auditRow?.payload_json);
     const audit = JSON.parse(auditRow.payload_json);
     assert.equal(audit.model, 'gemini-4-hydrogen');
+    assert.equal(audit.endpoint, 'generativelanguage');
     assert.equal(audit.ok, true);
     assert.equal(audit.status, 200);
+    assert.ok(typeof audit.headersMs === 'number' && audit.headersMs >= 0);
+    assert.equal(audit.thoughtParts, 1);
+    assert.equal(audit.textParts, 2);
+    assert.equal(audit.finishReason, 'STOP');
     assert.ok(audit.extractedKeys.includes('customer'));
     assert.ok(audit.extractedKeys.includes('flowerTotal'));
+
+    // 6. Vertex Express AQ. fallback when generativelanguage returns HTTP 401
+    const fallbackUrls = [];
+    const fallbackFetcher = async url => {
+      const u = String(url);
+      fallbackUrls.push(u);
+      if (u.includes('generativelanguage.googleapis.com')) {
+        return new Response(JSON.stringify({ error: { code: 401, status: 'UNAUTHENTICATED', message: 'API key not valid' } }), { status: 401 });
+      }
+      if (u.includes('aiplatform.googleapis.com')) {
+        return new Response(
+          `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: fullJson }] }, finishReason: 'STOP' }] })}\n\n`,
+          { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+        );
+      }
+      return new Response('Not found', { status: 404 });
+    };
+    const fbRes = await extractFieldsWithGeminiDetailed('AQ.testExpressKey', caption, 'gemini-4-hydrogen', fallbackFetcher);
+    assert.equal(fallbackUrls.length, 2);
+    assert.ok(fallbackUrls[0].includes('generativelanguage.googleapis.com'));
+    assert.ok(fallbackUrls[1].includes('aiplatform.googleapis.com/v1/publishers/google/models/gemini-4-hydrogen:streamGenerateContent?alt=sse'));
+    assert.equal(fbRes.ok, true);
+    assert.equal(fbRes.endpoint, 'aiplatform');
+    assert.equal(fbRes.status, 200);
+    assert.equal(fbRes.fields.customer, 'Thảo My');
+    assert.equal(fbRes.fields.flowerTotal, 650000);
   } finally {
     globalThis.fetch = origFetch;
   }

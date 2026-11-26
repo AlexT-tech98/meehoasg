@@ -254,9 +254,14 @@ export default {
               const p = JSON.parse(gRow.payload_json);
               lastGeminiCall = {
                 model: p.model || null,
+                endpoint: p.endpoint || null,
                 ok: Boolean(p.ok),
                 status: p.status ?? null,
+                headersMs: p.headersMs ?? null,
                 latencyMs: Number(p.latencyMs) || 0,
+                thoughtParts: Number(p.thoughtParts) || 0,
+                textParts: Number(p.textParts) || 0,
+                finishReason: p.finishReason || null,
                 extractedKeys: Array.isArray(p.extractedKeys) ? p.extractedKeys : [],
                 createdAt: gRow.created_at || null
               };
@@ -860,9 +865,14 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
     try {
       await logAudit(env.DB, userId, 'geminiExtract', after?.id || null, null, {
         model: aiRes.model,
+        endpoint: aiRes.endpoint || null,
         ok: aiRes.ok,
-        status: aiRes.status || null,
+        status: aiRes.status ?? null,
+        headersMs: aiRes.headersMs ?? null,
         latencyMs: aiRes.latencyMs,
+        thoughtParts: aiRes.thoughtParts ?? 0,
+        textParts: aiRes.textParts ?? 0,
+        finishReason: aiRes.finishReason || null,
         error: aiRes.ok ? null : String(aiRes.error || 'UNKNOWN').slice(0, 180),
         extractedKeys: aiExtracted ? Object.keys(aiExtracted) : []
       });
