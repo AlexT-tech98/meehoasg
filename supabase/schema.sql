@@ -36,6 +36,7 @@ create table if not exists public.orders (
   order_time text not null default '',
   flower text not null default '',
   note text not null default '',
+  tag_note_free text not null default '',
   shipping text not null default '',
   address text not null default '',
   flower_total numeric(14,2) not null default 0,
@@ -53,8 +54,10 @@ create table if not exists public.orders (
   ship_fee numeric(14,2) not null default 0,
   ship_confirmed boolean not null default false,
   card boolean not null default false,
+  card_qty integer not null default 0,
   card_text text not null default '',
   banner boolean not null default false,
+  banner_qty integer not null default 0,
   banner_text text not null default '',
   charm_fee numeric(14,2) not null default 0,
   charm_text text not null default '',
@@ -62,16 +65,44 @@ create table if not exists public.orders (
   paper_text text not null default '',
   vat numeric(14,2) not null default 0,
   image_urls jsonb not null default '[]'::jsonb,
+  delete_after_sheet_sync boolean not null default false,
+  delete_requested_by text,
+  delete_requested_at timestamptz,
+  is_deleted boolean not null default false,
+  deleted_at timestamptz,
+  deleted_by text,
+  deleted_by_role text,
+  deleted_reason text,
+  deleted_reason_code text,
+  restored_at timestamptz,
+  restored_by text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 create index if not exists orders_date_time_idx on public.orders(order_date, order_time);
 create index if not exists orders_sale_date_idx on public.orders(sale, order_date);
 create index if not exists idx_orders_full_paid_order_date on public.orders(full_paid, order_date);
+create index if not exists idx_orders_active_date_time on public.orders(order_date, order_time) where is_deleted = false and delete_after_sheet_sync = false;
+create index if not exists idx_orders_deleted_at on public.orders(deleted_at desc) where is_deleted = true;
 -- Sheet rows move when older orders are inserted; the stable order ID is the
 -- identity for synchronization. Source position is a non-unique lookup hint.
 create index if not exists orders_source_idx on public.orders(source_sheet, source_row)
   where source_sheet is not null and source_row is not null;
+
+create table if not exists public.order_deletion_history (
+  id bigint generated always as identity primary key,
+  order_id text not null references public.orders(id) on delete cascade,
+  event_type text not null check (event_type in ('DELETE', 'RESTORE')),
+  actor_username text not null default '',
+  actor_name text not null default '',
+  actor_role text not null default '',
+  reason_code text not null default '',
+  reason_text text not null default '',
+  occurred_at timestamptz not null default now(),
+  order_snapshot jsonb
+);
+create index if not exists order_deletion_history_order_idx
+  on public.order_deletion_history(order_id, occurred_at desc);
 
 create table if not exists public.settlement_requests (
   id text primary key,
@@ -149,6 +180,7 @@ alter table public.app_users enable row level security;
 alter table public.app_sessions enable row level security;
 alter table public.login_attempts enable row level security;
 alter table public.orders enable row level security;
+alter table public.order_deletion_history enable row level security;
 alter table public.settlement_requests enable row level security;
 alter table public.kpi_operations enable row level security;
 alter table public.activity_log enable row level security;
@@ -156,13 +188,14 @@ alter table public.flower_cache enable row level security;
 alter table public.performance_log enable row level security;
 
 revoke all on public.app_users, public.app_sessions, public.login_attempts, public.orders,
-  public.settlement_requests, public.kpi_operations, public.activity_log, public.flower_cache, public.performance_log
+  public.order_deletion_history, public.settlement_requests, public.kpi_operations, public.activity_log, public.flower_cache, public.performance_log
   from anon, authenticated;
 grant usage on schema public to service_role;
 grant all on public.app_users, public.app_sessions, public.login_attempts, public.orders,
-  public.settlement_requests, public.kpi_operations, public.activity_log, public.flower_cache, public.performance_log to service_role;
+  public.order_deletion_history, public.settlement_requests, public.kpi_operations, public.activity_log, public.flower_cache, public.performance_log to service_role;
 grant usage, select on sequence public.activity_log_id_seq to service_role;
 grant usage, select on sequence public.performance_log_id_seq to service_role;
+grant usage, select on sequence public.order_deletion_history_id_seq to service_role;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('order-images', 'order-images', false, 5242880, array['image/jpeg','image/png','image/webp'])

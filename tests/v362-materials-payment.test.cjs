@@ -46,7 +46,7 @@ test('v364 is the only payment UI owner and uses the real payment route', () => 
   assert.match(payment, /S\.page!=='payment'/);
   assert.match(payment, /mee-settlement-grid-v364/);
   assert.match(payment, /mee-settlement-select-all-v364/);
-  assert.match(payment, /Bankful full hoa/);
+  assert.match(fs.readFileSync('html', 'utf8'), /Bankful full hoa/);
   assert.match(paymentCss, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.match(paymentCss, /height:150px!important/);
 });

@@ -1,3 +1,5 @@
+import {createR2Media} from '../_shared/r2-media.js';
+import {createR2ImageReader} from '../_shared/r2-image-reader.js';
 import {createOperationStorage} from '../_shared/storage.js';
 import {createOperationService} from '../_shared/operations.js';
 // Supabase Edge Function replacing google.script.run. Platform JWT verification
@@ -134,17 +136,22 @@ function decorate(row, user, settlement) {
   const paid = row.full_paid ? (num(row.full_paid_total)||total) : paidAmount(row.payment, num(row.flower_total), row.settled ? total : 0);
   const status = row.full_paid ? 'AUTO_FULL_PAID' : (settlement?.status || 'NONE');
   const locked = !!row.settled || ['PENDING', 'APPROVED'].includes(status);
+  const isDeleted = !!row.is_deleted || !!row.delete_after_sheet_sync;
   // Owner check: so username (sau mapping) và display_name (đơn cũ chưa mapping)
   const saleNorm = norm(row.sale || '');
   const owner = saleNorm === norm(user.username) || saleNorm === norm(user.display_name);
-  const canEdit = !locked && (user.role !== 'SALE' || owner);
+  const canEdit = !isDeleted && !locked && (user.role !== 'SALE' || owner);
+  const canDelete = !isDeleted && (user.role === 'ADMIN' || owner);
+  const orderType = clean(row.order_type) || 'STANDARD';
+  const walkInPaymentMethod = clean(row.walk_in_payment_method);
+  const walkInCash = orderType.toUpperCase() === 'WALK_IN' && walkInPaymentMethod.toUpperCase() === 'CASH';
   return {
     id: row.id, updatedAt: row.updated_at, sourceSheet: row.source_sheet || '', sourceRow: row.source_row || 0,
     customer: row.customer, phone: contact.phone, date: row.order_date, time: cleanTime(row.order_time),
     flower: row.flower, imageUrls: row.image_urls || [], driveUrls: row.image_urls || [],
-    note: row.note, shipping: row.shipping, address: contact.address,
+    note: row.note, orderType, walkInPaymentMethod, shipping: row.shipping, address: contact.address,
     flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
-    fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),paymentVerified:verified,settled: row.settled, status: fulfillmentStatus(row), shipFee: num(row.ship_fee),
+    fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),fullPaidBillUrls:row.full_paid_bill_urls||[],paymentVerified:verified,settled: row.settled, status: fulfillmentStatus(row), shipFee: num(row.ship_fee),
     shipConfirmed: row.ship_confirmed, shipFeePending: norm(row.shipping).includes('shop') && !row.ship_confirmed,
     card: row.card, cardQty:row.card?Math.max(1,Math.min(99,Math.floor(num(row.card_qty)||1))):0, cardText: row.card_text, banner: row.banner, bannerText: row.banner_text,
     charmFee: num(row.charm_fee), charmText: row.charm_text, paperFee: num(row.paper_fee),
@@ -152,8 +159,8 @@ function decorate(row, user, settlement) {
     totalDue: total, debt: verified ? 0 : Math.max(0, total - paid),
     hasAccessories: accessory > 0, settlementStatus: status,
     settlementRequestId: settlement?.id || '', settlementReason: settlement?.rejection_reason || '',
-    locked, canEdit, canShip: !locked, canOperate: !locked && ['ADMIN', 'THO_OPS'].includes(user.role),
-    canSubmitSettlement: !locked && !row.full_paid && row.status === 'Đã giao' && owner,
+    locked, isDeleted, canEdit, canDelete, deleteRequiresAdminAudit: false, canShip: !isDeleted && !locked, canOperate: !isDeleted && !locked && ['ADMIN', 'THO_OPS'].includes(user.role),
+    canSubmitSettlement: !isDeleted && !locked && !row.full_paid && row.status === 'Đã giao' && owner && !walkInCash,
     detailLoaded: true
   };
 }
@@ -170,7 +177,8 @@ async function settlementMap(ids) {
   return map;
 }
 async function orderRows(start, end) {
-  return all('orders', { and: '(order_date.gte.' + start + ',order_date.lte.' + end + ')', order: 'order_date.asc,order_time.asc' });
+  const rows = await all('orders', { and: '(order_date.gte.' + start + ',order_date.lte.' + end + ')', is_deleted: 'is.false', delete_after_sheet_sync: 'is.false', order: 'order_date.asc,order_time.asc' });
+  return rows.filter(r => !r.is_deleted && !r.delete_after_sheet_sync);
 }
 async function decoratedRange(start, end, user) {
   const rows = await orderRows(start, end), settlements = await settlementMap(rows.map(r => r.id));
@@ -209,13 +217,15 @@ async function getOrders(payload, user) {
 }
 async function getProduction(payload, user) {
   const date = clean(payload.date) || dateToday();
-  return { ok: true, date, orders: await decoratedRange(date, date, user) };
+  const orders = (await decoratedRange(date, date, user)).filter(o => (clean(o.orderType) || 'STANDARD') !== 'WALK_IN');
+  return { ok: true, date, orders };
 }
 async function getDebt(payload, user) {
   const start = clean(payload.start) || dateToday(), end = clean(payload.end) || start;
   const sale = user.role === 'ADMIN' ? norm(payload.sale) : null;
   const items = (await decoratedRange(start, end, user)).filter(o => {
     if (o.paymentVerified) return false;
+    if (clean(o.orderType).toUpperCase() === 'WALK_IN' && clean(o.walkInPaymentMethod).toUpperCase() === 'CASH') return false;
     if (user.role === 'ADMIN') return !sale || norm(o.sale) === sale;
     return norm(o.sale) === norm(user.username) || norm(o.sale) === norm(user.display_name);
   });
@@ -243,37 +253,72 @@ async function options() {
 }
 function newId(prefix) { return prefix + '-' + crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase(); }
 const operationStorage=createOperationStorage({url:SUPABASE_URL,key:SERVICE_KEY});
-const uploadImages=operationStorage.uploadImages;
-async function billDisplayUrls(urls) {
-  const values = urls || [];
-  const out = [];
-  for (let i = 0; i < values.length; i += 3) {
-    const batch = await Promise.all(values.slice(i, i + 3).map(async url => {
-      const match = String(url).match(/^supabase:\/\/(order-images|settlement-bills)\/(.+)$/);
-      if (!match) return url;
-      const bucket = match[1], path = match[2];
-      const response = await fetch(SUPABASE_URL + '/storage/v1/object/sign/' + bucket + '/' + path, {
-        method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600 })
-      });
-      if (!response.ok) return '';
-      const signed = await response.json();
-      return SUPABASE_URL + '/storage/v1' + signed.signedURL;
-    }));
-    out.push(...batch.filter(Boolean));
+const IS_LOOPBACK_QA=/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/.test(SUPABASE_URL||'');
+const r2Media=Deno.env.get('R2_ACCESS_KEY_ID')?createR2Media({accountId:Deno.env.get('R2_ACCOUNT_ID'),accessKeyId:Deno.env.get('R2_ACCESS_KEY_ID'),secretAccessKey:Deno.env.get('R2_SECRET_ACCESS_KEY'),bucket:Deno.env.get('R2_MEDIA_BUCKET'),endpointUrl:Deno.env.get('R2_ENDPOINT_URL')||''}):null;
+const resolveImage=createR2ImageReader({media:r2Media,source:SUPABASE_URL,serviceKey:SERVICE_KEY});
+// Permanent R2 writes approved on 21 November 2026; never depends on 72h trial and never reverts to Supabase on Production.
+function r2WriteEnabled(){return !(IS_LOOPBACK_QA&&!r2Media)}
+function r2BackupEnabled(){return false}
+async function uploadEvidenceImages(files,bucket){
+  if(!r2WriteEnabled())return operationStorage.uploadImages(files,bucket);
+  if(!r2Media)throw Error('R2_NOT_CONFIGURED');
+  const kind=bucket==='order-images'?'sample':bucket==='settlement-bills'?'bill':null;
+  if(!kind)throw Error('IMAGE_INVALID');
+  const backupEnabled=r2BackupEnabled();
+  const images=(files||[]).map(file=>{
+    const match=String(file?.data||'').match(/^data:(image\/(?:jpeg|png|webp));base64,([\s\S]+)$/);
+    if(!match)throw Error('File ảnh không hợp lệ.');
+    const bytes=Uint8Array.from(atob(match[2]),c=>c.charCodeAt(0));
+    if(!bytes.length||bytes.length>5*1024*1024)throw Error('Mỗi ảnh cần dung lượng 1 byte–5 MB.');
+    const extension=match[1]==='image/jpeg'?'jpg':match[1].split('/')[1];
+    const objectKey=r2Media.key(kind,crypto.randomUUID()+'.'+extension);
+    return {bytes,type:match[1],objectKey,ref:r2Media.reference(objectKey)};
+  });
+  const uploaded=[],backups=[];
+  try{
+    for(let offset=0;offset<images.length;offset+=3){
+      const results=await Promise.allSettled(images.slice(offset,offset+3).map(async image=>{
+        if(backupEnabled){
+          const backupRef='supabase://'+image.objectKey;
+          backups.push(backupRef);
+          const resp=await fetch(SUPABASE_URL+'/storage/v1/object/'+image.objectKey,{method:'POST',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY,'Content-Type':image.type,'x-upsert':'false'},body:image.bytes});
+          if(!resp.ok)throw Error('R2_TRIAL_BACKUP_WRITE_FAILED');
+        }
+        uploaded.push(image.ref);
+        const uploadUrl=await r2Media.signedUrl('PUT',image.objectKey,{expiresSeconds:900,contentType:image.type});
+        const response=await fetch(uploadUrl,{method:'PUT',headers:{'Content-Type':image.type},body:image.bytes});
+        if(!response.ok)throw Error('Không lưu được ảnh.');
+        if(backupEnabled){
+          const [r2Size,backupResponse]=await Promise.all([r2Media.verifyUpload(image.objectKey),fetch(SUPABASE_URL+'/storage/v1/object/authenticated/'+image.objectKey,{method:'HEAD',headers:{apikey:SERVICE_KEY,Authorization:'Bearer '+SERVICE_KEY}})]);
+          if(!backupResponse.ok||Number(backupResponse.headers.get('content-length'))!==r2Size)throw Error('R2_TRIAL_BACKUP_VERIFY_FAILED');
+        }
+      }));
+      const failed=results.find(x=>x.status==='rejected');if(failed)throw failed.reason;
+    }
+    return images.map(x=>x.ref);
+  }catch(error){
+    await Promise.allSettled([...(uploaded.map(ref=>r2Media.discard(ref))),operationStorage.discard(backups)]);
+    throw error;
   }
-  return out;
 }
+
+const uploadImages=uploadEvidenceImages;
+async function billDisplayUrls(urls){return (await Promise.all((urls||[]).map(resolveImage))).filter(Boolean)}
 async function visibleOrder(row) {
-  const image_urls = await billDisplayUrls(row.image_urls || []);
-  return { ...row, image_urls };
+  const [image_urls, full_paid_bill_urls] = await Promise.all([
+    billDisplayUrls(row.image_urls || []),
+    billDisplayUrls(row.full_paid_bill_urls || [])
+  ]);
+  return { ...row, image_urls, full_paid_bill_urls };
 }
 async function getOrder(payload, user) {
   const row = await one('orders', { id: 'eq.' + clean(payload.orderId) });
   if (!row) return fail('Không tìm thấy đơn.');
+  if ((row.is_deleted || row.delete_after_sheet_sync) && user.role !== 'ADMIN') return fail('Đơn hàng đã bị xóa.', 'ORDER_DELETED');
   const settlement = (await settlementMap([row.id]))[row.id];
   return { ok: true, order: decorate(await visibleOrder(row), user, settlement) };
 }
-const operations=createOperationService({db,one,uploadImages,discardImages:operationStorage.discard,sha256,newId});
+const operations=createOperationService({db,one,uploadImages,discardImages:async urls=>{await operationStorage.discard(urls);if(r2Media)await Promise.all((urls||[]).map(url=>r2Media.discard(url)))},sha256,newId});
 async function atomicWrite(action,payload,user){
   const result=await operations.run(action,payload,user);if(!result?.ok)return result;
   const output={...result};delete output.row;
@@ -286,6 +331,8 @@ async function updateOrder(payload,user){return atomicWrite('updateOrder',payloa
 async function updateStatus(payload,user){return atomicWrite('updateStatus',payload,user)}
 async function saveShipFee(payload,user){return atomicWrite('saveShipFee',payload,user)}
 async function submitSettlement(payload,user){return atomicWrite('submitSettlement',payload,user)}
+async function deleteOrder(payload,user){return atomicWrite('deleteOrder',payload,user)}
+async function restoreOrder(payload,user){return atomicWrite('restoreOrder',payload,user)}
 async function updateStatusBulk(payload,user){
   if(!clean(payload.mutationRequestId||payload.requestId))return fail('Thiếu mã yêu cầu.','REQUEST_ID_REQUIRED');
   const items=Array.isArray(payload.items)?payload.items.slice(0,100):[],results=[];
@@ -313,18 +360,18 @@ async function settlementQueue(payload, user) {
     group.push(row);
     groups.set(row.order_id, group);
   }
-  const allGroups = [...groups.entries()];
+  const allIds = [...groups.keys()];
+  const orderParts = [];
+  for (let i = 0; i < allIds.length; i += 30) orderParts.push(allIds.slice(i, i + 30));
+  const orders = allIds.length ? (await Promise.all(orderParts.map(chunk =>
+    all('orders', { id: 'in.(' + chunk.map(x => '"' + x.replaceAll('"', '') + '"').join(',') + ')' })))).flat() : [];
+  const byId = Object.fromEntries(orders.map(x => [x.id, x]));
+  const allGroups = [...groups.entries()].filter(([orderId]) => !byId[orderId] || (!byId[orderId].is_deleted && !byId[orderId].delete_after_sheet_sync));
   const total = allGroups.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.max(1, Math.min(page, totalPages));
   const offset = (safePage - 1) * pageSize;
   const pagedGroups = allGroups.slice(offset, offset + pageSize);
-  const ids = pagedGroups.map(([orderId]) => orderId);
-  const orderParts = [];
-  for (let i = 0; i < ids.length; i += 30) orderParts.push(ids.slice(i, i + 30));
-  const orders = ids.length ? (await Promise.all(orderParts.map(chunk =>
-    all('orders', { id: 'in.(' + chunk.map(x => '"' + x.replaceAll('"', '') + '"').join(',') + ')' })))).flat() : [];
-  const byId = Object.fromEntries(orders.map(x => [x.id, x]));
   const items = await Promise.all(pagedGroups.map(async ([orderId, requests]) => {
     const x = requests[0];
     const allBills = [...new Set(requests.flatMap(request => Array.isArray(request.bill_urls) ? request.bill_urls : []))];
@@ -387,6 +434,7 @@ async function getKpi(payload, user) {
 
   const grouped = {};
   for (const o of orders) {
+    if ((clean(o.orderType) || 'STANDARD').toUpperCase() === 'WALK_IN') continue;
     const u = resolveUser(o.sale);
     const isCmui = (u && norm(u.username) === 'cmui') || norm(o.sale) === 'c mui' || norm(o.sale) === 'cmui';
     if (isCmui && user.role !== 'ADMIN' && norm(user.username) !== 'cmui') continue;
@@ -454,7 +502,7 @@ async function classifyFlowers(items) {
   return null;
 }
 async function flowers(payload, user) {
-  const date = clean(payload.date) || dateToday(), orders = await decoratedRange(date, date, user);
+  const date = clean(payload.date) || dateToday(), orders = (await decoratedRange(date, date, user)).filter(o => (clean(o.orderType) || 'STANDARD') !== 'WALK_IN');
   if (!orders.length) return { ok: true, status: 'empty', totalOrders: 0, analyzedOrders: 0, reviewCount: 0, items: [], reviewOrders: [] };
   const cacheRows = await all('flower_cache', { select: 'content,flowers,needs_review,updated_at', order: 'updated_at.asc' });
   const cache = new Map(cacheRows.map(row => [flowerKey(row.content), row]));
@@ -546,7 +594,7 @@ const writeRoutes = {
   createOrder, updateOrder, updateStatus, updateStatusBulk,
   saveShipFee, saveShipAndSubmitSettlement: submitSettlement,
   reviewSettlement, reviewSettlementsBulk: reviewBulk,
-  saveKpiOperation: saveKpi, saveUser
+  saveKpiOperation: saveKpi, saveUser, deleteOrder, restoreOrder
 };
 const adminRoutes = new Set(['listUsers', 'getSettlementQueue', 'reviewSettlement',
   'reviewSettlementsBulk', 'saveKpiOperation', 'saveUser', 'getPerformanceReport',

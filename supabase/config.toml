@@ -15,6 +15,11 @@ verify_jwt = true
 [functions.meehoasg-order-actions]
 verify_jwt = false
 
+# Delete-order validates the high-entropy app session in the request body and commits through mee_ops_mutate.
+[functions.meehoasg-delete-order]
+entrypoint = "./functions/meehoasg-delete-order/index.js"
+verify_jwt = false
+
 # Server-to-server functions independently require INGEST_SECRET.
 [functions.meehoasg-writeback-feed]
 verify_jwt = false

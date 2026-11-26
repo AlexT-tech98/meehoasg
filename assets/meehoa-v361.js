@@ -29,10 +29,12 @@
   function renderMetrics(r){
     var s=r.summary||{},orders=n(s.orders),delivered=n(s['Đã giao']),revenue=n(s.revenue)||n(s.grossRevenue)||n(s.settledRevenue)+n(s.unsettledRevenue);
     var average=orders?Math.round(revenue/orders):0;
+    var wiOrders=n(s.walkInOrders),wiRev=n(s.walkInRevenue),wiTrUnv=n(s.walkInTransferUnverifiedRevenue);
+    var wiFoot=wiOrders?('<br>Vãng lai: '+visibleMoney(wiRev,'revenue')+(wiTrUnv?' · CK chưa xác minh: '+visibleMoney(wiTrUnv,'revenue'):'')):'';
     var near=(r.attentionGroups&&r.attentionGroups.nearUnpacked||[]).length,late=(r.attentionGroups&&r.attentionGroups.packedOverdue||[]).length;
     return '<section class="mee-dv2-metrics" aria-label="Các chỉ số vận hành">'+
       metric('Đơn hàng',String(orders),'Đã giao '+delivered+' / '+orders)+
-      metric('Doanh thu đơn',visibleMoney(revenue,'revenue'),'Bình quân '+visibleMoney(average,'average')+privacyButton('average','Bình quân trên đơn'), 'revenue')+
+      metric('Doanh thu đơn',visibleMoney(revenue,'revenue'),'Bình quân '+visibleMoney(average,'average')+privacyButton('average','Bình quân trên đơn')+wiFoot, 'revenue')+
       metric('Công nợ chưa thu',visibleMoney(s.debt,'debt'),'Cần thu và đối soát','debt')+
       metric('Đơn cần ưu tiên',String(near+late),near+' sắp đến giờ · '+late+' trễ giờ')+
       '</section>';

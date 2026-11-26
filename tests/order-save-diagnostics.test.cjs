@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('supabase/functions/meehoasg-api-core/index.js','utf8').replace(/^import .*\n/gm,'');
-function fixture(){const logs=[];const c={TextEncoder,URL,Date,Intl,console:{warn:(...a)=>logs.push(a)},createOperationService:()=>({}),createOperationStorage:()=>({}),Deno:{env:{get:()=>''},serve(){}}};vm.createContext(c);vm.runInContext(source,c);return {c,logs};}
+function fixture(){const logs=[];const c={TextEncoder,URL,Date,Intl,console:{warn:(...a)=>logs.push(a)},createOperationService:()=>({}),createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage:()=>({}),Deno:{env:{get:()=>''},serve(){}}};vm.createContext(c);vm.runInContext(source,c);return {c,logs};}
 test('diagnostics use authenticated actor and discard arbitrary fields and raw errors',async()=>{
  const {c,logs}=fixture();vm.runInContext("requireUser=async()=>({username:'pu',role:'SALE'})",c);
  c.input={diagnosticId:'save-abc-123',orderId:'MEE-TEST',stage:'serialize',build:'fixture',errorName:'InvalidStateError',errorCode:'CLIENT_ERROR',sourceLocation:'html:850:9',browser:'ios-webkit',token:'secret',username:'admin',message:'customer data',order:{customer:'private'},stack:'private'};

@@ -39,12 +39,13 @@
     if(!['text','tel'].includes(t))return input;
     var ta=document.createElement('textarea');
     Array.from(input.attributes).forEach(function(a){if(!['type','value'].includes(a.name))ta.setAttribute(a.name,a.value)});
-    ta.value=input.value||'';ta.dataset.meeMultiline='1';ta.rows=2;input.replaceWith(ta);return ta;
+    ta.value=input.value||'';ta.dataset.meeMultiline='1';ta.rows=1;input.replaceWith(ta);return ta;
   }
   function patchMultiline(form){
     qsa('[maxlength]',form).forEach(function(x){x.removeAttribute('maxlength')});
     ['customer','phone','address','cardText','bannerText','charmText','paperText'].forEach(function(name){var x=qs('[name="'+name+'"]',form);if(x&&x.tagName==='INPUT')replaceTextInput(x)});
     qsa('textarea',form).forEach(function(x){x.removeAttribute('maxlength');x.style.maxHeight='none'});
+    if(window.MEE_AUTOGROW&&window.MEE_AUTOGROW.bind)window.MEE_AUTOGROW.bind(form);
   }
   function patchMoney(form){
     ['flowerTotal','depositAmount','charmFee','paperFee','vat','shipFee'].forEach(function(name){
@@ -73,6 +74,7 @@
       o.flower||''
     ];
     if(String(o.note||'').trim())out.push('Note: '+o.note);
+    if(String(o.tagNoteFree||'').trim())out.push('Tag note free: '+o.tagNoteFree);
     if(accessory.length)out=out.concat(['','PHỤ KIỆN']).concat(accessory);
     out=out.concat([
       '',
@@ -115,7 +117,7 @@
   function invoiceData(o){var total=Number(o.totalDue)||Number(o.flowerTotal||0)+Number(o.accessoryTotal||0)+Number(o.vat||0)+(o.shipFeePending?0:Number(o.shipFee||0));return {o:o,total:total,due:Math.max(0,Number(o.debt)||0),qr:invoiceQr(Math.max(0,Number(o.debt)||0))}}
   function invoiceStyles(){
     if(qs('#meeInvoiceStyles'))return;
-    var style=document.createElement('style');style.id='meeInvoiceStyles';style.textContent='#meeInvoicePreview{position:fixed;inset:0;z-index:2147483000;background:#12283ba8;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px;overflow:auto;overscroll-behavior:contain}#meeInvoicePreview .mee-invoice-toolbar{width:min(100%,390px);display:flex;gap:8px;flex-wrap:wrap;justify-content:center}#meeInvoicePreview .mee-invoice-toolbar button{border:0;border-radius:9px;padding:10px 12px;font:600 13px Arial,sans-serif;cursor:pointer;background:#fff;color:#164c72}#meeInvoicePreview .mee-invoice-toolbar button.primary{background:#164c72;color:#fff}#meeInvoicePreview .mee-invoice-card{width:min(100%,390px);min-height:0;aspect-ratio:3/4;background:#fff;color:#17324a;box-shadow:0 12px 38px #07131b35;border-radius:10px;padding:16px;display:flex;flex-direction:column;font:13px/1.35 Arial,sans-serif}#meeInvoicePreview .mee-invoice-brand{font-size:22px;font-weight:800;letter-spacing:.08em;color:#164c72}#meeInvoicePreview .mee-invoice-title{font-size:11px;letter-spacing:.08em;color:#687b89;border-bottom:2px solid #164c72;padding-bottom:9px;margin-bottom:12px}#meeInvoicePreview .mee-invoice-top{display:flex;justify-content:space-between;gap:10px}#meeInvoicePreview .mee-invoice-name{font-size:17px;font-weight:700}#meeInvoicePreview .mee-invoice-muted{color:#687b89;font-size:11px}#meeInvoicePreview .mee-invoice-flower{margin:5px 0;min-height:25px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}#meeInvoicePreview .mee-invoice-line{display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid #e5ebef}#meeInvoicePreview .mee-invoice-line b{text-align:right}#meeInvoicePreview .mee-invoice-due{font-size:16px;color:#164c72;font-weight:700}#meeInvoicePreview .mee-invoice-qr{text-align:center;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:120px}#meeInvoicePreview .mee-invoice-qr img{display:block;width:min(40%,140px);max-height:165px;object-fit:contain}#meeInvoicePreview .mee-invoice-bank{text-align:center;font-size:12px;font-weight:700}#meeInvoicePreview .mee-invoice-note{text-align:center;font-size:11px;margin:4px 0 2px}#meeInvoicePreview .mee-invoice-thanks{text-align:center;font-size:12px;font-weight:700;color:#164c72}@media print{@page{size:90mm 120mm;margin:0}body>*:not(#meeInvoicePreview){display:none!important}#meeInvoicePreview{position:static;display:block;background:#fff;padding:0;overflow:visible}#meeInvoicePreview .mee-invoice-toolbar{display:none!important}#meeInvoicePreview .mee-invoice-card{width:90mm;height:120mm;min-height:0;aspect-ratio:auto;box-shadow:none;border-radius:0;padding:6mm;break-inside:avoid}}';document.head.appendChild(style);
+    var style=document.createElement('style');style.id='meeInvoiceStyles';style.textContent='#meeInvoicePreview{position:fixed;inset:0;z-index:1500;background:#12283ba8;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px;overflow:auto;overscroll-behavior:contain}#meeInvoicePreview .mee-invoice-toolbar{width:min(100%,390px);display:flex;gap:8px;flex-wrap:wrap;justify-content:center}#meeInvoicePreview .mee-invoice-toolbar button{border:0;border-radius:9px;padding:10px 12px;font:600 13px Arial,sans-serif;cursor:pointer;background:#fff;color:#164c72}#meeInvoicePreview .mee-invoice-toolbar button.primary{background:#164c72;color:#fff}#meeInvoicePreview .mee-invoice-card{width:min(100%,390px);min-height:0;aspect-ratio:3/4;background:#fff;color:#17324a;box-shadow:0 12px 38px #07131b35;border-radius:10px;padding:16px;display:flex;flex-direction:column;font:13px/1.35 Arial,sans-serif}#meeInvoicePreview .mee-invoice-brand{font-size:22px;font-weight:800;letter-spacing:.08em;color:#164c72}#meeInvoicePreview .mee-invoice-title{font-size:11px;letter-spacing:.08em;color:#687b89;border-bottom:2px solid #164c72;padding-bottom:9px;margin-bottom:12px}#meeInvoicePreview .mee-invoice-top{display:flex;justify-content:space-between;gap:10px}#meeInvoicePreview .mee-invoice-name{font-size:17px;font-weight:700}#meeInvoicePreview .mee-invoice-muted{color:#687b89;font-size:11px}#meeInvoicePreview .mee-invoice-flower{margin:5px 0;min-height:25px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}#meeInvoicePreview .mee-invoice-line{display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid #e5ebef}#meeInvoicePreview .mee-invoice-line b{text-align:right}#meeInvoicePreview .mee-invoice-due{font-size:16px;color:#164c72;font-weight:700}#meeInvoicePreview .mee-invoice-qr{text-align:center;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:120px}#meeInvoicePreview .mee-invoice-qr img{display:block;width:min(40%,140px);max-height:165px;object-fit:contain}#meeInvoicePreview .mee-invoice-bank{text-align:center;font-size:12px;font-weight:700}#meeInvoicePreview .mee-invoice-note{text-align:center;font-size:11px;margin:4px 0 2px}#meeInvoicePreview .mee-invoice-thanks{text-align:center;font-size:12px;font-weight:700;color:#164c72}@media print{@page{size:90mm 120mm;margin:0}body>*:not(#meeInvoicePreview){display:none!important}#meeInvoicePreview{position:static;display:block;background:#fff;padding:0;overflow:visible}#meeInvoicePreview .mee-invoice-toolbar{display:none!important}#meeInvoicePreview .mee-invoice-card{width:90mm;height:120mm;min-height:0;aspect-ratio:auto;box-shadow:none;border-radius:0;padding:6mm;break-inside:avoid}}';document.head.appendChild(style);
   }
   function invoiceCanvas(data){
     var canvas=document.createElement('canvas');canvas.width=900;canvas.height=1200;var c=canvas.getContext('2d');
@@ -190,30 +192,59 @@
 
   function drawerOrderId(){
     var ov=qs('#overlay');if(!ov)return'';
+    var drawer=qs('[data-mee-order-id]',ov);if(drawer&&drawer.dataset.meeOrderId)return drawer.dataset.meeOrderId;
     var bound=qs('[data-mee-copy-order-id]',ov);if(bound)return bound.dataset.meeCopyOrderId||'';
     var copy=qs('[onclick*="copyOrderById"]',ov);if(copy){var m=(copy.getAttribute('onclick')||'').match(/copyOrderById\(['"]([^'"]+)/);if(m)return m[1]}
     var field=qs('[onclick*="copyOrderField"]',ov);if(field){var f=(field.getAttribute('onclick')||'').match(/copyOrderField\(['"]([^'"]+)/);if(f)return f[1]}
     return'';
   }
+  async function executeSoftDelete(o,reasonCode,reason,btn){
+    var reqId=(typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():('del-'+Date.now());
+    var old=btn?btn.textContent:'';
+    if(btn){btn.disabled=true;btn.textContent='Đang xóa…';}
+    try{
+      var j;
+      if(typeof window.gas==='function'){
+        j=await window.gas('deleteOrder',{orderId:o.id,expectedUpdatedAt:o.updatedAt||'',reason:reason,reasonCode:reasonCode,requestId:reqId});
+      }else{
+        var r=await fetch(DELETE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:S.token,orderId:o.id,expectedUpdatedAt:o.updatedAt||'',reason:reason,reasonCode:reasonCode,requestId:reqId})});
+        j=await r.json();
+      }
+      if(!j||!j.ok)throw new Error((j&&j.message)||'Không xóa được đơn.');
+      if(window.S&&S.orders&&typeof S.orders.delete==='function')S.orders.delete(o.id);
+      if(window.S&&S.dirty){['getOrders','getProductionOrders','getDashboardSummary','getDebtReview','getKpi','getFlowerInventory','getSettlementQueue'].forEach(function(k){S.dirty.add(k)});}
+      if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();
+      if(window.toast)window.toast(j.message||'Đã chuyển đơn vào Thùng rác.');
+      if(window.loadPage&&S.page)window.loadPage(S.page,true);
+      return true;
+    }catch(e){
+      if(window.toast)window.toast((e&&e.message)||'Không xóa được đơn.',1);
+      if(btn){btn.disabled=false;btn.textContent=old;}
+      throw e;
+    }
+  }
   async function requestDelete(id,btn){
     if(!id||!window.S||!S.token)return;
-    var o=findOrderDeep(id),name=o&&o.customer?o.customer:id;
-    if(!window.confirm('Xóa đơn của '+name+'?\n\nĐơn sẽ được đánh dấu xóa trên Sheet trước, sau đó gỡ khỏi hệ thống.'))return;
-    var old=btn.textContent;btn.disabled=true;btn.textContent='Đang xóa…';
-    try{
-      var r=await fetch(DELETE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:S.token,orderId:id})}),j=await r.json();
-      if(!j.ok)throw new Error(j.message||'Không xóa được đơn.');
-      if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();
-      if(window.toast)window.toast(j.message||'Đã gửi yêu cầu xóa.');
-      if(window.loadPage&&S.page)window.loadPage(S.page,true);
-    }catch(e){if(window.toast)window.toast(e.message||'Không xóa được đơn.',1);btn.disabled=false;btn.textContent=old}
+    var o=findOrderDeep(id);
+    if(!o){if(window.toast)window.toast('Không tìm thấy đơn hàng.',1);return;}
+    if(o.canDelete===false){if(window.toast)window.toast('Bạn không có quyền xóa đơn hàng này.',1);return;}
+    if(window.MEE_UI_V3&&typeof window.MEE_UI_V3.openDeleteDialog==='function'){
+      window.MEE_UI_V3.openDeleteDialog(o,function(payload){
+        return executeSoftDelete(o,payload.reasonCode,payload.reason,btn);
+      });
+      return;
+    }
+    if(window.toast)window.toast('Không thể mở hộp thoại xác nhận xóa.',1);
   }
   function patch(){patchOrderForm();patchCopyActions()}
   function init(){
     window.MEE_ORDER_FORM_ENHANCE=patchOrderForm;
     window.MEE_COPY_ACTIONS_SYNC=patchCopyActions;
+    window.MEE_CLOSE_INVOICE=closeInvoice;
+    window.MEE_PRINT_INVOICE=printInvoice;
+    window.MEE_FIND_ORDER=findOrderDeep;
     patch();
-    if(!document.documentElement.dataset.meeDeleteDelegateV2){document.documentElement.dataset.meeDeleteDelegateV2='1';document.addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-mee-delete-order]');if(!button)return;if(!window.S||!S.user||S.user.role!=='ADMIN')return;event.preventDefault();requestDelete(button.dataset.meeDeleteOrder,button);});}
+    if(!document.documentElement.dataset.meeDeleteDelegateV2){document.documentElement.dataset.meeDeleteDelegateV2='1';document.addEventListener('click',function(event){var button=event.target.closest&&event.target.closest('[data-mee-delete-order]');if(!button)return;if(!window.S||!S.user||!['ADMIN','SALE','THO_OPS'].includes(S.user.role))return;event.preventDefault();requestDelete(button.dataset.meeDeleteOrder,button);});}
     if(!document.documentElement.dataset.meeCopyDelegate365){document.documentElement.dataset.meeCopyDelegate365='1';document.addEventListener('click',delegatedEditTap,true);document.addEventListener('click',delegatedCopyTap,true)}
     if(window.MEEOPS7)wrapCopy();
     // Drawer, creation confirmation and order form invoke their canonical render hooks directly.

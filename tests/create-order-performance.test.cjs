@@ -10,7 +10,7 @@ test('parallel upload failure waits for late successes before deleting all attem
  const storage=createOperationStorage({url:'https://qa',key:'qa',uuid:()=>String(++id),log(){},fetcher:async(url,args)=>{if(args.method==='DELETE'){events.push('delete');return {ok:true}}if(url.endsWith('/1.png'))throw Error('lost');await new Promise(r=>release=r);events.push('late-success');return {ok:true}}});
  const pending=storage.uploadImages(Array(2).fill({data:'data:image/png;base64,YQ=='}),'order-images');await tick();assert.deepEqual(events,[]);release();await assert.rejects(pending,/lost/);assert.deepEqual(events,['late-success','delete','delete']);
 });
-function core(){const context={console,TextEncoder,URL,Date,Intl,createOperationService:()=>({}),createOperationStorage:()=>({}),Deno:{env:{get:name=>name==='SUPABASE_URL'?'https://qa.supabase.co':''},serve(){}}};vm.createContext(context);vm.runInContext(fs.readFileSync('supabase/functions/meehoasg-api-core/index.js','utf8').replace(/^import .*\n/gm,''),context);return context;}
+function core(supabaseUrl='https://qa.supabase.co'){const context={console,TextEncoder,URL,Date,Intl,createOperationService:()=>({}),createOperationStorage:()=>({}),createR2Media:()=>null,Deno:{env:{get:name=>name==='SUPABASE_URL'?supabaseUrl:''},serve(){}}};vm.createContext(context);vm.runInContext(fs.readFileSync('supabase/functions/_shared/r2-image-reader.js','utf8').replace(/^export /gm,'')+'\n'+fs.readFileSync('supabase/functions/meehoasg-api-core/index.js','utf8').replace(/^import .*\n/gm,''),context);return context;}
 test('read requests omit unused exact counts while writes retain return representation',async()=>{
  const c=core(),headers=[];c.fetch=async(_url,options)=>{headers.push(options.headers);return {ok:true,text:async()=> '[]'}};
  await vm.runInContext("db('orders',{limit:'1'})",c);
@@ -109,7 +109,7 @@ test('order detail fetch overlaps independent user, settlement, sample and bill 
 
 test('direct upload tickets are actor/request bound, Storage verified and reject forgery',async()=>{
  const {webcrypto}=require('node:crypto');
- const c=core(),calls=[];c.crypto=webcrypto;
+ const c=core('http://127.0.0.1:54321'),calls=[];c.crypto=webcrypto;
  c.fetch=async(url,args)=>{
   calls.push({url,method:args.method});
   if(args.method==='POST'&&url.includes('/object/upload/sign/'))
@@ -146,7 +146,7 @@ test('direct upload tickets are actor/request bound, Storage verified and reject
 });
 test('direct upload rejects a forged content length and unauthorized ticket roles',async()=>{
  const {webcrypto}=require('node:crypto');
- const c=core();c.crypto=webcrypto;
+ const c=core('http://127.0.0.1:54321');c.crypto=webcrypto;
  c.fetch=async(url,args)=>{
    if(args.method==='POST')return {ok:true,json:async()=>({url:new URL(url).pathname.replace('/storage/v1','')+'?token=qa'})};
    return {ok:true,headers:{get:()=>String(6*1024*1024)}};

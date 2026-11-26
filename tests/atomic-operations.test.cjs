@@ -140,6 +140,46 @@ test('two real PostgreSQL sessions submit settlement with exactly one pending re
  assert.equal(results.filter(r=>r.ok).length,1);assert.equal(results.filter(r=>r.code==='ORDER_CONFLICT').length,1);
  assert.equal((await db.query('select count(*)::int as n from settlement_requests')).rows[0].n,1);
 });
+test('two real PostgreSQL sessions concurrently delete the same order with exactly one winner and one history row',{skip:!process.env.AUDIT_DATABASE_URL},async()=>{
+ const a=await create({payment:'Đã cọc 200000 đ'});
+ const results=await Promise.all([
+  rpc('deleteOrder',{orderId:a.orderId,expectedUpdatedAt:a.row.updated_at,reason:'Khách hủy',reasonCode:'CUSTOMER_CANCELLED'},{actor:'sale1'}),
+  rpc('deleteOrder',{orderId:a.orderId,expectedUpdatedAt:a.row.updated_at,reason:'Admin hủy',reasonCode:'CUSTOMER_CANCELLED'},{actor:'admin'})
+ ]);
+ assert.equal(results.filter(r=>r.ok).length,1);
+ assert.equal(results.filter(r=>!r.ok&&['ALREADY_DELETED','ORDER_CONFLICT'].includes(r.code)).length,1);
+ assert.equal((await current(a.orderId)).is_deleted,true);
+ assert.equal((await db.query("select count(*)::int as n from order_deletion_history where order_id=$1 and event_type='DELETE'",[a.orderId])).rows[0].n,1);
+});
+test('two real PostgreSQL sessions serialize deleteOrder vs reviewSettlement without inconsistent state',{skip:!process.env.AUDIT_DATABASE_URL},async()=>{
+ const row=await delivered(),sub=await submit(row),fresh=await current(row.id);
+ const [delRes,revRes]=await Promise.all([
+  rpc('deleteOrder',{orderId:row.id,expectedUpdatedAt:fresh.updated_at,reason:'Hủy khi đang chờ duyệt',reasonCode:'CUSTOMER_CANCELLED'},{actor:'sale1'}),
+  rpc('reviewSettlement',{settlementId:sub.requestId,decision:'APPROVED'},{actor:'admin'})
+ ]);
+ const finalRow=await current(row.id);
+ const reqStatus=(await db.query('select status from settlement_requests where id=$1',[sub.requestId])).rows[0].status;
+ if(delRes.ok){
+  assert.equal(revRes.ok,false);assert.equal(revRes.code,'ORDER_DELETED');
+  assert.equal(finalRow.is_deleted,true);assert.equal(finalRow.settled,false);assert.equal(reqStatus,'PENDING');
+ }else{
+  assert.equal(revRes.ok,true);assert.equal(delRes.code,'ORDER_CONFLICT');
+  assert.equal(finalRow.is_deleted,false);assert.equal(finalRow.settled,true);assert.equal(reqStatus,'APPROVED');
+ }
+});
+test('two real PostgreSQL sessions concurrently restore the same trashed order with exactly one winner and one history row',{skip:!process.env.AUDIT_DATABASE_URL},async()=>{
+ const a=await create({payment:'Đã cọc 200000 đ'});
+ const del=await rpc('deleteOrder',{orderId:a.orderId,expectedUpdatedAt:a.row.updated_at,reason:'Hủy tạm',reasonCode:'CUSTOMER_CANCELLED'},{actor:'admin'});
+ assert.equal(del.ok,true);
+ const results=await Promise.all([
+  rpc('restoreOrder',{orderId:a.orderId,expectedUpdatedAt:del.row.updated_at,reason:'Khôi phục A'},{actor:'admin'}),
+  rpc('restoreOrder',{orderId:a.orderId,expectedUpdatedAt:del.row.updated_at,reason:'Khôi phục B'},{actor:'admin'})
+ ]);
+ assert.equal(results.filter(r=>r.ok).length,1);
+ assert.equal(results.filter(r=>!r.ok&&['NOT_DELETED','ORDER_CONFLICT'].includes(r.code)).length,1);
+ assert.equal((await current(a.orderId)).is_deleted,false);
+ assert.equal((await db.query("select count(*)::int as n from order_deletion_history where order_id=$1 and event_type='RESTORE'",[a.orderId])).rows[0].n,1);
+});
 
 test('banner quantity is persisted and charged at 35k per banner',async()=>{
  const a=await create({banner:true,bannerQty:3,bannerText:'Banner test'});

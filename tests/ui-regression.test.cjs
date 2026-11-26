@@ -20,22 +20,24 @@ test('mobile keeps one native bottom navigation and accessible sidebar menu', ()
 
 test('production mobile preview images remain bounded thumbnails', () => {
   assert.match(canonicalCss, /\.kanban \.order \.order-preview/);
-  assert.match(canonicalCss, /width:88px!important/);
-  assert.match(canonicalCss, /height:88px!important/);
-  assert.match(canonicalCss, /object-fit:cover!important/);
+  assert.match(canonicalCss, /width:88px/);
+  assert.match(canonicalCss, /height:88px/);
+  assert.match(canonicalCss, /object-fit:cover/);
 });
 
-test('drawer gallery does not use broad class substring selectors', () => {
+test('drawer gallery does not use broad class substring selectors and stays compact', () => {
+  const v3UiCss = read('assets/meehoa-ui-v3.css');
   assert.doesNotMatch(v34Css, /\[class\*=["']thumb/);
   assert.doesNotMatch(v34Css, /\[class\*=["']gallery/);
-  assert.match(v34Css, /\.drawer \.thumbs img/);
-  assert.match(v34Css, /height:112px!important/);
+  assert.doesNotMatch(v3UiCss, /\[class\*=["']thumb/);
+  assert.match(v3UiCss, /\.mee3-thumb-strip/);
+  assert.match(v3UiCss, /max-height:\s*112px/);
 });
 
 test('order form enhancement preserves original field nodes and entered address', () => {
   assert.doesNotMatch(v34Js, /replaceInputWithTextarea/);
   assert.doesNotMatch(v34Js, /address\.value\s*=\s*['"]['"]/);
-  assert.match(v34Js, /Keep original field nodes intact/);
+  assert.match(v34Js, /dataset\.meeV3Layout/);
 });
 
 test('production/materials module renders directly without DOM observers or dashboard patches', () => {

@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('supabase/functions/meehoasg-api-core/index.js','utf8').replace(/^import .*\n/gm,'');
-function fixture(){const c={console,TextEncoder,URL,Date,Intl,createOperationService:()=>({}),createOperationStorage:()=>({}),Deno:{env:{get:()=>''},serve(){}}};vm.createContext(c);vm.runInContext(source,c);vm.runInContext("requireUser=async()=>({username:'qa',role:'ADMIN'});saleDirectory=async()=>({});settlementMap=async()=>({});all=async()=>fixtures;decorate=row=>row",c);return c;}
+function fixture(){const c={console,TextEncoder,URL,Date,Intl,createOperationService:()=>({}),createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage:()=>({}),Deno:{env:{get:()=>''},serve(){}}};vm.createContext(c);vm.runInContext(source,c);vm.runInContext("requireUser=async()=>({username:'qa',role:'ADMIN'});saleDirectory=async()=>({});settlementMap=async()=>({});all=async()=>fixtures;decorate=row=>row",c);return c;}
 test('dashboard hours cover the same complete range as summary, including unclassified hours',async()=>{
  const c=fixture();c.fixtures=Array.from({length:265},(_,i)=>({id:'QA-'+i,date:i<200?'2025-01-01':'2025-01-02',time:i===0?'':i===1?'invalid':i===2?'24:00':i===3?'09:99':i%2?'23:45':'00:30',flowerTotal:100,paymentVerified:false,debt:100,sale:'QA',saleUsername:'qa',status:'Chờ bó'}));
  const r=await vm.runInContext("fastDashboard({start:'2025-01-01',end:'2025-01-02'})",c);

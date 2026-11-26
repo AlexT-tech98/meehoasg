@@ -69,14 +69,14 @@ test('payment select-all sets every live checkbox directly without change-event 
   assert.match(js,/duyệt các mục đã chọn/);
 });
 
-test('all overlays have viewport close controls and Escape support',()=>{
-  assert.match(js,/mee-overlay-global-close-v364/);
+test('all overlays have single close controls and prioritized Escape support',()=>{
+  assert.doesNotMatch(js,/mee-overlay-global-close-v364/);
   assert.match(js,/closeActiveOverlay/);
-  assert.match(js,/e\.key==='Escape'/);
+  assert.match(js,/e\.key!=='Escape'/);
+  assert.match(js,/meeInvoicePreview/);
   assert.match(js,/target\.matches\('\.modal-bg,\.drawer-bg'\)/);
-  assert.match(css,/position:fixed!important;top:max\(14px/);
   assert.match(css,/\.modal-head,#overlay \.drawer-head/);
-  assert.match(css,/position:sticky!important/);
+  assert.match(css,/position:sticky/);
 });
 
 test('create/edit order has removable image previews for old, new and pasted images',()=>{
@@ -111,4 +111,4 @@ test('payment runtime patch activates only on S.page=payment',()=>{
   assert.equal(wrong.gridClasses.has('mee-settlement-grid-v364'),false);
 });
 
-test('paid production card copy is Bankful full hoa',()=>{assert.match(js,/Bankful full hoa/)});
+test('paid production card copy is Bankful full hoa natively without TreeWalker',()=>{assert.doesNotMatch(js,/createTreeWalker/);assert.match(fs.readFileSync('html','utf8'),/Bankful full hoa/)});

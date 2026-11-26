@@ -30,5 +30,9 @@
   "shippingAndSettlement": {
     "purpose": "Canonical shipping fee entry, settlement submission and locked-order bulk operation guards",
     "files": ["meehoa-order-actions.js"]
+  },
+  "uiV3OrdersAndDrawer": {
+    "purpose": "UI V3 Flat Navy design system, SVG icon primitives, auto-grow form controls, in-app dialogs and Admin Trash",
+    "files": ["meehoa-ui-v3.css", "meehoa-ui-v3.js"]
   }
 }

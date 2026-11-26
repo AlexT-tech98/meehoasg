@@ -49,10 +49,10 @@ test('required whitespace is rejected and focused by the actual validator',()=>{
   field.value='Khách';assert.equal(validate({querySelectorAll:()=>[field]}),true);
 });
 test('form controls native validation and feedback layers sit above overlay',()=>{
-  assert.match(src,/orderForm\\" novalidate/);
+  assert.match(src,/id="orderForm" novalidate/);
   const css=fs.readFileSync('assets/meehoa-core.css','utf8');
-  assert.match(css,/#overlay\{position:relative;z-index:1000!important\}/);
-  assert.match(baseCss,/\.toast\s*\{[^}]*z-index: 1100/s);assert.match(baseCss,/\.loading\s*\{[^}]*z-index: 1090/s);
+  assert.match(css,/#overlay\{position:relative;z-index:1100\}/);
+  assert.match(css,/--v3-z-toast:\s*1400/);assert.match(baseCss,/\.loading\s*\{[^}]*z-index: 1090/s);
 });
 
 test('retry recovers the original payload even if draft values change after a lost response',async()=>{

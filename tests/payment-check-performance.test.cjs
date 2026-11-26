@@ -24,7 +24,7 @@ function createHarness({ role = 'ADMIN', active = true, requests = [], orders = 
         return { ok: true, orderId: p.settlementId ? 'ORD-' + p.settlementId : 'ORD-1', message: 'Duyệt thành công' };
       }
     }),
-    createOperationStorage: () => ({
+    createR2ImageReader:()=>async v=>v,createR2Media:()=>null,createOperationStorage: () => ({
       uploadImages: async () => [],
       discard: async () => {}
     }),
