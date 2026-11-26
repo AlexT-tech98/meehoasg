@@ -1,0 +1,9 @@
+node_modules/
+dist/
+generated/
+live-snapshot/
+private-backup/
+.dev.vars
+.wrangler/
+*.before-*
+reconciliation-report.json
