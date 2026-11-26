@@ -1532,13 +1532,16 @@ export function classifyIncomingPhotoDraft(drafts, caption, isBill = false, opti
   const hasIncomingOrderData = incomingConcepts.length > 0 || Object.keys(incomingUncertain).length > 0;
 
   // Case 1: No active draft or previous draft already submitted
+  // Any non-empty caption accompanying a sample photo can open a new draft (allowing Gemini or clarification questions),
+  // whereas an uncaptioned bare sample photo still requires an active draft.
+  const canStartNewDraft = hasIncomingOrderData || Boolean(trimmedCaption);
   if (!active) {
-    return hasIncomingOrderData
+    return canStartNewDraft
       ? { action: 'create_new', parsed: probe, reason: 'no_active_draft' }
       : { action: 'reject_no_draft' };
   }
   if (active.status === 'submitted') {
-    return hasIncomingOrderData
+    return canStartNewDraft
       ? { action: 'create_new', parsed: probe, reason: 'previous_submitted' }
       : { action: 'reject_submitted' };
   }

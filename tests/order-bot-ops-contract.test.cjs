@@ -3000,3 +3000,129 @@ test('Contract 25: Gemini retry + Retry-After + budget guard, SSE interruption/m
     globalThis.fetch = origFetch;
   }
 });
+
+test('Contract 26: Photo with short or ambiguous natural caption opens a new pending draft without guesswork while uncaptioned bare photo still requires an active draft', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { classifyIncomingPhotoDraft, activeDraft } = await import('../order-bot/core.mjs');
+
+  assert.equal(classifyIncomingPhotoDraft({}, '', false).action, 'reject_no_draft');
+  assert.deepEqual(
+    {
+      action: classifyIncomingPhotoDraft({}, 'mẫu này nha em', false).action,
+      reason: classifyIncomingPhotoDraft({}, 'mẫu này nha em', false).reason
+    },
+    { action: 'create_new', reason: 'no_active_draft' }
+  );
+
+  const submittedDrafts = {
+    __active: 'ord-sub-1',
+    'ord-sub-1': { id: 'ord-sub-1', status: 'submitted', fields: { customer: 'Lan' }, sampleRefs: [], draftBillRefs: [] }
+  };
+  assert.equal(classifyIncomingPhotoDraft(submittedDrafts, '', false).action, 'reject_submitted');
+  assert.deepEqual(
+    {
+      action: classifyIncomingPhotoDraft(submittedDrafts, 'mẫu này nha em', false).action,
+      reason: classifyIncomingPhotoDraft(submittedDrafts, 'mẫu này nha em', false).reason
+    },
+    { action: 'create_new', reason: 'previous_submitted' }
+  );
+
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const sentMessages = [];
+  let opsCalls = 0;
+
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('/getFile')) {
+      return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/ambig.jpg', file_size: 1024 } }));
+    }
+    if (String(url).includes('/file/bot')) {
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2]));
+    }
+    if (String(url).includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    if (String(url).includes('googleapis.com')) {
+      return new Response(
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ customer: null, flower: null, flowerTotal: null }) }] }, finishReason: 'STOP' }] })}\n\n`,
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+      );
+    }
+    if (String(url).includes('/api-core')) {
+      opsCalls += 1;
+      return new Response(JSON.stringify({ ok: true, data: { rules: null } }), { status: 200 });
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  try {
+    const env = {
+      DB: db,
+      MEDIA_R2: r2,
+      BOT_TOKEN: 'fake_bot_token',
+      TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+      ALLOWED_USER_IDS: '5252724920',
+      GEMINI_API_KEY: 'AIzaSyFakeAmbiguousTestKey'
+    };
+
+    // 1. Bare uncaptioned photo with no active draft is still rejected
+    await handleTelegramWebhook(
+      makeWebhookRequest({
+        update_id: 99851,
+        message: {
+          message_id: 1,
+          chat: { id: 5252724920, type: 'private' },
+          from: { id: 5252724920 },
+          photo: [{ file_id: 'p_bare', file_unique_id: 'u_bare' }]
+        }
+      }),
+      env
+    );
+    assert.match(sentMessages[sentMessages.length - 1].text, /Chưa có đơn nháp/);
+    assert.equal(activeDraft(await loadDrafts(db, 5252724920)), null);
+
+    // 2. Photo + ambiguous caption "mẫu này nha em" starts a new draft, stores photo, asks missing fields
+    await handleTelegramWebhook(
+      makeWebhookRequest({
+        update_id: 99852,
+        message: {
+          message_id: 2,
+          chat: { id: 5252724920, type: 'private' },
+          from: { id: 5252724920 },
+          photo: [{ file_id: 'p_ambig_start', file_unique_id: 'u_ambig_start' }],
+          caption: 'mẫu này nha em'
+        }
+      }),
+      env
+    );
+    const drafts = await loadDrafts(db, 5252724920);
+    const active = activeDraft(drafts);
+    assert.ok(active, 'Photo with non-empty ambiguous caption must open a new pending draft');
+    assert.equal(active.status, 'pending');
+    assert.equal(active.sampleRefs.length, 1);
+    assert.equal(active.fields.flowerTotal, undefined);
+    assert.equal(active.fields.flower, undefined);
+    assert.match(sentMessages[sentMessages.length - 1].text, /Còn thiếu/);
+
+    // 3. /confirm must stay blocked with missing-field prompt and zero OPS createOrder calls
+    await handleTelegramWebhook(
+      makeWebhookRequest({
+        update_id: 99853,
+        message: {
+          message_id: 3,
+          chat: { id: 5252724920, type: 'private' },
+          from: { id: 5252724920 },
+          text: '/confirm'
+        }
+      }),
+      env
+    );
+    assert.match(sentMessages[sentMessages.length - 1].text, /Chưa đủ dữ liệu|Còn thiếu/);
+    assert.equal(opsCalls, 0);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
