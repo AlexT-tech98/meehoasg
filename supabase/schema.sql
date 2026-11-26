@@ -65,6 +65,7 @@ create table if not exists public.orders (
   paper_text text not null default '',
   vat numeric(14,2) not null default 0,
   image_urls jsonb not null default '[]'::jsonb,
+  unverified_bill_urls jsonb not null default '[]'::jsonb,
   delete_after_sheet_sync boolean not null default false,
   delete_requested_by text,
   delete_requested_at timestamptz,

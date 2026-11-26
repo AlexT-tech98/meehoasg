@@ -2,6 +2,60 @@
 export function operationFailure(message, code='ORDER_INPUT_INVALID') { return {ok:false,code,message}; }
 const clean=v=>String(v??'').trim();
 const bool=v=>v===true||v===1||v==='1'||v==='true'||v==='on';
+
+export const ORDER_VALIDATION_RULES = {
+  schemaVersion: '2026-11-26.v2',
+  saleDefault: 'cmui',
+  saleDefaultName: 'C Mụi',
+  required: ['customer', 'flower', 'date', 'time', 'shipping', 'flowerTotal'],
+  requireFlowerTotal: true,
+  minFlowerTotal: 1,
+  minDepositRatio: 0.5,
+  depositBase: 'flowerTotal',
+  conditionalRequired: [
+    { field: 'address', when: { field: 'shipping', equals: 'Shop book ship' }, rejectPending: true }
+  ],
+  enums: {
+    shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'],
+    statuses: ['Chờ bó', 'Đã bó', 'Đã giao']
+  },
+  supportedRuleFeatures: [
+    'required_fields',
+    'conditional_required',
+    'min_deposit_ratio',
+    'flower_total_required',
+    'shipping_enum',
+    'sale_default'
+  ]
+};
+
+export function extractDepositPaymentAmount(payment) {
+  const raw = clean(payment);
+  if (!raw) return null;
+  const normalized = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase().replace(/\s+/g, ' ');
+  if (/chua|full|du tien hoa|toan bo don|da tt|thanh toan du/.test(normalized)) return null;
+  if (!/(?:coc|da thanh toan)/.test(normalized)) return null;
+  const match = normalized.replace(/\s/g, '').match(/([0-9.,]+)(k|tr|trieu)?/);
+  if (!match) return null;
+  let value = operationMoney(match[1]);
+  if (match[2] === 'tr' || match[2] === 'trieu') value *= 1000000;
+  else if (match[2] === 'k') value *= 1000;
+  return value;
+}
+
+export function validateOrderDepositRule(flowerTotal, payment, rules = ORDER_VALIDATION_RULES) {
+  const ratio = Number(rules?.minDepositRatio ?? 0.5);
+  if (!Number.isFinite(ratio) || ratio <= 0) return;
+  const totalFlower = Number(flowerTotal) || 0;
+  if (totalFlower <= 0) return;
+  const deposit = extractDepositPaymentAmount(payment);
+  if (deposit === null) return;
+  // Minimum deposit threshold is strictly based on flowerTotal alone (excluding ship & accessories); exact 50% passes.
+  const minDeposit = totalFlower * ratio;
+  if (deposit < minDeposit) {
+    throw Error(`Tiền cọc phải đạt tối thiểu ${Math.round(ratio * 100)}% tiền hoa.`);
+  }
+}
 export function operationMoney(value, optional=false) {
   if(optional&&(value===undefined||value===null||value===''))return 0;
   if(typeof value==='number'){if(Number.isFinite(value)&&value>=0&&value<=999999999999)return value;throw Error('Số tiền không hợp lệ.');}
@@ -53,11 +107,14 @@ export function normalizeOperationOrder(input,user,current={}) {
   if(banner&&(!Number.isInteger(bannerQty)||bannerQty<1||bannerQty>99||!clean(d.bannerText)))throw Error('Banner cần số lượng 1–99 và nội dung.');
   const shipping=clean(d.shipping),shipActive=clean(d.shipFeeActive)==='1';
   if(shipActive&&shipping!=='Shop book ship')throw Error('Phí ship chỉ dùng cho đơn Shop book ship.');
+  const flowerTotal=operationMoney(d.flowerTotal);
+  const payment=clean(d.payment);
+  validateOrderDepositRule(flowerTotal, payment);
   return {customer:clean(d.customer),phone:clean(d.phone),order_date:date,order_time:t[1].padStart(2,'0')+':'+t[2],
     flower:clean(d.flower),note:clean(d.note),
     tag_note_free:d.tagNoteFree===undefined&&d.tag_note_free===undefined?clean(current.tag_note_free):clean(d.tagNoteFree??d.tag_note_free),
     order_source:orderSource,order_type:'STANDARD',walk_in_payment_method:'',
-    shipping,address:clean(d.address),flower_total:operationMoney(d.flowerTotal),payment:clean(d.payment),
+    shipping,address:clean(d.address),flower_total:flowerTotal,payment,
     sale:user.role==='SALE'?user.username:clean(d.sale||current.sale||user.username),
     card,card_qty:qty,card_text:clean(d.cardText),banner,banner_qty:bannerQty,banner_text:clean(d.bannerText),
     charm_fee:operationMoney(d.charmFee,true),charm_text:clean(d.charmText),paper_fee:operationMoney(d.paperFee,true),paper_text:clean(d.paperText),vat:operationMoney(d.vat,true),
@@ -111,7 +168,8 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
       const currentIds=new Map((current.image_urls||[]).map(u=>[privateImageIdentity(u),u]));
       if(retained.some(u=>!currentIds.has(privateImageIdentity(u))))return operationFailure('Ảnh không thuộc đơn này.','IMAGE_INVALID');
       const imageFiles=Array.isArray(p.order?.imageFiles)?p.order.imageFiles:[],billFiles=Array.isArray(p.order?.fullPaidBillFiles)?p.order.fullPaidBillFiles:[];
-      if(imageFiles.length>10||billFiles.length>10)return operationFailure('Tối đa 10 ảnh trong mỗi nhóm.','IMAGE_INVALID');
+      const unverifiedBillFiles=Array.isArray(p.order?.unverifiedBillFiles)?p.order.unverifiedBillFiles:[];
+      if(imageFiles.length>10||billFiles.length>10||unverifiedBillFiles.length>10)return operationFailure('Tối đa 10 ảnh trong mỗi nhóm.','IMAGE_INVALID');
       const preparedSamples=Array.isArray(p.order?.preuploadedSamples)?p.order.preuploadedSamples:[],preparedBills=Array.isArray(p.order?.preuploadedBills)?p.order.preuploadedBills:[];
       if(preparedSamples.length+imageFiles.length>10||preparedBills.length+billFiles.length>10)return operationFailure('Tối đa 10 ảnh trong mỗi nhóm.','IMAGE_INVALID');
       if(input.fullPaidRequested&&(!retained.length&&!imageFiles.length&&!preparedSamples.length))return operationFailure('Full Paid cần ảnh mẫu hoa.','FULL_PAID_EVIDENCE_REQUIRED');
@@ -127,6 +185,7 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
       }else{
         input.newImageUrls=await upload(imageFiles,'order-images');input.newBillUrls=await upload(billFiles,'settlement-bills');
       }
+      input.newUnverifiedBillUrls=unverifiedBillFiles.length?await upload(unverifiedBillFiles,'settlement-bills'):[];
       if(preparedSamples.length||preparedBills.length){
         const direct=await verifyStagedUploads({actor:user.username,requestId,samples:preparedSamples,bills:preparedBills});
         input.newImageUrls=[...input.newImageUrls,...direct.samples];input.newBillUrls=[...input.newBillUrls,...direct.bills];
@@ -158,7 +217,7 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
     const result=await rpc('mee_ops_mutate',{...args,p_input:input});
     if(result?.ok===false)await discard(staged);
     else if(result?.idempotent){
-      const used=new Set([...(result.row?.image_urls||[]),...(result.row?.full_paid_bill_urls||[])]);
+      const used=new Set([...(result.row?.image_urls||[]),...(result.row?.full_paid_bill_urls||[]),...(result.row?.unverified_bill_urls||[])]);
       for(const original of result.row?.image_urls||[]){
         if(/^(?:supabase:\/\/order-images|r2:\/\/[a-z0-9-]+\/order-images)\/[0-9a-f-]{36}\.jpg$/.test(original))used.add(original.replace(/\.jpg$/,'.preview.jpg'));
       }

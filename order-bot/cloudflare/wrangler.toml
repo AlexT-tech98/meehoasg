@@ -1,0 +1,35 @@
+name = "meehoa-order-bot-staging"
+main = "worker.mjs"
+compatibility_date = "2026-11-21"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+OPS_API_URL = "https://meehoasg-ops-staging.meehoasg.workers.dev/api-core"
+ALLOWED_USER_IDS = "5252724920"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "meehoasg-ops-staging"
+database_id = "16bf0134-64c6-43ea-8098-b40c95251667"
+
+[[r2_buckets]]
+binding = "MEDIA_R2"
+bucket_name = "meehoasg-media-staging"
+
+[[kv_namespaces]]
+binding = "MEDIA"
+id = "c483e22ad8c546c5bdf4f6711098fd04"
+
+[[services]]
+binding = "OPS_SERVICE"
+service = "meehoasg-ops-staging"
+
+[[durable_objects.bindings]]
+name = "GEMINI_EGRESS_DO"
+class_name = "GeminiEgressProxy"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GeminiEgressProxy"]

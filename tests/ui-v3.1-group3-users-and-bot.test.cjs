@@ -272,7 +272,7 @@ test('Group 3B: Order Bot createOrder contract works E2E against V3.1 OPS + Perm
         shipping: 'Shop book ship',
         address: '123 Nguyễn Huệ, Q1, TP.HCM',
         flowerTotal: 850000,
-        payment: 'Đã cọc 300.000 đ',
+        payment: 'Đã cọc 425.000 đ',
         sale: 'cmui',
         card: true,
         cardQty: 1,
@@ -299,11 +299,13 @@ test('Group 3B: Order Bot createOrder contract works E2E against V3.1 OPS + Perm
     assert.equal(first.row.order_date, '2026-11-28');
     assert.equal(first.row.order_time, '14:30');
     assert.equal(first.row.flower, 'Bó 20 bông hồng Ecuador tone kem');
-    assert.equal(first.row.payment, 'Đã cọc 300.000 đ');
+    assert.equal(first.row.payment, 'Đã cọc 425.000 đ');
     assert.equal(first.row.full_paid, false, 'V1 payment policy: Bot must NEVER auto-Full-Paid');
     assert.equal(first.row.settled, false, 'V1 payment policy: Bot must NEVER auto-settle');
     assert.equal(first.row.image_urls.length, 1);
     assert.match(first.row.image_urls[0], /^r2:\/\/meehoasg-media\/order-images\/[0-9a-f-]{36}\.jpg$/);
+
+    assert.equal(first.row.unverified_bill_urls.length, 1);
 
     // Retry with exact same requestId -> idempotent, zero duplicate order!
     const retry = await svc.run('createOrder', botOrderPayload, botUser);
@@ -311,7 +313,7 @@ test('Group 3B: Order Bot createOrder contract works E2E against V3.1 OPS + Perm
     assert.equal(retry.orderId, first.orderId);
     const countOrders = (await pg.query('select count(*)::int as c from public.orders')).rows[0].c;
     assert.equal(countOrders, 1, 'Duplicate /confirm retry must NEVER create a second order');
-    assert.equal(r2Stored.size, 1, 'Idempotent retry lookup must avoid re-uploading R2 objects');
+    assert.equal(r2Stored.size, 2, 'Idempotent retry lookup must avoid re-uploading R2 objects');
   } finally {
     await pg.close();
   }

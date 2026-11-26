@@ -1,0 +1,31 @@
+name: Order Bot V1 validation
+on:
+  push:
+    branches:
+      - feat/meehoa-order-bot-v1
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked test dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify Order Bot unit tests (90 tests expected)
+        run: node --test tests/order-bot.test.cjs
+      - name: Verify Order Bot realistic scenarios (13 tests expected)
+        run: node --test tests/order-bot-realistic-scenarios.test.cjs
+      - name: Verify Order Bot Cloudflare Worker integration
+        run: node --test tests/order-bot-cloudflare.test.cjs
+      - name: Verify Order Bot V1 scenarios
+        run: node --test tests/order-bot-v1-scenarios.test.cjs
+      - name: Verify Bot to OPS payload contract and fail closed guards
+        run: node --test tests/order-bot-ops-contract.test.cjs
+      - name: Verify complete repository
+        run: npm test
