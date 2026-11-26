@@ -141,7 +141,7 @@ test('two real PostgreSQL sessions submit settlement with exactly one pending re
  assert.equal((await db.query('select count(*)::int as n from settlement_requests')).rows[0].n,1);
 });
 test('two real PostgreSQL sessions concurrently delete the same order with exactly one winner and one history row',{skip:!process.env.AUDIT_DATABASE_URL},async()=>{
- const a=await create({payment:'Đã cọc 200000 đ'});
+ const a=await create({payment:'Đã cọc 250000 đ'});
  const results=await Promise.all([
   rpc('deleteOrder',{orderId:a.orderId,expectedUpdatedAt:a.row.updated_at,reason:'Khách hủy',reasonCode:'CUSTOMER_CANCELLED'},{actor:'sale1'}),
   rpc('deleteOrder',{orderId:a.orderId,expectedUpdatedAt:a.row.updated_at,reason:'Admin hủy',reasonCode:'CUSTOMER_CANCELLED'},{actor:'admin'})
@@ -168,7 +168,7 @@ test('two real PostgreSQL sessions serialize deleteOrder vs reviewSettlement wit
  }
 });
 test('two real PostgreSQL sessions concurrently restore the same trashed order with exactly one winner and one history row',{skip:!process.env.AUDIT_DATABASE_URL},async()=>{
- const a=await create({payment:'Đã cọc 200000 đ'});
+ const a=await create({payment:'Đã cọc 250000 đ'});
  const del=await rpc('deleteOrder',{orderId:a.orderId,expectedUpdatedAt:a.row.updated_at,reason:'Hủy tạm',reasonCode:'CUSTOMER_CANCELLED'},{actor:'admin'});
  assert.equal(del.ok,true);
  const results=await Promise.all([
