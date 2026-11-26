@@ -134,15 +134,20 @@ function decorate(row, user, settlement) {
   const paid = row.full_paid ? (num(row.full_paid_total)||total) : paidAmount(row.payment, num(row.flower_total), row.settled ? total : 0);
   const status = row.full_paid ? 'AUTO_FULL_PAID' : (settlement?.status || 'NONE');
   const locked = !!row.settled || ['PENDING', 'APPROVED'].includes(status);
+  const isDeleted = !!row.is_deleted || !!row.delete_after_sheet_sync;
   // Owner check: so username (sau mapping) và display_name (đơn cũ chưa mapping)
   const saleNorm = norm(row.sale || '');
   const owner = saleNorm === norm(user.username) || saleNorm === norm(user.display_name);
-  const canEdit = !locked && (user.role !== 'SALE' || owner);
+  const canEdit = !isDeleted && !locked && (user.role !== 'SALE' || owner);
+  const canDelete = !isDeleted && (user.role === 'ADMIN' || owner);
+  const orderType = clean(row.order_type) || 'STANDARD';
+  const walkInPaymentMethod = clean(row.walk_in_payment_method);
+  const walkInCash = orderType.toUpperCase() === 'WALK_IN' && walkInPaymentMethod.toUpperCase() === 'CASH';
   return {
     id: row.id, updatedAt: row.updated_at, sourceSheet: row.source_sheet || '', sourceRow: row.source_row || 0,
     customer: row.customer, phone: contact.phone, date: row.order_date, time: cleanTime(row.order_time),
     flower: row.flower, imageUrls: row.image_urls || [], driveUrls: row.image_urls || [],
-    note: row.note, orderType: clean(row.order_type) || 'STANDARD', shipping: row.shipping, address: contact.address,
+    note: row.note, orderType, walkInPaymentMethod, shipping: row.shipping, address: contact.address,
     flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
     fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),paymentVerified:verified,settled: row.settled, status: fulfillmentStatus(row), shipFee: num(row.ship_fee),
     shipConfirmed: row.ship_confirmed, shipFeePending: norm(row.shipping).includes('shop') && !row.ship_confirmed,
@@ -152,8 +157,8 @@ function decorate(row, user, settlement) {
     totalDue: total, debt: verified ? 0 : Math.max(0, total - paid),
     hasAccessories: accessory > 0, settlementStatus: status,
     settlementRequestId: settlement?.id || '', settlementReason: settlement?.rejection_reason || '',
-    locked, canEdit, canShip: !locked, canOperate: !locked && ['ADMIN', 'THO_OPS'].includes(user.role),
-    canSubmitSettlement: !locked && !row.full_paid && row.status === 'Đã giao' && owner,
+    locked, isDeleted, canEdit, canDelete, deleteRequiresAdminAudit: false, canShip: !isDeleted && !locked, canOperate: !isDeleted && !locked && ['ADMIN', 'THO_OPS'].includes(user.role),
+    canSubmitSettlement: !isDeleted && !locked && !row.full_paid && row.status === 'Đã giao' && owner && !walkInCash,
     detailLoaded: true
   };
 }
@@ -218,6 +223,7 @@ async function getDebt(payload, user) {
   const sale = user.role === 'ADMIN' ? norm(payload.sale) : null;
   const items = (await decoratedRange(start, end, user)).filter(o => {
     if (o.paymentVerified) return false;
+    if (clean(o.orderType).toUpperCase() === 'WALK_IN' && clean(o.walkInPaymentMethod).toUpperCase() === 'CASH') return false;
     if (user.role === 'ADMIN') return !sale || norm(o.sale) === sale;
     return norm(o.sale) === norm(user.username) || norm(o.sale) === norm(user.display_name);
   });
@@ -289,6 +295,8 @@ async function updateOrder(payload,user){return atomicWrite('updateOrder',payloa
 async function updateStatus(payload,user){return atomicWrite('updateStatus',payload,user)}
 async function saveShipFee(payload,user){return atomicWrite('saveShipFee',payload,user)}
 async function submitSettlement(payload,user){return atomicWrite('submitSettlement',payload,user)}
+async function deleteOrder(payload,user){return atomicWrite('deleteOrder',payload,user)}
+async function restoreOrder(payload,user){return atomicWrite('restoreOrder',payload,user)}
 async function updateStatusBulk(payload,user){
   if(!clean(payload.mutationRequestId||payload.requestId))return fail('Thiếu mã yêu cầu.','REQUEST_ID_REQUIRED');
   const items=Array.isArray(payload.items)?payload.items.slice(0,100):[],results=[];
@@ -316,18 +324,18 @@ async function settlementQueue(payload, user) {
     group.push(row);
     groups.set(row.order_id, group);
   }
-  const allGroups = [...groups.entries()];
+  const allIds = [...groups.keys()];
+  const orderParts = [];
+  for (let i = 0; i < allIds.length; i += 30) orderParts.push(allIds.slice(i, i + 30));
+  const orders = allIds.length ? (await Promise.all(orderParts.map(chunk =>
+    all('orders', { id: 'in.(' + chunk.map(x => '"' + x.replaceAll('"', '') + '"').join(',') + ')' })))).flat() : [];
+  const byId = Object.fromEntries(orders.map(x => [x.id, x]));
+  const allGroups = [...groups.entries()].filter(([orderId]) => !byId[orderId] || (!byId[orderId].is_deleted && !byId[orderId].delete_after_sheet_sync));
   const total = allGroups.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.max(1, Math.min(page, totalPages));
   const offset = (safePage - 1) * pageSize;
   const pagedGroups = allGroups.slice(offset, offset + pageSize);
-  const ids = pagedGroups.map(([orderId]) => orderId);
-  const orderParts = [];
-  for (let i = 0; i < ids.length; i += 30) orderParts.push(ids.slice(i, i + 30));
-  const orders = ids.length ? (await Promise.all(orderParts.map(chunk =>
-    all('orders', { id: 'in.(' + chunk.map(x => '"' + x.replaceAll('"', '') + '"').join(',') + ')' })))).flat() : [];
-  const byId = Object.fromEntries(orders.map(x => [x.id, x]));
   const items = await Promise.all(pagedGroups.map(async ([orderId, requests]) => {
     const x = requests[0];
     const allBills = [...new Set(requests.flatMap(request => Array.isArray(request.bill_urls) ? request.bill_urls : []))];
@@ -550,7 +558,7 @@ const writeRoutes = {
   createOrder, updateOrder, updateStatus, updateStatusBulk,
   saveShipFee, saveShipAndSubmitSettlement: submitSettlement,
   reviewSettlement, reviewSettlementsBulk: reviewBulk,
-  saveKpiOperation: saveKpi, saveUser
+  saveKpiOperation: saveKpi, saveUser, deleteOrder, restoreOrder
 };
 const adminRoutes = new Set(['listUsers', 'getSettlementQueue', 'reviewSettlement',
   'reviewSettlementsBulk', 'saveKpiOperation', 'saveUser', 'getPerformanceReport',

@@ -2144,25 +2144,6 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
     '</article>';
   }).join('');
 
-  var deletedAudit = r.deletedWithPaymentAudit && r.deletedWithPaymentAudit.count > 0 ? r.deletedWithPaymentAudit : null;
-  var deletedAuditHtml = deletedAudit ? (
-    '<section class="mee3-debt-audit-banner" aria-label="Đơn đã xóa có phát sinh thu tiền">' +
-      '<div class="mee3-debt-audit-head">' +
-        '<div class="mee3-debt-audit-title">' + v3Icon('alert', 'mee3-ico-sm') + ' Có ' + deletedAudit.count + ' đơn đã xóa nhưng đã ghi nhận thu tiền (' + vnd(deletedAudit.totalCollected) + ') — cần đối chiếu</div>' +
-        (S.user.role === 'ADMIN' ? '<button type="button" class="btn secondary" style="height:30px;padding:0 10px;font-size:12px" onclick="MEEOPS7.go(\'orders\');setTimeout(function(){window.MEE_UI_V3&&window.MEE_UI_V3.openTrash();},120)">Mở Thùng rác</button>' : '') +
-      '</div>' +
-      '<div class="mee3-debt-audit-list">' +
-        deletedAudit.items.map(function(d){
-          return '<div class="mee3-debt-audit-item">' +
-            '<div class="mee3-debt-audit-item-top"><b>' + esc(d.customer) + '</b><span class="mee3-badge mee3-badge-danger">Đã thu ' + vnd(d.paid) + '</span></div>' +
-            '<div style="color:var(--v3-muted)">' + esc(d.id) + ' · ' + dateVN(d.date) + ' ' + esc(timeVN(d.time)) + ' · Sale: ' + esc(d.sale) + '</div>' +
-            '<div><b>Lý do xóa:</b> ' + esc(d.deletedReason || '—') + ' (bởi ' + esc(d.deletedBy || '—') + ')</div>' +
-          '</div>';
-        }).join('') +
-      '</div>' +
-    '</section>'
-  ) : '';
-
   el.innerHTML = 
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
@@ -2175,7 +2156,6 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
       stat('Số đơn chưa tất toán', (sum.orders || 0) + ' đơn', 'Không gồm đơn Full Paid') +
       stat('Chưa nhập phí ship', (sum.shipFeePending || 0) + ' đơn', 'Shop book ship chưa có phí thực tế') +
     '</div>' +
-    deletedAuditHtml +
     '<div class="debt-desktop table-wrap">' +
       '<table class="control-table">' +
         '<thead><tr><th>Ngày / Giờ</th><th>Khách</th><th>Mẫu hoa</th><th>Sale</th><th>Tiền hoa</th><th>Ship</th><th>Đã thu</th><th>Công nợ</th></tr></thead>' +
@@ -2207,12 +2187,11 @@ if(window.MEE_SHELL_CONTENT_SYNC)window.MEE_SHELL_CONTENT_SYNC();if(window.MEE_V
     return loadingDetail ? img : '<a href="' + attr(fullUrl) + '" data-full-src="' + attr(fullUrl) + '" target="_blank" rel="noopener" title="Xem ảnh gốc">' + img + '</a>';
   }).join('');
 
-  var canDel = !isDeleted && (o.canDelete === true || (o.canDelete === undefined && S.user && S.user.role === 'ADMIN' && !o.locked && !o.fullPaid));
-  var delAuditHint = !isDeleted && o.deleteRequiresAdminAudit ? '<div class="mee3-drawer-audit-hint">Đơn đã ghi nhận thu tiền/cọc — liên hệ Admin nếu cần xóa &amp; đối chiếu công nợ.</div>' : '';
+  var canDel = !isDeleted && (o.canDelete === true || (o.canDelete === undefined && S.user && S.user.role === 'ADMIN'));
   var settleBtn = (o.settlementStatus === 'PENDING' || o.settlementStatus === 'APPROVED' || o.settled || o.canSubmitSettlement) ? settlementAction(o) : '';
   var actions = isDeleted
     ? (S.user && S.user.role === 'ADMIN' ? '<button type="button" class="btn primary" data-mee3-restore-order="' + attr(o.id) + '">' + v3Icon('restore', 'mee3-ico-sm') + ' Khôi phục đơn</button>' : '')
-    : (canDel ? '<button type="button" class="btn mee3-btn-delete mee-delete-order" data-mee-delete-order="' + attr(o.id) + '">' + v3Icon('trash', 'mee3-ico-sm') + ' Xóa đơn</button>' : delAuditHint) +
+    : (canDel ? '<button type="button" class="btn mee3-btn-delete mee-delete-order" data-mee-delete-order="' + attr(o.id) + '">' + v3Icon('trash', 'mee3-ico-sm') + ' Xóa đơn</button>' : '') +
       shipFeeAction(o) +
       (isDebt ? settleBtn : ((o.canEdit ? '<button type="button" class="btn primary" data-mee-order-action="edit" onclick="MEEOPS7.openOrderForm(\'' + o.id + '\')">Sửa đơn</button>' : '') + settleBtn));
 

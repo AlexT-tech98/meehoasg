@@ -8,8 +8,8 @@
  * Pairs it with extracted origin/main V2 frontend static files at:
  *   artifacts/rollback/v2-frontend-probe/
  * And runs a LIVE drill against the real isolated Staging PostgreSQL/PostgREST backend:
- *   1. Soft-deleted orders NEVER resurrect in getOrders / Dashboard / Production / KPI / FlowerInventory
- *      and remain visible in getDebtReview.deletedWithPaymentAudit.
+ *   1. Soft-deleted orders NEVER resurrect in getOrders / Dashboard / Production / KPI / FlowerInventory / Debt
+ *      and getDebtReview exposes zero deletedWithPaymentAudit (Final Order Deletion Policy Override).
  *   2. WALK_IN orders remain excluded from Production / FlowerInventory / KPI / Dashboard CMS
  *      and counted ONCE in Dashboard grossRevenue.
  *   3. V2 frontend (`origin/main`) boots and logs in cleanly against the compatible rollback backend + RC5 SQL.
@@ -174,7 +174,7 @@ async function main() {
 
     const debtRes = await rpcCall(coreUrl, 'getDebtReview', { token: adminLogin.token, start: today, end: today });
     assert.ok(!(debtRes.items || []).some((x) => x.id === 'RB-PROBE-DEL-PAID'), 'Soft-deleted not treated as active debt');
-    assert.ok((debtRes.deletedWithPaymentAudit?.items || []).some((x) => x.id === 'RB-PROBE-DEL-PAID'), 'Paid soft-deleted order stays audited');
+    assert.equal(debtRes.deletedWithPaymentAudit, undefined, 'Final Deletion Policy: deletedWithPaymentAudit removed from Debt');
 
     const kpiRes = await rpcCall(coreUrl, 'getKpi', { token: adminLogin.token, month: today.slice(0, 7) });
     // Even if cmui has std orders, RB-PROBE-WI-CASH cannot be in cmui revenue; assert by checking no WALK_IN contributes:
@@ -295,8 +295,8 @@ async function main() {
       v2FrontendBase: 'origin/main',
       stagingTarget: cfg.API_URL,
       assertions: [
-        'soft_deleted_never_resurrected_orders_dashboard_production_kpi_flowers',
-        'paid_deleted_preserved_in_debt_audit',
+        'soft_deleted_never_resurrected_orders_dashboard_production_kpi_flowers_debt',
+        'deleted_with_payment_audit_removed_from_debt',
         'walk_in_excluded_from_production_inventory_kpi_cms',
         'v2_update_preserves_tag_note_free_and_order_source',
         'v2_create_without_order_source_succeeds',

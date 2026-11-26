@@ -212,7 +212,7 @@
       }
       if(!j||!j.ok)throw new Error((j&&j.message)||'Không xóa được đơn.');
       if(window.S&&S.orders&&typeof S.orders.delete==='function')S.orders.delete(o.id);
-      if(window.S&&S.dirty){['getOrders','getProductionOrders','getDashboardSummary','getDebtReview','getKpi','getFlowerInventory'].forEach(function(k){S.dirty.add(k)});}
+      if(window.S&&S.dirty){['getOrders','getProductionOrders','getDashboardSummary','getDebtReview','getKpi','getFlowerInventory','getSettlementQueue'].forEach(function(k){S.dirty.add(k)});}
       if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();
       if(window.toast)window.toast(j.message||'Đã chuyển đơn vào Thùng rác.');
       if(window.loadPage&&S.page)window.loadPage(S.page,true);
@@ -227,7 +227,7 @@
     if(!id||!window.S||!S.token)return;
     var o=findOrderDeep(id);
     if(!o){if(window.toast)window.toast('Không tìm thấy đơn hàng.',1);return;}
-    if(o.canDelete===false){if(window.toast)window.toast('Đơn hàng không thể xóa (không đủ quyền hoặc đã khóa tài chính).',1);return;}
+    if(o.canDelete===false){if(window.toast)window.toast('Bạn không có quyền xóa đơn hàng này.',1);return;}
     if(window.MEE_UI_V3&&typeof window.MEE_UI_V3.openDeleteDialog==='function'){
       window.MEE_UI_V3.openDeleteDialog(o,function(payload){
         return executeSoftDelete(o,payload.reasonCode,payload.reason,btn);

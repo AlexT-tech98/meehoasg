@@ -182,24 +182,31 @@ test('TC-14/TC-15/TC-16: Soft delete ownership matrix, mandatory reason, financi
   assert.ok(!thoOwn.row.flower.includes('[ĐÃ XÓA]'), 'Must never inject [ĐÃ XÓA] into flower');
   assert.ok(!thoOwn.row.note.includes('[ĐÃ XÓA'), 'Must never inject [ĐÃ XÓA] into note');
 
-  // 4. Financial locks block even ADMIN
-  for (const [id, row] of [['MEE-FP', fp.row], ['MEE-SET', settledOrd.row], ['MEE-PEND', pendingOrd.row]]) {
-    const fresh = (await pg.query('select updated_at from public.orders where id = $1', [id])).rows[0];
-    const blocked = await mutate(pg, 'admin', 'r-block-' + id, 'deleteOrder', {
-      orderId: id, expectedUpdatedAt: fresh.updated_at, reason: 'Khách hủy đơn', reasonCode: 'CUSTOMER_CANCELLED'
+  // 4. Final Order Deletion Policy Override:
+  //    - Non-delete financial locks (updateOrder) stay strictly enforced on settled & pending Payment Check orders.
+  //    - Owners (SALE / THO_OPS) and ADMIN CAN delete own/any orders regardless of deposit, Full Paid, pending Payment Check, or settled status.
+  for (const id of ['MEE-SET', 'MEE-PEND']) {
+    const fresh = (await pg.query('select * from public.orders where id = $1', [id])).rows[0];
+    const editBlocked = await mutate(pg, 'admin', 'r-edit-block-' + id, 'updateOrder', {
+      orderId: id,
+      expectedUpdatedAt: fresh.updated_at,
+      order: baseOrder({ sale: fresh.sale, note: 'Cố sửa đơn đã khóa' })
     });
-    assert.equal(blocked.ok, false, id + ' must be blocked from deletion');
-    assert.equal(blocked.code, 'ORDER_LOCKED');
+    assert.equal(editBlocked.ok, false, id + ' updateOrder must remain locked');
+    assert.equal(editBlocked.code, 'ORDER_LOCKED');
   }
 
-  // 5. SALE CANNOT self-delete own order that already collected deposit (paid > 0) -> PAYMENT_RECONCILIATION_REQUIRED
-  const salePaidBlocked = await mutate(pg, 'sale1', 'r-sale-paid-block', 'deleteOrder', {
-    orderId: 'MEE-S1', expectedUpdatedAt: s1.row.updated_at, reason: 'Khách hủy đơn', reasonCode: 'CUSTOMER_CANCELLED'
-  });
-  assert.equal(salePaidBlocked.ok, false);
-  assert.equal(salePaidBlocked.code, 'PAYMENT_RECONCILIATION_REQUIRED');
+  // Non-owner SALE (sale2) CANNOT delete sale1's Full Paid / settled / pending / deposited orders
+  for (const id of ['MEE-FP', 'MEE-SET', 'MEE-PEND', 'MEE-S1']) {
+    const fresh = (await pg.query('select updated_at from public.orders where id = $1', [id])).rows[0];
+    const nonOwnerBlocked = await mutate(pg, 'sale2', 'r-nonowner-del-' + id, 'deleteOrder', {
+      orderId: id, expectedUpdatedAt: fresh.updated_at, reason: 'Khách hủy đơn', reasonCode: 'CUSTOMER_CANCELLED'
+    });
+    assert.equal(nonOwnerBlocked.ok, false, 'Non-owner must be denied deleting ' + id);
+    assert.equal(nonOwnerBlocked.code, 'NOT_OWNER');
+  }
 
-  // SALE CAN delete own UNPAID order (paid = 0)
+  // 5. SALE CAN delete own UNPAID order (paid = 0) AND own DEPOSITED order (MEE-S1, Cọc 200k)
   const s1Unpaid = await mutate(pg, 'sale1', 'r-s1-unpaid', 'createOrder', {
     newOrderId: 'MEE-S1-UNPAID',
     order: baseOrder({ sale: 'sale1', payment: 'Chưa thanh toán' })
@@ -210,15 +217,29 @@ test('TC-14/TC-15/TC-16: Soft delete ownership matrix, mandatory reason, financi
   assert.equal(saleOwnUnpaid.ok, true);
   assert.equal(saleOwnUnpaid.hadPayment, false);
 
-  // ADMIN CAN soft-delete deposited order (MEE-S1, Cọc 200k) with mandatory reason -> preserves payment, images, and flags hadPayment=true for reconciliation
-  const adminPaidDel = await mutate(pg, 'admin', 'r-admin-paid-del', 'deleteOrder', {
+  const salePaidDel = await mutate(pg, 'sale1', 'r-sale-paid-del', 'deleteOrder', {
     orderId: 'MEE-S1', expectedUpdatedAt: s1.row.updated_at, reason: 'Khách hủy đơn đã cọc', reasonCode: 'CUSTOMER_CANCELLED'
   });
-  assert.equal(adminPaidDel.ok, true);
-  assert.equal(adminPaidDel.hadPayment, true);
-  assert.equal(Number(adminPaidDel.paidAmount), 200000);
-  assert.equal(adminPaidDel.row.payment, 'Cọc 200k');
-  assert.equal(adminPaidDel.row.image_urls.length, 1);
+  assert.equal(salePaidDel.ok, true);
+  assert.equal(salePaidDel.hadPayment, true);
+  assert.equal(Number(salePaidDel.paidAmount), 200000);
+  assert.equal(salePaidDel.row.payment, 'Cọc 200k');
+  assert.equal(salePaidDel.row.image_urls.length, 1);
+
+  // ADMIN and owner CAN soft-delete Full Paid, settled, and pending Payment Check orders; Payment Check blocks review on deleted orders
+  for (const [id, actor] of [['MEE-FP', 'sale1'], ['MEE-SET', 'sale1'], ['MEE-PEND', 'admin']]) {
+    const fresh = (await pg.query('select updated_at from public.orders where id = $1', [id])).rows[0];
+    const delOk = await mutate(pg, actor, 'r-del-fin-' + id, 'deleteOrder', {
+      orderId: id, expectedUpdatedAt: fresh.updated_at, reason: 'Khách hủy đơn', reasonCode: 'CUSTOMER_CANCELLED'
+    });
+    assert.equal(delOk.ok, true, actor + ' must be able to soft-delete ' + id);
+    assert.equal(delOk.row.is_deleted, true);
+  }
+  const reviewDeleted = await mutate(pg, 'admin', 'r-rev-deleted-pend', 'reviewSettlement', {
+    settlementId: 'SET-1', decision: 'APPROVED'
+  });
+  assert.equal(reviewDeleted.ok, false);
+  assert.equal(reviewDeleted.code, 'ORDER_DELETED');
 
   // 6. ADMIN deletes another Sale's eligible order -> succeeds
   const adminDel = await mutate(pg, 'admin', 'r-admin-del', 'deleteOrder', {
@@ -231,7 +252,7 @@ test('TC-14/TC-15/TC-16: Soft delete ownership matrix, mandatory reason, financi
   // 7. Restore denied for SALE and THO_OPS
   for (const actor of ['sale1', 'tho1']) {
     const denied = await mutate(pg, actor, 'r-res-deny-' + actor, 'restoreOrder', {
-      orderId: 'MEE-S1', expectedUpdatedAt: adminPaidDel.row.updated_at
+      orderId: 'MEE-S1', expectedUpdatedAt: salePaidDel.row.updated_at
     });
     assert.equal(denied.ok, false);
     assert.equal(denied.code, 'NOT_OWNER');
@@ -239,7 +260,7 @@ test('TC-14/TC-15/TC-16: Soft delete ownership matrix, mandatory reason, financi
 
   // 8. ADMIN restores MEE-S1 in-place; history preserved across restore + second delete
   const restored = await mutate(pg, 'admin', 'r-res-ok', 'restoreOrder', {
-    orderId: 'MEE-S1', expectedUpdatedAt: adminPaidDel.row.updated_at, reason: 'Khách đặt lại'
+    orderId: 'MEE-S1', expectedUpdatedAt: salePaidDel.row.updated_at, reason: 'Khách đặt lại'
   });
   assert.equal(restored.ok, true);
   assert.equal(restored.row.id, 'MEE-S1');
@@ -514,30 +535,30 @@ test('TC-14/TC-18: Edge core getDeletedOrders auth, soft-delete exclusion across
   assert.equal(prod.orders.length, 1);
   assert.equal(prod.orders[0].id, 'MEE-ACT');
 
-  // Task 4.2: fastDebt exposes deletedWithPaymentAudit without altering active summary.debt/items
-  adminCore.all = async (table, q) => {
+  // Final Deletion Policy Override: fastDebt excludes all deleted orders completely and removes deletedWithPaymentAudit
+  adminCore.all = async (table) => {
     if (table !== 'orders') return [];
-    if (q && q.is_deleted === 'is.true') return [{
-      id: 'MEE-DEL-PAID', updated_at: '2026-11-25T00:00:00Z', customer: 'Khách cọc đã xóa', phone: '0901112222', address: '',
-      order_date: '2026-11-25', order_time: '11:00', flower: 'Hồng', note: '', tag_note_free: '',
-      shipping: 'Ghé lấy', flower_total: 700000, payment: 'Cọc 300k', sale: 'sale1', status: 'Chờ bó',
-      settled: false, full_paid: false, full_paid_bill_urls: [], image_urls: [],
-      is_deleted: true, deleted_at: '2026-11-25T02:00:00Z', deleted_by: 'admin', deleted_by_role: 'ADMIN',
-      deleted_reason: 'Khách hủy đơn đã cọc', deleted_reason_code: 'CUSTOMER_CANCELLED'
-    }];
-    return [{
-      id: 'MEE-ACT-DEBT', updated_at: '2026-11-25T00:00:00Z', customer: 'Khách nợ active', phone: '', address: '',
-      order_date: '2026-11-25', order_time: '10:00', flower: 'Tulip', note: '', tag_note_free: '',
-      shipping: 'Ghé lấy', flower_total: 500000, payment: 'Chưa thanh toán', sale: 'sale1', status: 'Chờ bó',
-      settled: false, full_paid: false, full_paid_bill_urls: [], image_urls: [], is_deleted: false
-    }];
+    return [
+      {
+        id: 'MEE-DEL-PAID', updated_at: '2026-11-25T00:00:00Z', customer: 'Khách cọc đã xóa', phone: '0901112222', address: '',
+        order_date: '2026-11-25', order_time: '11:00', flower: 'Hồng', note: '', tag_note_free: '',
+        shipping: 'Ghé lấy', flower_total: 700000, payment: 'Cọc 300k', sale: 'sale1', status: 'Chờ bó',
+        settled: false, full_paid: false, full_paid_bill_urls: [], image_urls: [],
+        is_deleted: true, deleted_at: '2026-11-25T02:00:00Z', deleted_by: 'admin', deleted_by_role: 'ADMIN',
+        deleted_reason: 'Khách hủy đơn đã cọc', deleted_reason_code: 'CUSTOMER_CANCELLED'
+      },
+      {
+        id: 'MEE-ACT-DEBT', updated_at: '2026-11-25T00:00:00Z', customer: 'Khách nợ active', phone: '', address: '',
+        order_date: '2026-11-25', order_time: '10:00', flower: 'Tulip', note: '', tag_note_free: '',
+        shipping: 'Ghé lấy', flower_total: 500000, payment: 'Chưa thanh toán', sale: 'sale1', status: 'Chờ bó',
+        settled: false, full_paid: false, full_paid_bill_urls: [], image_urls: [], is_deleted: false
+      }
+    ];
   };
   const debtRes = await adminCore.fastDebt({ start: '2026-11-25', end: '2026-11-25' });
   assert.equal(debtRes.items.length, 1);
   assert.equal(debtRes.summary.debt, 500000);
-  assert.equal(debtRes.deletedWithPaymentAudit.count, 1);
-  assert.equal(debtRes.deletedWithPaymentAudit.totalCollected, 300000);
-  assert.equal(debtRes.deletedWithPaymentAudit.items[0].id, 'MEE-DEL-PAID');
+  assert.equal(debtRes.deletedWithPaymentAudit, undefined, 'deletedWithPaymentAudit must be completely removed from Debt');
 });
 
 test('RC2 Ownership Hardening: duplicate display_name fails closed & sale reassignment revokes previous owner', async () => {

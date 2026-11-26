@@ -873,7 +873,7 @@
       }
       if(!j||!j.ok)throw new Error((j&&j.message)||'Không xóa được đơn.');
       if(window.S&&S.orders&&typeof S.orders.delete==='function')S.orders.delete(o.id);
-      if(window.S&&S.dirty){['getOrders','getProductionOrders','getDashboardSummary','getDebtReview','getKpi','getFlowerInventory'].forEach(function(k){S.dirty.add(k)});}
+      if(window.S&&S.dirty){['getOrders','getProductionOrders','getDashboardSummary','getDebtReview','getKpi','getFlowerInventory','getSettlementQueue'].forEach(function(k){S.dirty.add(k)});}
       if(window.MEEOPS7&&MEEOPS7.closeOverlay)MEEOPS7.closeOverlay();
       if(window.toast)window.toast(j.message||'Đã chuyển đơn vào Thùng rác.');
       if(window.loadPage&&S.page)window.loadPage(S.page,true);
@@ -888,7 +888,7 @@
     if(!id||!window.S||!S.token)return;
     var o=findOrderDeep(id);
     if(!o){if(window.toast)window.toast('Không tìm thấy đơn hàng.',1);return;}
-    if(o.canDelete===false){if(window.toast)window.toast('Đơn hàng không thể xóa (không đủ quyền hoặc đã khóa tài chính).',1);return;}
+    if(o.canDelete===false){if(window.toast)window.toast('Bạn không có quyền xóa đơn hàng này.',1);return;}
     if(window.MEE_UI_V3&&typeof window.MEE_UI_V3.openDeleteDialog==='function'){
       window.MEE_UI_V3.openDeleteDialog(o,function(payload){
         return executeSoftDelete(o,payload.reasonCode,payload.reason,btn);
@@ -1132,11 +1132,11 @@
 
   function openDeleteDialog(order, onConfirm){
     if(!order) return;
-    var hasPaid = Number(order.paid || 0) > 0;
+    var hasPaid = Number(order.paid || 0) > 0 || Boolean(order.fullPaid || order.settled || order.settlementStatus === 'PENDING');
     var body =
       '<div>Chuyển đơn <b>' + esc(order.customer || order.id) + '</b> (' + esc(order.id) + ') vào <b>Thùng rác</b>?</div>' +
-      '<div style="font-size:12.5px;color:var(--v3-muted)">Đơn sẽ ẩn khỏi danh sách hoạt động nhưng được lưu giữ nguyên vẹn dữ liệu, ảnh và lịch sử để Admin khôi phục khi cần.</div>' +
-      (hasPaid ? '<div class="mee3-trash-audit-badge">' + icon('alert', 'mee3-ico-sm') + ' Lưu ý: Đơn đã ghi nhận thanh toán ' + esc(vnd(order.paid)) + '. Dữ liệu thanh toán sẽ được giữ nguyên để đối chiếu.</div>' : '') +
+      '<div style="font-size:12.5px;color:var(--v3-muted)">Đơn sẽ bị loại hoàn toàn khỏi danh sách đơn hàng, doanh thu, công nợ, Payment Check và KPI. Dữ liệu gốc, ảnh và lịch sử vẫn được bảo lưu trong Thùng rác cho Admin.</div>' +
+      (hasPaid ? '<div class="mee3-trash-audit-badge">' + icon('alert', 'mee3-ico-sm') + ' Lưu ý: Đơn đã có phát sinh thanh toán / tất toán (' + esc(vnd(order.paid)) + '). Toàn bộ giá trị sẽ bị loại khỏi báo cáo vận hành và chỉ lưu nội bộ trong Thùng rác.</div>' : '') +
       '<div class="mee3-reason-options" role="radiogroup" aria-label="Lý do xóa đơn">' +
         DELETE_REASONS.map(function(opt, idx){
           return '<label class="mee3-reason-option"><input type="radio" name="mee3DeleteReasonCode" value="' + esc(opt.code) + '"' + (idx === 0 ? ' checked' : '') + '><span>' + esc(opt.label) + '</span></label>';
@@ -1287,7 +1287,7 @@
           '<div><b>Lý do xóa:</b> ' + esc(o.deletedReason || 'Không ghi rõ') + '</div>' +
           '<div style="font-size:11.5px;margin-top:2px;opacity:.88">Xóa bởi: <b>' + esc(o.deletedBy || '—') + '</b>' + (o.deletedByRole ? ' (' + esc(o.deletedByRole) + ')' : '') + ' · ' + esc(dateTimeVN(o.deletedAt)) + '</div>' +
         '</div>' +
-        (o.hasPaymentAudit ? '<div class="mee3-trash-audit-badge">' + icon('alert', 'mee3-ico-sm') + ' Đã ghi nhận thanh toán ' + esc(vnd(o.paid)) + ' (' + esc(o.payment || '—') + ') · Cần đối chiếu</div>' : '') +
+        (o.hasPaymentAudit ? '<div class="mee3-trash-audit-badge">' + icon('alert', 'mee3-ico-sm') + ' Lịch sử thanh toán lưu nội bộ: ' + esc(vnd(o.paid)) + ' (' + esc(o.payment || '—') + ') · Không tính vận hành</div>' : '') +
         (hist ? '<div class="mee3-trash-history"><b style="color:var(--v3-text-soft)">Lịch sử xóa / khôi phục:</b>' + hist + '</div>' : '') +
         '<div class="mee3-trash-actions">' +
           '<button type="button" class="btn secondary" onclick="MEEOPS7.openDrawer(\'' + esc(o.id) + '\',\'trash\')">Xem chi tiết</button>' +
@@ -1331,10 +1331,7 @@
       if(!r || !r.ok) throw new Error((r && r.message) || 'Không khôi phục được đơn.');
       if(window.toast) window.toast(r.message || 'Đã khôi phục đơn hàng.');
       if(window.S && S.dirty){
-        S.dirty.add('getOrders');
-        S.dirty.add('getProductionOrders');
-        S.dirty.add('getDashboardSummary');
-        S.dirty.add('getDebtReview');
+        ['getOrders','getProductionOrders','getDashboardSummary','getDebtReview','getKpi','getFlowerInventory','getSettlementQueue'].forEach(function(k){ S.dirty.add(k); });
       }
       await loadTrash(true);
       return true;

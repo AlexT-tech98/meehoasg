@@ -33,7 +33,7 @@ async function setupDb({ upToBaseline = false } = {}) {
     create table storage.buckets(id text primary key, name text, public boolean, file_size_limit integer, allowed_mime_types text[]);
   `);
   await pg.exec(fs.readFileSync(path.join(ROOT, 'supabase/schema.sql'), 'utf8'));
-  const files = getMigrationFiles(upToBaseline ? (f) => !f.startsWith('20261125') : null);
+  const files = getMigrationFiles(upToBaseline ? (f) => f < '20261125' : null);
   for (const file of files) {
     await pg.exec(fs.readFileSync(path.join(ROOT, 'supabase/migrations', file), 'utf8'));
   }
@@ -331,60 +331,68 @@ test('POLICY-01 & POLICY-02 Override: Walk-in recorded immediately in Dashboard 
     assert.equal(cmuiAfter.commission, 800000 * 0.08);
     assert.equal(kpiAfterApprove.items.find((x) => x.username === 'sale1'), undefined);
 
-    // 5. POLICY-03 + No double counting on Soft-delete & Restore of Walk-in CASH
-    const cmuiDelBlocked = await mutate(pg, 'cmui', 'rc4-cmui-del-block', 'deleteOrder', {
+    // 5. Final Deletion Policy Override + No double counting on Soft-delete & Restore of Walk-in CASH & settled TRANSFER
+    // Non-owner (sale1) still CANNOT delete cmui's walk-in order
+    const sale1DelBlocked = await mutate(pg, 'sale1', 'rc4-sale1-del-block', 'deleteOrder', {
       orderId: 'MEE-WI-CASH-1',
       expectedUpdatedAt: cashCreate.row.updated_at,
-      reason: 'Thử xóa đơn đã thu tiền',
-      reasonCode: 'CUSTOMER_CANCEL'
+      reason: 'Thử xóa đơn không phải của mình',
+      reasonCode: 'CUSTOMER_CANCELLED'
     });
-    assert.equal(cmuiDelBlocked.ok, false);
-    assert.equal(cmuiDelBlocked.code, 'PAYMENT_RECONCILIATION_REQUIRED');
+    assert.equal(sale1DelBlocked.ok, false);
+    assert.equal(sale1DelBlocked.code, 'NOT_OWNER');
+
+    // Owner (cmui) CAN soft-delete own Walk-in CASH order AND own settled Walk-in TRANSFER order
+    const cmuiDelCash = await mutate(pg, 'cmui', 'rc4-cmui-del-cash', 'deleteOrder', {
+      orderId: 'MEE-WI-CASH-1',
+      expectedUpdatedAt: cashCreate.row.updated_at,
+      reason: 'Nhập nhầm đơn khách vãng lai',
+      reasonCode: 'DUPLICATE_ORDER'
+    });
+    assert.equal(cmuiDelCash.ok, true);
+    assert.equal(cmuiDelCash.hadPayment, true);
 
     const adminDelSettled = await mutate(pg, 'admin', 'rc4-admin-del-settled', 'deleteOrder', {
       orderId: 'MEE-WI-TR-1',
       expectedUpdatedAt: approve2.row.updated_at,
-      reason: 'Thử xóa đơn đã tất toán',
+      reason: 'Xóa đơn vãng lai đã tất toán',
       reasonCode: 'OTHER'
     });
-    assert.equal(adminDelSettled.ok, false);
-    assert.equal(adminDelSettled.code, 'ORDER_LOCKED');
-
-    const adminDelCash = await mutate(pg, 'admin', 'rc4-admin-del-cash', 'deleteOrder', {
-      orderId: 'MEE-WI-CASH-1',
-      expectedUpdatedAt: cashCreate.row.updated_at,
-      reason: 'Nhập nhầm đơn khách vãng lai',
-      reasonCode: 'DUPLICATE'
-    });
-    assert.equal(adminDelCash.ok, true);
-    assert.equal(adminDelCash.hadPayment, true);
+    assert.equal(adminDelSettled.ok, true);
 
     const dashDeleted = await adminCore.fastDashboard({ start: '2026-11-25', end: '2026-11-25' });
-    assert.equal(dashDeleted.summary.grossRevenue, 2100000, 'Deleted walk-in removed from Dashboard revenue');
-    assert.equal(dashDeleted.summary.walkInRevenue, 600000);
+    assert.equal(dashDeleted.summary.grossRevenue, 1500000, 'Both deleted walk-ins completely removed from Dashboard revenue');
+    assert.equal(dashDeleted.summary.walkInRevenue, 0);
+    assert.equal(dashDeleted.summary.walkInOrders, 0);
     const kpiDeleted = await adminCore.fastKpi({ month: '2026-11' });
     assert.equal(kpiDeleted.items.find((x) => x.username === 'cmui').revenue, 800000, 'C Mụi standard KPI completely unaffected by walk-in delete');
     const debtAudit = await adminCore.fastDebt({ start: '2026-11-25', end: '2026-11-25' });
-    assert.equal(debtAudit.deletedWithPaymentAudit.count, 1, 'POLICY-03: Deleted paid walk-in appears in Debt reconciliation audit');
-    assert.equal(debtAudit.deletedWithPaymentAudit.totalCollected, 550000);
+    assert.equal(debtAudit.deletedWithPaymentAudit, undefined, 'Final Deletion Policy: deletedWithPaymentAudit removed from Debt');
 
     const saleRestoreBlocked = await mutate(pg, 'cmui', 'rc4-cmui-restore-block', 'restoreOrder', {
       orderId: 'MEE-WI-CASH-1',
-      expectedUpdatedAt: adminDelCash.row.updated_at,
+      expectedUpdatedAt: cmuiDelCash.row.updated_at,
       reason: 'Khôi phục'
     });
     assert.equal(saleRestoreBlocked.ok, false);
     assert.equal(saleRestoreBlocked.code, 'NOT_OWNER');
 
-    const adminRestore = await mutate(pg, 'admin', 'rc4-admin-restore', 'restoreOrder', {
+    const adminRestoreCash = await mutate(pg, 'admin', 'rc4-admin-restore-cash', 'restoreOrder', {
       orderId: 'MEE-WI-CASH-1',
-      expectedUpdatedAt: adminDelCash.row.updated_at,
+      expectedUpdatedAt: cmuiDelCash.row.updated_at,
       reason: 'Khách xác nhận đơn hợp lệ'
     });
-    assert.equal(adminRestore.ok, true);
+    assert.equal(adminRestoreCash.ok, true);
+    const adminRestoreTr = await mutate(pg, 'admin', 'rc4-admin-restore-tr', 'restoreOrder', {
+      orderId: 'MEE-WI-TR-1',
+      expectedUpdatedAt: adminDelSettled.row.updated_at,
+      reason: 'Khôi phục đơn chuyển khoản đã tất toán'
+    });
+    assert.equal(adminRestoreTr.ok, true);
+    assert.equal(adminRestoreTr.row.settled, true, 'Settled flag preserved intact upon restore');
 
     const dashRestored = await adminCore.fastDashboard({ start: '2026-11-25', end: '2026-11-25' });
-    assert.equal(dashRestored.summary.grossRevenue, 2650000, 'Restored walk-in cleanly re-counted ONCE in Dashboard');
+    assert.equal(dashRestored.summary.grossRevenue, 2650000, 'Restored walk-ins cleanly re-counted ONCE in Dashboard');
     assert.equal(dashRestored.summary.walkInRevenue, 1150000);
     const kpiRestored = await adminCore.fastKpi({ month: '2026-11' });
     assert.equal(kpiRestored.items.find((x) => x.username === 'cmui').revenue, 800000, 'C Mụi personal KPI still excludes restored walk-in');
@@ -452,8 +460,8 @@ test('POLICY-04: Dry-run SQL is strictly READ ONLY, works on Production baseline
     assert.equal(byId['LEG-LOG-SETTLED'].classification, 'CONFIRMED_LOCKED_FINANCIAL_REVIEW');
     assert.equal(Number(byId['LEG-LOG-SETTLED'].verified_collected_vnd), 900000);
 
-    // 3. Upgrade DB to RC4 migrations, verify idempotency (run RC4 migrations twice!), then verify hardened backfill
-    const v3Files = getMigrationFiles((f) => f.startsWith('20261125'));
+    // 3. Upgrade DB to UI V3 + Final Deletion Policy Override migrations, verify idempotency (run twice!), then verify Owner-approved backfill
+    const v3Files = getMigrationFiles((f) => f >= '20261125');
     for (const pass of [1, 2]) {
       for (const f of v3Files) {
         await pgBase.exec(fs.readFileSync(path.join(ROOT, 'supabase/migrations', f), 'utf8'));
@@ -461,25 +469,33 @@ test('POLICY-04: Dry-run SQL is strictly READ ONLY, works on Production baseline
       assert.ok(pass <= 2);
     }
 
-    // Run hardened backfill SQL on isolated test DB
+    // Run Owner-approved backfill SQL on isolated test DB:
+    // Converts ALL confirmed legacy deleted orders regardless of payment/Full Paid/settled status, while NEVER converting keyword-only rows!
     await pgBase.exec(fs.readFileSync(BACKFILL_SQL_PATH, 'utf8'));
-    const afterBackfill = (await pgBase.query('select id, is_deleted, customer from public.orders order by id')).rows;
+    const afterBackfill = (await pgBase.query('select id, is_deleted, customer, payment, settled, full_paid, full_paid_total from public.orders order by id')).rows;
     const mapAfter = Object.fromEntries(afterBackfill.map((r) => [r.id, r]));
-    assert.equal(mapAfter['LEG-UNPAID-OK'].is_deleted, true, 'Verified unpaid legacy deleted order converted');
-    assert.equal(mapAfter['LEG-KW-ONLY'].is_deleted, false, 'POLICY-04: keyword-only [ĐÃ XÓA] MUST NOT auto-convert');
-    assert.equal(mapAfter['LEG-DEPOSIT'].is_deleted, false, 'POLICY-04: deposit order MUST NOT auto-convert');
-    assert.equal(mapAfter['LEG-DEP-MULTI-NUM'].is_deleted, false, 'POLICY-04: multi-number paid note MUST NOT auto-convert');
-    assert.equal(mapAfter['LEG-DEP-DECIMAL'].is_deleted, false, 'POLICY-04: decimal paid note MUST NOT auto-convert');
-    assert.equal(mapAfter['LEG-DEP-NO-NUM'].is_deleted, false, 'POLICY-04: text-only deposit note MUST NOT auto-convert');
-    assert.equal(mapAfter['LEG-FULLPAID'].is_deleted, false, 'POLICY-04: full_paid order MUST NOT auto-convert');
-    assert.equal(mapAfter['LEG-LOG-SETTLED'].is_deleted, false, 'POLICY-04: settled order MUST NOT auto-convert');
+    assert.equal(mapAfter['LEG-KW-ONLY'].is_deleted, false, 'Keyword-only [ĐÃ XÓA] without system evidence MUST NOT auto-convert');
+    for (const id of ['LEG-UNPAID-OK', 'LEG-DEPOSIT', 'LEG-DEP-MULTI-NUM', 'LEG-DEP-DECIMAL', 'LEG-DEP-NO-NUM', 'LEG-FULLPAID', 'LEG-LOG-SETTLED']) {
+      assert.equal(mapAfter[id].is_deleted, true, id + ' has confirmed deletion evidence -> must convert to Trash');
+    }
+    assert.equal(mapAfter['LEG-FULLPAID'].full_paid, true, 'Full Paid flag preserved intact in Trash');
+    assert.equal(Number(mapAfter['LEG-FULLPAID'].full_paid_total), 1000000, 'Full Paid total preserved intact in Trash');
+    assert.equal(mapAfter['LEG-LOG-SETTLED'].settled, true, 'Settled flag preserved intact in Trash');
+    assert.equal(mapAfter['LEG-DEPOSIT'].payment, 'Đã cọc 300', 'Deposit text preserved intact in Trash');
 
-    // Re-running backfill is idempotent; rollback SQL restores cleanly
+    // Re-running backfill is idempotent (zero duplicate deletion history rows); rollback SQL restores cleanly
     await pgBase.exec(fs.readFileSync(BACKFILL_SQL_PATH, 'utf8'));
+    const histCnt = (await pgBase.query("select count(*)::int as c from public.order_deletion_history where reason_code = 'LEGACY_MIGRATION'")).rows[0].c;
+    assert.equal(histCnt, 7, 'Idempotent re-run must keep exact 7 history rows');
     await pgBase.exec(fs.readFileSync(ROLLBACK_SQL_PATH, 'utf8'));
-    const afterRollback = (await pgBase.query("select is_deleted, customer from public.orders where id = 'LEG-UNPAID-OK'")).rows[0];
-    assert.equal(afterRollback.is_deleted, false);
-    assert.equal(afterRollback.customer, '[ĐÃ XÓA] Chị Lan');
+    const afterRollback = (await pgBase.query("select is_deleted, customer, full_paid, settled from public.orders where id in ('LEG-UNPAID-OK', 'LEG-FULLPAID', 'LEG-LOG-SETTLED') order by id")).rows;
+    const rbMap = Object.fromEntries(afterRollback.map((r) => [r.customer.includes('Lan') ? 'UNPAID' : (r.full_paid ? 'FP' : 'SET'), r]));
+    assert.equal(rbMap.UNPAID.is_deleted, false);
+    assert.equal(rbMap.UNPAID.customer, '[ĐÃ XÓA] Chị Lan');
+    assert.equal(rbMap.FP.is_deleted, false);
+    assert.equal(rbMap.FP.full_paid, true);
+    assert.equal(rbMap.SET.is_deleted, false);
+    assert.equal(rbMap.SET.settled, true);
   } finally {
     await pgBase.close();
   }
@@ -496,8 +512,8 @@ test('Section V: Migration from Production baseline preserves legacy/Bot orders,
         ('PRE-V3-BOT', 'Khách Bot', '0903334444', '2026-11-21', '11:00', 'Bó cẩm tú cầu', 'Tạo từ Bot', 'Ghé lấy', '', 520000, 'Chưa thanh toán', 'sale1', 'Chờ bó', 'ORDER_BOT');
     `);
 
-    // Apply all RC4 migrations
-    for (const f of getMigrationFiles((x) => x.startsWith('20261125'))) {
+    // Apply all UI V3 migrations (RC2..RC5 + Final Deletion Policy Override)
+    for (const f of getMigrationFiles((x) => x >= '20261125')) {
       await pg.exec(fs.readFileSync(path.join(ROOT, 'supabase/migrations', f), 'utf8'));
     }
 

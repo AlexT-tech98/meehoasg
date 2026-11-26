@@ -27,7 +27,7 @@ async function createBaselineDb() {
     create table storage.buckets(id text primary key, name text, public boolean, file_size_limit integer, allowed_mime_types text[]);
   `);
   await pg.exec(fs.readFileSync(path.join(ROOT, 'supabase/schema.sql'), 'utf8'));
-  for (const file of getMigrationFiles((f) => !f.startsWith('20261125'))) {
+  for (const file of getMigrationFiles((f) => f < '20261125')) {
     await pg.exec(fs.readFileSync(path.join(ROOT, 'supabase/migrations', file), 'utf8'));
   }
   await pg.exec(`
@@ -41,7 +41,7 @@ async function createBaselineDb() {
 }
 
 async function applyRc4Migrations(pg) {
-  for (const file of getMigrationFiles((f) => f.startsWith('20261125'))) {
+  for (const file of getMigrationFiles((f) => f >= '20261125')) {
     await pg.exec(fs.readFileSync(path.join(ROOT, 'supabase/migrations', file), 'utf8'));
   }
 }
