@@ -30,7 +30,7 @@ async function setupDb() {
   return pg;
 }
 
-test('Group 1A: legacy note -> tag_note_free dry-run, idempotent backfill, separation rules, and safe rollback', async () => {
+test('Group 1A: legacy note -> tag_note_free dry-run, idempotent backfill, mid-string/deposit/Bsung guards, recovered S1/S2 notes, and safe rollback', async () => {
   const pg = await setupDb();
   try {
     await pg.exec(`
@@ -42,16 +42,24 @@ test('Group 1A: legacy note -> tag_note_free dry-run, idempotent backfill, separ
       ('MEE-LEG-EXPLICIT', '2026-11-20', 'Khách A', 'Bó hồng đỏ', 'Note: Chúc mừng sinh nhật em yêu', '', false, '', false, '', false, false, '2026-11-20T05:00:00Z', '2026-11-20T05:00:00Z'),
       -- 2. Eligible clean legacy greeting note (pre-Go-Live)
       ('MEE-LEG-CLEAN', '2026-11-22', 'Khách B', 'Giỏ hoa pastel', 'Happy Anniversary 3 Years', '', false, '', false, '', false, false, '2026-11-22T06:00:00Z', '2026-11-22T06:00:00Z'),
-      -- 3. Already has tag_note_free -> NEVER overwrite
+      -- 3. Recovered SAFE_AUTO_S1: blank / self-written tag note
+      ('MEE-SAFE-S1', '2026-11-22', 'Khách S1', 'Bó cẩm tú cầu', 'Note trống tự ghi', '', false, '', false, '', false, false, '2026-11-22T07:00:00Z', '2026-11-22T07:00:00Z'),
+      -- 4. Recovered SAFE_AUTO_S2: greeting with scholarship / @hihihaha / Tăng Quỳnh Giao / cứ gọi cho anh
+      ('MEE-SAFE-S2', '2026-11-22', 'Khách S2', 'Bó hướng dương', 'Note: Congrats on the scholarship @hihihaha55_ chúc Tăng Quỳnh Giao, có gì cứ gọi cho anh nhé', '', false, '', false, '', false, false, '2026-11-22T08:00:00Z', '2026-11-22T08:00:00Z'),
+      -- 5. Already has tag_note_free -> NEVER overwrite
       ('MEE-HAS-TAG', '2026-11-23', 'Khách C', 'Bó tulip', 'Ghi chú giữ nguyên', 'Tag cũ đã có sẵn', false, '', false, '', false, false, '2026-11-23T06:00:00Z', '2026-11-23T06:00:00Z'),
-      -- 4. Post-Go-Live order -> NEVER touch
+      -- 6. Post-Go-Live order -> NEVER touch
       ('MEE-POST-GOLIVE', '2026-11-26', 'Như Huỳnh', 'Bó sen đá', 'Giấy gói màu đen, tôn màu hoa', '', false, '', false, '', false, false, '2026-11-26T09:02:01Z', '2026-11-26T09:02:01Z'),
-      -- 5. Deleted / audit stamp -> NEVER touch
+      -- 7. Deleted / audit stamp -> NEVER touch
       ('MEE-DELETED', '2026-11-18', 'Khách D', 'Bó cúc', 'Meehoa_Manage · 2026-11-19 · hủy đơn', '', false, '', false, '', true, false, '2026-11-18T04:00:00Z', '2026-11-18T04:00:00Z'),
-      -- 6. Card/Banner prefixed legacy note -> SEPARATED for review
-      ('MEE-CARD-PREFIX', '2026-11-24', 'Khách E', 'Kệ khai trương', 'Banner free: Chúc mừng khai trương hồng phát', '', true, 'Thiệp gốc', true, 'Banner gốc', false, false, '2026-11-24T04:00:00Z', '2026-11-24T04:00:00Z'),
-      -- 7. Operational / mixed instruction -> SEPARATED for review
-      ('MEE-OPS-MIXED', '2026-11-25', 'Khách F', 'Giỏ hoa lớn', 'KO GỌI TRƯỚC\nHappy Birthday', '', false, '', false, '', false, false, '2026-11-25T04:00:00Z', '2026-11-25T04:00:00Z');
+      -- 8. Mid-string Card/Banner -> KEEP at note (protects 205 mid-string orders)
+      ('MEE-CARD-MID', '2026-11-24', 'Khách E', 'Kệ khai trương', 'Lấy note: Happy Birthday Mami\nThiệp (có lấy): Để trống', '', true, 'Thiệp gốc', true, 'Banner gốc', false, false, '2026-11-24T04:00:00Z', '2026-11-24T04:00:00Z'),
+      -- 9. Deferred placeholder "Bsung sau" -> KEEP at note (protects 32 orders)
+      ('MEE-BSUNG-SAU', '2026-11-24', 'Khách BS', 'Bó hồng', 'Note: Bsung sau', '', false, '', false, '', false, false, '2026-11-24T05:00:00Z', '2026-11-24T05:00:00Z'),
+      -- 10. Payment / deposit warning -> KEEP at note (protects 13 orders)
+      ('MEE-DEPOSIT-WARN', '2026-11-24', 'Khách Cọc', 'Giỏ hoa', 'Sinh nhật vui vẻ Kem nhá\n\nbankfull toàn bộ đơn', '', false, '', false, '', false, false, '2026-11-24T06:00:00Z', '2026-11-24T06:00:00Z'),
+      -- 11. Operational / packaging / pickup -> KEEP at note
+      ('MEE-OPS-MIXED', '2026-11-25', 'Khách F', 'Giỏ hoa lớn', 'Đổi giấy gói hoa thành màu đen\nNote: Finally!', '', false, '', false, '', false, false, '2026-11-25T04:00:00Z', '2026-11-25T04:00:00Z');
     `);
 
     // 1. Dry-run executes read-only and classifies every row accurately
@@ -59,15 +67,14 @@ test('Group 1A: legacy note -> tag_note_free dry-run, idempotent backfill, separ
     const summaryQuery = drySql.split('-- QUERY 2:')[0];
     const summaryRes = await pg.query(summaryQuery);
     const s = summaryRes.rows[0];
-    assert.equal(Number(s.total_orders_with_note), 7);
-    assert.equal(Number(s.auto_migrate_explicit_note), 1);
-    assert.equal(Number(s.auto_migrate_clean_legacy_note), 1);
-    assert.equal(Number(s.total_auto_migrate_eligible), 2);
-    assert.equal(Number(s.separated_card_or_banner_review), 1);
-    assert.equal(Number(s.separated_ops_or_mixed_review), 1);
-    assert.equal(Number(s.skip_deleted_or_audit_stamp), 1);
-    assert.equal(Number(s.skip_already_has_tag_note_free), 1);
-    assert.equal(Number(s.skip_post_golive), 1);
+    assert.equal(Number(s.total_orders_with_note), 11);
+    assert.equal(Number(s.total_auto_migrate_eligible), 4);
+    assert.equal(Number(s.keep_card_or_banner), 1);
+    assert.equal(Number(s.keep_deferred_placeholder), 1);
+    assert.equal(Number(s.keep_payment_or_deposit), 1);
+    assert.equal(Number(s.keep_ops_or_mixed), 1);
+    assert.equal(Number(s.total_kept_at_note), 4);
+    assert.equal(Number(s.total_protected_skipped), 3);
 
     // 2. Execute backfill
     const backfillSql = fs.readFileSync(BACKFILL_SQL, 'utf8');
@@ -83,31 +90,35 @@ test('Group 1A: legacy note -> tag_note_free dry-run, idempotent backfill, separ
     // Migrated rows moved note -> tag_note_free and cleared note (no duplicate display)
     assert.equal(byId['MEE-LEG-EXPLICIT'].tag_note_free, 'Note: Chúc mừng sinh nhật em yêu');
     assert.equal(byId['MEE-LEG-EXPLICIT'].note, '');
-    assert.equal(byId['MEE-LEG-EXPLICIT'].flower, 'Bó hồng đỏ');
-
     assert.equal(byId['MEE-LEG-CLEAN'].tag_note_free, 'Happy Anniversary 3 Years');
     assert.equal(byId['MEE-LEG-CLEAN'].note, '');
+    assert.equal(byId['MEE-SAFE-S1'].tag_note_free, 'Note trống tự ghi');
+    assert.equal(byId['MEE-SAFE-S1'].note, '');
+    assert.match(byId['MEE-SAFE-S2'].tag_note_free, /scholarship/);
+    assert.equal(byId['MEE-SAFE-S2'].note, '');
 
-    // Protected rows untouched
+    // Kept-at-note & protected rows untouched
     assert.equal(byId['MEE-HAS-TAG'].note, 'Ghi chú giữ nguyên');
     assert.equal(byId['MEE-HAS-TAG'].tag_note_free, 'Tag cũ đã có sẵn');
     assert.equal(byId['MEE-POST-GOLIVE'].note, 'Giấy gói màu đen, tôn màu hoa');
     assert.equal(byId['MEE-POST-GOLIVE'].tag_note_free, '');
     assert.equal(byId['MEE-DELETED'].note, 'Meehoa_Manage · 2026-11-19 · hủy đơn');
-    assert.equal(byId['MEE-CARD-PREFIX'].note, 'Banner free: Chúc mừng khai trương hồng phát');
-    assert.equal(byId['MEE-CARD-PREFIX'].card_text, 'Thiệp gốc');
-    assert.equal(byId['MEE-CARD-PREFIX'].banner_text, 'Banner gốc');
-    assert.equal(byId['MEE-OPS-MIXED'].note, 'KO GỌI TRƯỚC\nHappy Birthday');
-
-    const backup1 = await pg.query('select order_id, classification, orig_note from public.legacy_note_migration_backup order by order_id');
-    assert.equal(backup1.rows.length, 2);
+    assert.equal(byId['MEE-CARD-MID'].note, 'Lấy note: Happy Birthday Mami\nThiệp (có lấy): Để trống');
+    assert.equal(byId['MEE-CARD-MID'].tag_note_free, '');
+    assert.equal(byId['MEE-CARD-MID'].card_text, 'Thiệp gốc');
+    assert.equal(byId['MEE-BSUNG-SAU'].note, 'Note: Bsung sau');
+    assert.equal(byId['MEE-BSUNG-SAU'].tag_note_free, '');
+    assert.match(byId['MEE-DEPOSIT-WARN'].note, /bankfull/);
+    assert.equal(byId['MEE-DEPOSIT-WARN'].tag_note_free, '');
+    assert.match(byId['MEE-OPS-MIXED'].note, /Đổi giấy gói/);
+    assert.equal(byId['MEE-OPS-MIXED'].tag_note_free, '');
 
     // 3. Re-run backfill -> strictly idempotent
     await pg.exec(backfillSql);
     const backup2 = await pg.query('select count(*)::int as c from public.legacy_note_migration_backup');
-    assert.equal(backup2.rows[0].c, 2);
+    assert.equal(backup2.rows[0].c, 4);
 
-    // 4. Simulate a post-migration manual edit on one migrated order; rollback must NOT overwrite user edit
+    // 4. Simulate post-migration manual edit; rollback must NOT overwrite user edit
     await pg.query(`update public.orders set tag_note_free = 'Admin sửa sau migration' where id = 'MEE-LEG-EXPLICIT'`);
 
     // 5. Execute rollback
@@ -116,7 +127,6 @@ test('Group 1A: legacy note -> tag_note_free dry-run, idempotent backfill, separ
     const rbById = Object.fromEntries(afterRollback.rows.map((r) => [r.id, r]));
     assert.equal(rbById['MEE-LEG-CLEAN'].note, 'Happy Anniversary 3 Years');
     assert.equal(rbById['MEE-LEG-CLEAN'].tag_note_free, '');
-    // Edited row preserved safely
     assert.equal(rbById['MEE-LEG-EXPLICIT'].tag_note_free, 'Admin sửa sau migration');
   } finally {
     await pg.close();
