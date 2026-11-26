@@ -843,15 +843,19 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
       }
     }
 
-    // 7. Name detection (ignore common lowercase/photo filler phrases like "góc chụp khác", "ảnh mẫu", "thêm ảnh")
+    // 7. Name detection: a shipping method or flower description is never a customer name.
     const NON_NAME_PHRASE = /\b(anh\s*mau|hinh\s*mau|mau\s*tham\s*khao|tham\s*khao|goc\s*chup|goc\s*khac|them\s*anh|them\s*hinh|bo\s*sung|gui\s*them|hinh\s*khac|anh\s*khac|xem\s*them|cam\s*on|ok|oke|vang|xong)\b/i;
+    const isShippingPhrase = /\b(shop\s*(?:book|ship|giao)|khach\s*tu\s*book|tu\s*book|ghe\s*lay|tai\s*tiem|tu\s*lay|grab|aha)\b/i.test(normLine);
     const hasHonorific = /^(?:chị|anh|em|cô|bác|khách|bạn)\s+/i.test(cleanLine);
     const startsCapitalized = /^[A-ZÀ-Ỹ]/.test(cleanLine);
     if (
       /^[A-ZÀ-Ỹa-zà-ỹ\s]+$/.test(cleanLine) &&
       cleanLine.split(/\s+/).length <= 4 &&
       (hasHonorific || startsCapitalized) &&
-      !NON_NAME_PHRASE.test(normLine)
+      !NON_NAME_PHRASE.test(normLine) &&
+      !FLOWER_PATTERN.test(normLine) &&
+      !isShippingPhrase &&
+      !fields.customer
     ) {
       const stripped = hasHonorific
         ? cleanLine.replace(/^(?:chị|anh|em|cô|bác|khách|bạn)\s+/i, '').trim()

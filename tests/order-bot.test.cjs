@@ -2083,3 +2083,23 @@ test('unstructured chat with AI extraction failure prompts correction', async ()
   });
   assert.ok(messages.some(s => s.includes('Chưa đọc được thông tin chắc chắn')));
 });
+test('shipping and flower description lines never overwrite an existing customer name', async () => {
+  const { applyFields, extractNaturalMessage } = await getCore();
+  const original = {
+    id: 'draft-name-guard', status: 'pending',
+    fields: { customer: 'Như', phone: '0394200327', flowerTotal: '350000', depositAmount: 200000 },
+    sampleRefs: [], draftBillRefs: []
+  };
+  const result = applyFields(original, 'Mẫu hoa: Ly nhuộm xanh navy\nShop book ship');
+  assert.equal(result.draft.fields.customer, 'Như');
+  assert.equal(result.draft.fields.flower, 'Ly nhuộm xanh navy');
+  assert.equal(result.draft.fields.shipping, 'Shop book ship');
+  assert.ok(!result.changes.some(change => change.field === 'customer'));
+
+  for (const shipping of ['Shop book ship', 'Khách tự book', 'Ghé lấy']) {
+    const parsed = extractNaturalMessage(shipping, original);
+    assert.equal(parsed.fields.customer, undefined, `${shipping} must not become a customer`);
+    assert.ok(parsed.fields.shipping, `${shipping} should still set shipping`);
+  }
+  assert.equal(extractNaturalMessage('Ly nhuộm xanh navy', original).fields.customer, undefined);
+});
