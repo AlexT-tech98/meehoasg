@@ -481,11 +481,15 @@ function buildProbeFaultFetcher(faultConfig, captionForMock = '') {
     cardText: null,
     bannerText: null
   });
-  const okText = spec.mockJson ? JSON.stringify(spec.mockJson) : (
-    /thảo my|thao my/i.test(captionForMock) ? thmJson : JSON.stringify({ customer: 'Khách Test', flower: 'Bó hoa test', flowerTotal: 500000, shipping: 'Ghé lấy', date: '29/12', time: '10:00' })
-  );
-  const sseOk = () => new Response(
-    `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: okText }] }, finishReason: 'STOP' }] })}\n\n`,
+  const resolveOkText = (reqBodyStr = '') => {
+    if (spec.mockJson) return JSON.stringify(spec.mockJson);
+    const hasThaoMy = /thảo my|thao my/i.test(captionForMock) || /thảo my|thao my/i.test(reqBodyStr);
+    return hasThaoMy
+      ? thmJson
+      : JSON.stringify({ customer: 'Khách Test', flower: 'Bó hoa test', flowerTotal: 500000, shipping: 'Ghé lấy', date: '29/12', time: '10:00' });
+  };
+  const sseOk = (reqBodyStr = '') => new Response(
+    `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: resolveOkText(reqBodyStr) }] }, finishReason: 'STOP' }] })}\n\n`,
     { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
   );
 
@@ -498,7 +502,7 @@ function buildProbeFaultFetcher(faultConfig, captionForMock = '') {
           { status: 503, headers: { 'Retry-After': String(spec.retryAfterSec ?? 0) } }
         );
       }
-      return sseOk();
+      return sseOk(String(opts?.body || ''));
     }
     if (type === '503_persistent') {
       return new Response(
@@ -542,7 +546,7 @@ function buildProbeFaultFetcher(faultConfig, captionForMock = '') {
         });
         return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
       }
-      return sseOk();
+      return sseOk(String(opts?.body || ''));
     }
     if (type === 'malformed_json') {
       return new Response(
@@ -794,7 +798,10 @@ async function handleAiProbe(request, env) {
   };
   const timeoutMs = Number.isFinite(Number(probeBody?.timeoutMs)) ? Number(probeBody.timeoutMs) : undefined;
   const faultInjection = probeBody?.faultInjection || null;
-  const recordAudit = probeBody?.recordAudit !== false && !faultInjection;
+  const hasStepFaultInjection = Array.isArray(probeBody?.steps) &&
+    probeBody.steps.some(s => s && typeof s === 'object' && s.faultInjection);
+  const anyFaultInjection = Boolean(faultInjection || hasStepFaultInjection);
+  const recordAudit = probeBody?.recordAudit !== false && !anyFaultInjection;
 
   // Mode 1: minimal direct AI probe (verifies endpoint, key, model, SSE reading, latency, attempts)
   if (mode === 'minimal') {
@@ -843,7 +850,7 @@ async function handleAiProbe(request, env) {
     return new Response(JSON.stringify({
       ok: aiRes.ok,
       mode: 'minimal',
-      source: faultInjection ? 'worker-fault-injection' : 'worker-real-secret',
+      source: anyFaultInjection ? 'worker-fault-injection' : 'worker-real-secret',
       model: aiRes.model,
       endpoint: aiRes.endpoint || null,
       status: aiRes.status ?? null,
@@ -862,7 +869,7 @@ async function handleAiProbe(request, env) {
       executionProof: {
         workerRuntime: true,
         handleTelegramWebhookUsed: false,
-        realGeminiSecretUsed: !faultInjection,
+        realGeminiSecretUsed: !anyFaultInjection,
         realD1AuditLogged,
         d1DraftsSavedToRealDb: false,
         r2SavedToRealBucket: false,
@@ -945,7 +952,10 @@ async function handleAiProbe(request, env) {
 
     // Allow per-step faultInjection override so callers can test 503 failure -> /reparse recovery
     if (stepObj.faultInjection !== undefined) {
-      const stepFault = buildProbeFaultFetcher(stepObj.faultInjection, stepObj.caption || stepObj.text || firstCaptionText);
+      const stepCaptionHint = stepObj.caption ||
+        (stepObj.text && !String(stepObj.text).trim().startsWith('/') ? stepObj.text : '') ||
+        firstCaptionText;
+      const stepFault = buildProbeFaultFetcher(stepObj.faultInjection, stepCaptionHint);
       probeCtx.isolatedEnv.GEMINI_FETCHER = stepFault || undefined;
     } else {
       probeCtx.isolatedEnv.GEMINI_FETCHER = globalFaultFetcher || undefined;
@@ -1008,12 +1018,12 @@ async function handleAiProbe(request, env) {
     .map(([, d]) => d);
   const activeDraftObj = finalState.activeDraftId ? finalState.drafts[finalState.activeDraftId] || null : null;
   const latestAi = probeCtx.aiCalls[probeCtx.aiCalls.length - 1] || null;
-  const anyRealGeminiFail = !faultInjection && probeCtx.aiCalls.some(c => !c.ok);
+  const anyRealGeminiFail = !anyFaultInjection && probeCtx.aiCalls.some(c => !c.ok);
 
   return new Response(JSON.stringify({
     ok: !anyRealGeminiFail && stepResults.every(s => s.httpStatus === 200),
     mode: 'bot-flow',
-    source: faultInjection ? 'worker-fault-injection' : 'worker-real-secret',
+    source: anyFaultInjection ? 'worker-fault-injection' : 'worker-real-secret',
     model: latestAi?.model || probeModel,
     endpoint: latestAi?.endpoint || null,
     status: latestAi?.status ?? null,
@@ -1061,7 +1071,7 @@ async function handleAiProbe(request, env) {
     executionProof: {
       workerRuntime: true,
       handleTelegramWebhookUsed: true,
-      realGeminiSecretUsed: !faultInjection,
+      realGeminiSecretUsed: !anyFaultInjection,
       realD1AuditLogged,
       d1DraftsSavedToRealDb: false,
       r2SavedToRealBucket: false,
