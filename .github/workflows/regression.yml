@@ -93,6 +93,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Desktop and mobile isolated browser acceptance
         run: node scripts/browser-acceptance.cjs
+      - name: Core-unavailable Fallback API tagNoteFree browser acceptance
+        run: node scripts/fallback-api-tag-note-free-browser.cjs
       - name: Check current four-state frontend with canonical isolated SQL
         run: |
           node scripts/build-release.cjs

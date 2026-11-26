@@ -149,7 +149,7 @@ function decorate(row, user, settlement) {
     id: row.id, updatedAt: row.updated_at, sourceSheet: row.source_sheet || '', sourceRow: row.source_row || 0,
     customer: row.customer, phone: contact.phone, date: row.order_date, time: cleanTime(row.order_time),
     flower: row.flower, imageUrls: row.image_urls || [], driveUrls: row.image_urls || [],
-    note: row.note, orderType, walkInPaymentMethod, shipping: row.shipping, address: contact.address,
+    note: row.note, tagNoteFree: clean(row.tag_note_free), orderType, walkInPaymentMethod, shipping: row.shipping, address: contact.address,
     flowerTotal: num(row.flower_total), payment: row.payment, paid, sale: row.sale,
     fullPaid:!!row.full_paid,fullPaidTotal:num(row.full_paid_total),fullPaidBillUrls:row.full_paid_bill_urls||[],paymentVerified:verified,settled: row.settled, status: fulfillmentStatus(row), shipFee: num(row.ship_fee),
     shipConfirmed: row.ship_confirmed, shipFeePending: norm(row.shipping).includes('shop') && !row.ship_confirmed,
