@@ -28,6 +28,9 @@ import {
   activeDraft,
   isDraftEmpty,
   classifyIncomingPhotoDraft,
+  computeDraftTotal,
+  mapPaymentToOps,
+  stripPaymentClaimTags,
   applyFields,
   draftSummary,
   requiredMissing
@@ -54,7 +57,7 @@ import {
   bytesToBase64
 } from './telegram.mjs';
 
-import { callCreateOrder } from './ops-client.mjs';
+import { callCreateOrder, syncOrderPaymentToOps } from './ops-client.mjs';
 import { extractFieldsWithGemini, sanitizeAiFields } from './gemini.mjs';
 
 const DEFAULT_ALLOWED_USER_ID = 5252724920;
@@ -655,10 +658,12 @@ export async function handleTelegramWebhook(request, rawEnv) {
         await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
       } else if (cmd === '/confirm') {
         await handleConfirmCommand(drafts, env, userId, chatId);
+      } else if (cmd === '/retry_payment' || cmd === '/sync_payment') {
+        await handleRetryPaymentCommand(drafts, arg, env, userId, chatId);
       } else if (cmd === '/relink' || cmd === '/retry_bill') {
         await handleRelinkCommand(drafts, arg, env, userId, chatId);
       } else {
-        await sendTelegramMessage(env.BOT_TOKEN, chatId, '❓ Lệnh không nhận ra. Các lệnh hỗ trợ:\n/new — Tạo đơn mới\n/list — Danh sách đơn nháp\n/select <id> — Chọn đơn nháp\n/show — Xem chi tiết đơn\n/confirm — Xác nhận tạo đơn OPS\n/relink — Gắn lại bill vào đơn OPS đã tạo\n/cancel — Xóa đơn nháp đang chọn');
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, '❓ Lệnh không nhận ra. Các lệnh hỗ trợ:\n/new — Tạo đơn mới\n/list — Danh sách đơn nháp\n/select <id> — Chọn đơn nháp\n/show — Xem chi tiết đơn\n/confirm — Xác nhận tạo đơn OPS\n/retry_payment — Đồng bộ lại thanh toán/cọc vào đơn OPS đã tạo\n/relink — Gắn lại bill vào đơn OPS đã tạo\n/cancel — Xóa đơn nháp đang chọn');
       }
       return;
     }
@@ -780,6 +785,18 @@ export async function handleTelegramWebhook(request, rawEnv) {
   return new Response('OK', { status: 200 });
 }
 
+function expectedPaymentDetails(fields = {}) {
+  const f = fields || {};
+  const expectedPayment = mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal);
+  let expectedPaid = 0;
+  if (f.paymentState === 'deposit' && Number(f.depositAmount) > 0) {
+    expectedPaid = Number(f.depositAmount);
+  } else if (f.paymentState === 'bankfull' && Number(f.flowerTotal) > 0) {
+    expectedPaid = Number(f.flowerTotal);
+  }
+  return { expectedPayment, expectedPaid };
+}
+
 /**
  * Handle /confirm command execution
  */
@@ -787,6 +804,18 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   const draft = activeDraft(drafts);
   if (!draft) {
     await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Chưa có đơn nháp nào để xác nhận. Gõ /new để tạo đơn mới.');
+    return;
+  }
+
+  // If order was already created on OPS but payment sync failed previously,
+  // retry ONLY payment sync — NEVER call createOrder a second time.
+  if (draft.status === 'submitted' && draft.opsOrderId && draft.paymentSynced === false) {
+    await sendTelegramMessage(
+      env.BOT_TOKEN,
+      chatId,
+      `ℹ️ Đơn ${draft.opsOrderId} đã được tạo trên OPS (không tạo đơn trùng). Đang đồng bộ lại trạng thái thanh toán...`
+    );
+    await handleRetryPaymentCommand(drafts, draft.opsOrderId, env, userId, chatId);
     return;
   }
 
@@ -915,20 +944,114 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   );
 
   if (opsRes.ok && opsRes.orderId) {
+    const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+    const opsToken = env.OPS_TOKEN || '';
+    const { expectedPayment, expectedPaid } = expectedPaymentDetails(draft.fields);
+    const paymentSyncRequestId = draft.paymentSyncRequestId || `${confirmedDraft.requestId}:pay:${draft.fields?.paymentState || 'unpaid'}:${expectedPaid}`;
+
+    let finalOpsOrder = opsRes.order || null;
+    const returnedPaid = finalOpsOrder ? Number(finalOpsOrder.paid) : null;
+    const returnedPayment = finalOpsOrder ? String(finalOpsOrder.payment || '').trim() : '';
+    const needsPaymentSync = expectedPaid > 0 && (
+      !finalOpsOrder ||
+      !Number.isFinite(returnedPaid) ||
+      returnedPaid !== expectedPaid ||
+      returnedPayment !== expectedPayment
+    );
+
+    let paymentSynced = !needsPaymentSync;
+    let paymentSyncError = null;
+    let paymentRecordedAmount = needsPaymentSync ? (Number.isFinite(returnedPaid) ? returnedPaid : 0) : expectedPaid;
+
+    // Immediately persist submitted + opsOrderId BEFORE any follow-up step
+    // so createOrder can NEVER be called twice even if Step 2 or bill linking fails.
+    drafts = transitionDraftStatus(drafts, draft.id, 'submitted', {
+      opsOrderId: opsRes.orderId,
+      submittedAt: new Date().toISOString(),
+      paymentSynced,
+      paymentSyncRequestId,
+      paymentRecordedAmount,
+      paymentSyncError: null
+    });
+
+    if (env.DB) {
+      await saveDrafts(env.DB, userId, drafts);
+      await logAudit(env.DB, userId, 'createOrder', draft.id, confirmedDraft.requestId, {
+        orderId: opsRes.orderId,
+        expectedPayment,
+        expectedPaid,
+        paymentSynced
+      });
+    }
+
+    // Step 2 (only if createOrder did not already return verified expected payment/paid)
+    if (needsPaymentSync) {
+      const syncRes = await syncOrderPaymentToOps({
+        opsUrl,
+        opsToken,
+        orderId: opsRes.orderId,
+        expectedPayment,
+        expectedPaid,
+        requestId: paymentSyncRequestId,
+        cleanNote: stripPaymentClaimTags(draft.fields?.note),
+        fetcher
+      });
+
+      if (syncRes.ok && syncRes.order) {
+        finalOpsOrder = syncRes.order;
+        paymentSynced = true;
+        paymentRecordedAmount = Number(syncRes.order.paid) || 0;
+        paymentSyncError = null;
+        drafts = transitionDraftStatus(drafts, draft.id, 'submitted', {
+          opsOrderId: opsRes.orderId,
+          paymentSynced: true,
+          paymentSyncRequestId,
+          paymentRecordedAmount,
+          paymentSyncError: null
+        });
+        if (env.DB) {
+          await saveDrafts(env.DB, userId, drafts);
+          await logAudit(env.DB, userId, 'syncPayment', draft.id, paymentSyncRequestId, {
+            orderId: opsRes.orderId,
+            payment: syncRes.order.payment,
+            paid: syncRes.order.paid,
+            debt: syncRes.order.debt
+          });
+        }
+      } else {
+        paymentSynced = false;
+        paymentSyncError = syncRes.message || 'Không thể ghi nhận khoản thanh toán lên OPS.';
+        drafts = transitionDraftStatus(drafts, draft.id, 'submitted', {
+          opsOrderId: opsRes.orderId,
+          paymentSynced: false,
+          paymentSyncRequestId,
+          paymentRecordedAmount,
+          paymentSyncError
+        });
+        if (env.DB) {
+          await saveDrafts(env.DB, userId, drafts);
+          await logAudit(env.DB, userId, 'syncPaymentFailed', draft.id, paymentSyncRequestId, {
+            orderId: opsRes.orderId,
+            code: syncRes.code || 'SYNC_FAILED'
+          });
+        }
+      }
+    }
+
     let billLinkSuccess = true;
     let billLinkError = null;
     let linkedResult = null;
 
-    const opsAlreadyAttachedBills = Array.isArray(opsRes.order?.unverifiedBillUrls)
-      ? opsRes.order.unverifiedBillUrls.length
-      : (Array.isArray(opsRes.order?.unverified_bill_urls) ? opsRes.order.unverified_bill_urls.length : 0);
+    const opsAlreadyAttachedBills = Array.isArray(finalOpsOrder?.unverifiedBillUrls)
+      ? finalOpsOrder.unverifiedBillUrls.length
+      : (Array.isArray(finalOpsOrder?.unverified_bill_urls) ? finalOpsOrder.unverified_bill_urls.length : 0);
 
     if (expectedBillCount > 0 && opsAlreadyAttachedBills >= expectedBillCount) {
       linkedResult = {
         ok: true,
         linked: opsAlreadyAttachedBills,
         verifiedCount: opsAlreadyAttachedBills,
-        uris: opsRes.order?.unverifiedBillUrls || opsRes.order?.unverified_bill_urls || []
+        uris: finalOpsOrder?.unverifiedBillUrls || finalOpsOrder?.unverified_bill_urls || []
       };
     } else if (env.DB && expectedBillCount > 0) {
       linkedResult = await linkUnverifiedBillsToD1Order(
@@ -951,11 +1074,8 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       }
     }
 
-    // Always transition to submitted because order was officially created in OPS!
-    // NEVER transition back to confirmed or pending, which would risk creating a duplicate order!
     drafts = transitionDraftStatus(drafts, draft.id, 'submitted', {
       opsOrderId: opsRes.orderId,
-      submittedAt: new Date().toISOString(),
       billsLinked: expectedBillCount > 0 ? billLinkSuccess : true,
       billLinkError: billLinkError,
       verifiedBillCount: linkedResult?.verifiedCount || 0
@@ -963,18 +1083,18 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
 
     if (env.DB) {
       await saveDrafts(env.DB, userId, drafts);
-      await logAudit(env.DB, userId, 'createOrder', draft.id, confirmedDraft.requestId, {
-        orderId: opsRes.orderId,
-        billsLinked: expectedBillCount > 0 ? billLinkSuccess : true
-      });
     }
 
-    const customer = draft.fields.customer || '';
-    const flower = draft.fields.flower || '';
-    const date = draft.fields.date || '';
-    const time = draft.fields.time || '';
-    const shipping = draft.fields.shipping || '';
-    const flowerTotal = Number(draft.fields.flowerTotal) || 0;
+    const customer = finalOpsOrder?.customer || draft.fields.customer || '';
+    const flower = finalOpsOrder?.flower || draft.fields.flower || '';
+    const date = finalOpsOrder?.date || draft.fields.date || '';
+    const time = finalOpsOrder?.time || draft.fields.time || '';
+    const shipping = finalOpsOrder?.shipping || draft.fields.shipping || '';
+    const flowerTotal = finalOpsOrder ? Number(finalOpsOrder.flowerTotal) : (Number(draft.fields.flowerTotal) || 0);
+    const totalDue = finalOpsOrder ? Number(finalOpsOrder.totalDue ?? flowerTotal) : computeDraftTotal(draft.fields);
+    const opsPaymentStr = finalOpsOrder?.payment || (paymentSynced ? expectedPayment : 'Chưa thanh toán');
+    const opsPaid = finalOpsOrder ? (Number(finalOpsOrder.paid) || 0) : (paymentSynced ? expectedPaid : 0);
+    const opsDebt = finalOpsOrder ? (Number(finalOpsOrder.debt) || 0) : Math.max(0, totalDue - opsPaid);
 
     let successMsg = `✅ <b>TẠO ĐƠN THÀNH CÔNG TRÊN MEEHOA OPS STAGING!</b>\n\n` +
       `🆔 <b>Mã đơn:</b> <code>${html(opsRes.orderId)}</code>\n` +
@@ -983,8 +1103,17 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       `📅 Ngày nhận: ${html(date)} lúc ${html(time)}\n` +
       `🚚 Giao nhận: ${html(shipping)}\n` +
       `💰 Tiền hoa: ${flowerTotal.toLocaleString('vi-VN')} đ\n` +
-      `💳 Thanh toán: Chưa thanh toán (công nợ bảo lưu)\n` +
+      (totalDue !== flowerTotal ? `🧾 Tổng đơn: ${totalDue.toLocaleString('vi-VN')} đ\n` : '') +
+      `💳 Trạng thái OPS: ${html(opsPaymentStr)}\n` +
+      `💵 Đã thu: ${opsPaid.toLocaleString('vi-VN')} đ\n` +
+      `📌 Còn phải thu: ${opsDebt.toLocaleString('vi-VN')} đ\n` +
       `🖼️ Ảnh mẫu: ${sampleFiles.length} ảnh\n`;
+
+    if (!paymentSynced) {
+      successMsg += `\n⚠️ <b>CẢNH BÁO GHI NHẬN THANH TOÁN:</b>\n` +
+        `Đơn đã tạo trên OPS nhưng chưa ghi nhận được "${html(expectedPayment)}" (${html(paymentSyncError)}).\n` +
+        `👉 Gõ <code>/retry_payment</code> để thử ghi nhận lại vào mã đơn <code>${html(opsRes.orderId)}</code> mà không tạo đơn trùng.\n`;
+    }
 
     if (expectedBillCount > 0) {
       if (billLinkSuccess) {
@@ -1132,6 +1261,124 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
     ? `🆕 Đã tạo đơn nháp mới #${finalDraft.id.slice(-6)} (giữ nguyên nháp cũ #${prevDraft?.id?.slice(-6) || ''}):`
     : `📎 Đã gộp ảnh và cập nhật vào nháp #${finalDraft.id.slice(-6)}:`;
   await sendTelegramMessage(env.BOT_TOKEN, chatId, `${html(header)}\n\n${html(draftSummary(finalDraft))}`, 'HTML');
+}
+
+/**
+ * Handle /retry_payment (or /sync_payment) command:
+ * Safely records verified deposit/bankfull onto an already-created OPS order via getOrder + updateOrder
+ * with idempotent paymentSyncRequestId and double-deposit lock. NEVER calls createOrder.
+ */
+async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
+  const draftEntries = Object.entries(drafts || {})
+    .filter(([k, d]) => !k.startsWith('__') && d && d.id)
+    .map(([, d]) => d);
+
+  let targetDraft = null;
+  if (arg) {
+    const trimmed = arg.trim();
+    targetDraft = draftEntries.find(d =>
+      String(d.id || '').endsWith(trimmed) ||
+      String(d.opsOrderId || '').toUpperCase() === trimmed.toUpperCase() ||
+      String(d.opsOrderId || '').toUpperCase().endsWith(trimmed.toUpperCase())
+    );
+  }
+  if (!targetDraft) {
+    const active = activeDraft(drafts);
+    if (active && active.status === 'submitted' && active.opsOrderId) {
+      targetDraft = active;
+    } else {
+      const submitted = draftEntries
+        .filter(d => d.status === 'submitted' && d.opsOrderId)
+        .sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
+      targetDraft = submitted[0] || null;
+    }
+  }
+
+  if (!targetDraft || !targetDraft.opsOrderId) {
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, '⚠️ Không tìm thấy đơn đã tạo trên OPS để đồng bộ thanh toán. Dùng /retry_payment <mã_đơn> nếu cần.');
+    return;
+  }
+
+  const { expectedPayment, expectedPaid } = expectedPaymentDetails(targetDraft.fields);
+  if (expectedPaid <= 0 && expectedPayment === 'Chưa thanh toán') {
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, `ℹ️ Đơn ${targetDraft.opsOrderId} đang ở trạng thái Chưa thanh toán, không có khoản cọc/thu nào cần ghi nhận thêm.`);
+    return;
+  }
+
+  // Double-deposit guard at D1 draft level
+  if (targetDraft.paymentSynced === true) {
+    await sendTelegramMessage(
+      env.BOT_TOKEN,
+      chatId,
+      `ℹ️ Khoản thanh toán của đơn ${targetDraft.opsOrderId} đã được ghi nhận trước đó (${Number(targetDraft.paymentRecordedAmount || expectedPaid).toLocaleString('vi-VN')} đ). Bot chặn ghi lặp để tránh ghi cọc hai lần.`
+    );
+    return;
+  }
+
+  const paymentSyncRequestId = targetDraft.paymentSyncRequestId || `${targetDraft.requestId || targetDraft.id}:pay:${targetDraft.fields?.paymentState || 'deposit'}:${expectedPaid}`;
+  const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
+  const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+  const opsToken = env.OPS_TOKEN || '';
+
+  const syncRes = await syncOrderPaymentToOps({
+    opsUrl,
+    opsToken,
+    orderId: targetDraft.opsOrderId,
+    expectedPayment,
+    expectedPaid,
+    requestId: paymentSyncRequestId,
+    cleanNote: stripPaymentClaimTags(targetDraft.fields?.note),
+    fetcher
+  });
+
+  if (syncRes.ok && syncRes.order) {
+    const o = syncRes.order;
+    targetDraft.paymentSynced = true;
+    targetDraft.paymentSyncRequestId = paymentSyncRequestId;
+    targetDraft.paymentRecordedAmount = Number(o.paid) || 0;
+    delete targetDraft.paymentSyncError;
+
+    if (env.DB) {
+      await saveDrafts(env.DB, userId, drafts);
+      await logAudit(env.DB, userId, 'retryPayment', targetDraft.id, paymentSyncRequestId, {
+        orderId: targetDraft.opsOrderId,
+        payment: o.payment,
+        paid: o.paid,
+        debt: o.debt,
+        alreadyRecorded: Boolean(syncRes.alreadyRecorded)
+      });
+    }
+
+    const totalDue = Number(o.totalDue ?? o.flowerTotal) || 0;
+    const paid = Number(o.paid) || 0;
+    const debt = Number(o.debt) || 0;
+    const prefix = syncRes.alreadyRecorded
+      ? 'ℹ️ <b>THANH TOÁN ĐÃ ĐƯỢC GHI NHẬN TRƯỚC ĐÓ TRÊN OPS</b>'
+      : '✅ <b>ĐÃ ĐỒNG BỘ THANH TOÁN VÀO ĐƠN OPS THÀNH CÔNG!</b>';
+
+    await sendTelegramMessage(
+      env.BOT_TOKEN,
+      chatId,
+      `${prefix}\n\n` +
+      `🆔 Đơn: <code>${html(targetDraft.opsOrderId)}</code>\n` +
+      `💰 Tổng đơn: ${totalDue.toLocaleString('vi-VN')} đ\n` +
+      `💳 Trạng thái OPS: ${html(o.payment)}\n` +
+      `💵 Đã thu: ${paid.toLocaleString('vi-VN')} đ\n` +
+      `📌 Còn phải thu: ${debt.toLocaleString('vi-VN')} đ`,
+      'HTML'
+    );
+  } else {
+    targetDraft.paymentSynced = false;
+    targetDraft.paymentSyncRequestId = paymentSyncRequestId;
+    targetDraft.paymentSyncError = syncRes.message || 'Lỗi không xác định';
+    if (env.DB) await saveDrafts(env.DB, userId, drafts);
+
+    await sendTelegramMessage(
+      env.BOT_TOKEN,
+      chatId,
+      `❌ Đồng bộ thanh toán thất bại cho đơn ${targetDraft.opsOrderId}:\n${targetDraft.paymentSyncError}\n\nĐơn trên OPS vẫn được giữ nguyên (không tạo đơn trùng). Bạn có thể gõ /retry_payment để thử lại.`
+    );
+  }
 }
 
 /**

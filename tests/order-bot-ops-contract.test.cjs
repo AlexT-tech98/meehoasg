@@ -82,15 +82,15 @@ function makeWebhookRequest(body, headers = {}) {
 // 1. Canonical OPS Normalization & Strict Financial Invariant Contract
 // ---------------------------------------------------------------------------
 
-test('Contract 1: Cloudflare Bot payload is accepted by canonical OPS normalization across all 4 payment claims without reducing debt', async () => {
+test('Contract 1: Cloudflare Bot payload is accepted by canonical OPS normalization across all 4 payment states with owner-verified OPS payment mapping', async () => {
   const { callCreateOrder } = await import('../order-bot/cloudflare/ops-client.mjs');
   const { normalizeOperationOrder } = await import('../supabase/functions/_shared/operations.js');
 
   const states = [
-    { paymentState: 'unpaid' },
-    { paymentState: 'deposit', depositAmount: 250000 },
-    { paymentState: 'bankfull', reportedPaidAmount: 650000 },
-    { paymentState: 'fullpaid' }
+    { paymentState: 'unpaid', expectedPayment: 'Chưa thanh toán' },
+    { paymentState: 'deposit', depositAmount: 250000, expectedPayment: 'Đã cọc 250.000 đ' },
+    { paymentState: 'bankfull', reportedPaidAmount: 650000, expectedPayment: 'Đã thanh toán đủ tiền hoa (Full)' },
+    { paymentState: 'fullpaid', expectedPayment: 'Chưa thanh toán' }
   ];
 
   for (const st of states) {
@@ -127,8 +127,9 @@ test('Contract 1: Cloudflare Bot payload is accepted by canonical OPS normalizat
     assert.equal(normalized.order_time, '09:30');
     assert.equal(normalized.flower_total, 650000);
     assert.equal(normalized.card_qty, 2);
-    assert.equal(normalized.payment, 'Chưa thanh toán', `OPS payment must stay unpaid for ${st.paymentState}`);
+    assert.equal(normalized.payment, st.expectedPayment, `OPS payment must match owner-verified mapping for ${st.paymentState}`);
     assert.equal(payload.payload.order.fullPaidRequested, false);
+    assert.ok(!String(payload.payload.order.note || '').includes('[Khách báo:'), 'Must not pollute note with [Khách báo: ...]');
     assert.equal(payload.payload.requestId, `fixed-request-${st.paymentState}`);
     assert.equal(payload.payload.order.imageFiles.length, 1);
   }
@@ -881,6 +882,28 @@ test('Contract 11: Exact staging caption ("Tổng 350k cọc 200k / Như + 03942
     if (url.includes('/api-core')) {
       const payload = JSON.parse(opts.body);
       opsCalls.push(payload);
+      if (payload.name === 'createOrder') {
+        const o = payload.payload.order;
+        const paid = o.payment === 'Đã cọc 200.000 đ' ? 200000 : 0;
+        const total = Number(o.flowerTotal) || 350000;
+        return new Response(JSON.stringify({
+          ok: true,
+          orderId: 'MEE-NHU-001',
+          order: {
+            id: 'MEE-NHU-001',
+            customer: o.customer,
+            flower: o.flower,
+            date: o.date,
+            time: o.time,
+            shipping: o.shipping,
+            flowerTotal: total,
+            totalDue: total,
+            payment: o.payment,
+            paid,
+            debt: Math.max(0, total - paid)
+          }
+        }));
+      }
       return new Response(JSON.stringify({ ok: true, orderId: 'MEE-NHU-001' }));
     }
     if (url.includes('/sendMessage')) {
@@ -954,13 +977,13 @@ note: “Chúc mừng ngày nhận bằng thật rạng rỡ!”`;
   assert.equal(newDraft.sampleRefs[0].fileId, 'nhu_photo_1');
   assert.equal(newDraft.sampleRefs[0].data_url, undefined);
 
-  // 3. Reply summary shows 350k, deposit 200k, remaining 150k, unpaid OPS invariant, and missing fields
+  // 3. Reply summary shows 350k, deposit 200k, remaining 150k, OPS sync preview, and missing fields
   const photoReply = sentMessages[sentMessages.length - 1].text;
   assert.ok(photoReply.includes('d4a39f'), 'Must mention old draft was preserved');
   assert.ok(photoReply.includes('350.000 đ'));
   assert.ok(photoReply.includes('Đã cọc 200.000 đ'));
   assert.ok(photoReply.includes('còn lại: 150.000 đ'));
-  assert.ok(photoReply.includes('OPS tạo Chưa thanh toán'));
+  assert.ok(!photoReply.includes('[Khách báo:'));
   assert.ok(photoReply.includes('mẫu hoa'));
   assert.ok(photoReply.includes('hình thức ship'));
 
@@ -1026,9 +1049,9 @@ note: “Chúc mừng ngày nhận bằng thật rạng rỡ!”`;
   assert.equal(sentOrder.flowerTotal, 350000);
   assert.equal(sentOrder.shipping, 'Shop book ship');
   assert.equal(sentOrder.address, '102/34c Phan Huy Ích, P. Tân Sơn');
-  assert.equal(sentOrder.payment, 'Chưa thanh toán', 'OPS payment must stay unpaid');
+  assert.equal(sentOrder.payment, 'Đã cọc 200.000 đ', 'OPS payment must record owner-verified deposit');
   assert.equal(sentOrder.fullPaidRequested, false);
-  assert.ok(sentOrder.note.includes('[Khách báo: Đã cọc 200.000 đ]'));
+  assert.ok(!String(sentOrder.note || '').includes('[Khách báo:'), 'Must not add [Khách báo: ...] to note');
   assert.equal(sentOrder.imageFiles.length, 1);
 
   // 7. Repeating /confirm on submitted draft must NEVER create a duplicate order
@@ -1261,4 +1284,482 @@ test('Contract 13: Repeated /new on empty draft does not spawn duplicate drafts;
   assert.equal(d.fields.depositAmount, 200000);
   assert.equal(d.fields.address, '99 Nguyễn Huệ, Q.1');
   assert.equal(d.fields.shipping, undefined, 'Address alone must never guess shipping');
+});
+
+// ---------------------------------------------------------------------------
+// Helpers for Real OPS Runtime Integration Contracts (createCore + D1 + R2)
+// ---------------------------------------------------------------------------
+
+async function sha256Hex(text) {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function createRealOpsHarness() {
+  const sqlite = new DatabaseSync(':memory:');
+  const opsSchema = fs.readFileSync('cloudflare-migration/generated/schema.sql', 'utf8');
+  const botSchema = fs.readFileSync('order-bot/cloudflare/schema.sql', 'utf8');
+  sqlite.exec(opsSchema);
+  sqlite.exec(botSchema);
+
+  const db = {
+    sqlite,
+    prepare(sql) {
+      const bindStmt = (boundArgs = []) => ({
+        bind(...args) {
+          return bindStmt(args);
+        },
+        first: async () => sqlite.prepare(sql).get(...boundArgs) || null,
+        all: async () => ({ results: sqlite.prepare(sql).all(...boundArgs), success: true, meta: { changes: 0 } }),
+        run: async () => {
+          const info = sqlite.prepare(sql).run(...boundArgs);
+          return { success: true, meta: { changes: Number(info.changes || 0) } };
+        }
+      });
+      return bindStmt([]);
+    },
+    async batch(stmts) {
+      sqlite.exec('BEGIN');
+      try {
+        const out = [];
+        for (const stmt of stmts || []) {
+          out.push(await stmt.run());
+        }
+        sqlite.exec('COMMIT');
+        return out;
+      } catch (err) {
+        sqlite.exec('ROLLBACK');
+        throw err;
+      }
+    }
+  };
+
+  const r2 = createMockR2();
+  const opsToken = 'a'.repeat(64);
+  const tokenHash = await sha256Hex(opsToken);
+
+  await db.prepare('INSERT INTO app_users(row_key, data) VALUES (?, ?)')
+    .bind('cmui', JSON.stringify({ username: 'cmui', display_name: 'C Mụi', role: 'ADMIN', active: true }))
+    .run();
+  await db.prepare('INSERT INTO app_sessions(row_key, data) VALUES (?, ?)')
+    .bind(tokenHash, JSON.stringify({ token_hash: tokenHash, username: 'cmui', expires_at: '2099-12-31T23:59:59.000Z' }))
+    .run();
+
+  const { createCore } = await import('../cloudflare-migration/runtime/core.js');
+  const rawOpsHandler = createCore({
+    DB: db,
+    MEDIA_R2: r2,
+    MEDIA_SIGNING_KEY: 'staging-media-signing-key',
+    LEGACY_PASSWORD_SALT: 'MEE-FLOWER-V4'
+  });
+  // Cloudflare Service Binding fetch(url, init) accepts both Request and (url, init); wrap core handler accordingly.
+  const opsHandler = (input, init) => rawOpsHandler(input instanceof Request ? input : new Request(input, init));
+
+  async function callOpsApi(name, payload) {
+    const res = await opsHandler(new Request('https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, payload: { token: opsToken, ...payload } })
+    }));
+    return res.json();
+  }
+
+  return { db, r2, opsToken, opsHandler, callOpsApi };
+}
+
+test('Contract 14: End-to-end Bot -> Real OPS Runtime records unpaid, partial deposit (350k/200k), deposit==total, and reconciles Debt/Dashboard/KPI/FullPaid', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { db, r2, opsToken, opsHandler, callOpsApi } = await createRealOpsHarness();
+  const sentMessages = [];
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/getFile')) {
+      return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/sample.jpg', file_size: 1024 } }));
+    }
+    if (url.includes('/file/bot')) {
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]));
+    }
+    if (url.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: opsToken,
+    OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+    OPS_SERVICE: { fetch: opsHandler },
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  const sendMsg = async (updateId, msg) => handleTelegramWebhook(
+    makeWebhookRequest({ update_id: updateId, message: { message_id: updateId, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, ...msg } }),
+    env
+  );
+
+  // Order A: Unpaid (500k)
+  await sendMsg(14001, { text: '/new' });
+  await sendMsg(14002, {
+    photo: [{ file_id: 'p_a1', file_unique_id: 'u_a1' }],
+    caption: 'khách: Khách An\nhoa: Bó hồng 500k\nngày: 2026-12-20\ngiờ: 10h\nship: Ghé lấy\nchưa thanh toán'
+  });
+  await sendMsg(14003, { text: '/confirm' });
+
+  // Order B: Deposit 200k on 350k flowerTotal (exact staging scenario)
+  await sendMsg(14004, {
+    photo: [{ file_id: 'p_b1', file_unique_id: 'u_b1' }],
+    caption: 'Tổng 350k cọc 200k\nNhư + 0394200327\n20/12/2026 & 13h30\nhoa: Bó hướng dương\nship: Ghé lấy'
+  });
+  await sendMsg(14005, { text: '/confirm' });
+  const replyOrderB = sentMessages[sentMessages.length - 1].text;
+  assert.ok(replyOrderB.includes('Đã cọc 200.000 đ'), 'Telegram reply must reflect actual OPS deposit status');
+  assert.ok(replyOrderB.includes('200.000 đ'), 'Telegram reply must show paid amount from OPS');
+  assert.ok(replyOrderB.includes('150.000 đ'), 'Telegram reply must show remaining debt from OPS');
+
+  // Order C: Deposit == Total (350k/350k)
+  await sendMsg(14006, {
+    photo: [{ file_id: 'p_c1', file_unique_id: 'u_c1' }],
+    caption: 'Tổng 350k cọc 350k\nNgọc + 0909111222\n20/12/2026 & 16h\nhoa: Bó tulip\nship: Ghé lấy'
+  });
+  await sendMsg(14007, { text: '/confirm' });
+
+  const ordersRes = await callOpsApi('getOrders', { start: '2026-12-20', end: '2026-12-20' });
+  assert.equal(ordersRes.ok, true);
+  assert.equal(ordersRes.items.length, 3);
+
+  const ordA = ordersRes.items.find(o => o.customer === 'Khách An');
+  const ordB = ordersRes.items.find(o => o.customer === 'Như');
+  const ordC = ordersRes.items.find(o => o.customer === 'Ngọc');
+
+  assert.equal(ordA.payment, 'Chưa thanh toán');
+  assert.equal(ordA.paid, 0);
+  assert.equal(ordA.debt, 500000);
+  assert.equal(ordA.paymentVerified, false);
+
+  assert.equal(ordB.payment, 'Đã cọc 200.000 đ');
+  assert.equal(ordB.paid, 200000);
+  assert.equal(ordB.debt, 150000);
+  assert.equal(ordB.fullPaid, false);
+  assert.equal(ordB.paymentVerified, false);
+  assert.ok(!String(ordB.note || '').includes('[Khách báo:'));
+
+  assert.equal(ordC.payment, 'Đã cọc 350.000 đ');
+  assert.equal(ordC.paid, 350000);
+  assert.equal(ordC.debt, 0);
+  assert.equal(ordC.paymentVerified, false);
+
+  // Move all 3 orders to Đã giao through valid OPS state transitions to inspect Debt & Financial reports
+  for (const ord of [ordA, ordB, ordC]) {
+    const r0 = await callOpsApi('updateStatus', {
+      orderId: ord.id,
+      expectedUpdatedAt: ord.updatedAt,
+      status: 'Đã bó',
+      requestId: `req-pack-${ord.id}`
+    });
+    assert.equal(r0.ok, true, `updateStatus Đã bó failed: ${r0.message}`);
+    const r1 = await callOpsApi('updateStatus', {
+      orderId: ord.id,
+      expectedUpdatedAt: r0.order.updatedAt,
+      status: 'Đã giao',
+      requestId: `req-deliver-${ord.id}`
+    });
+    assert.equal(r1.ok, true, `updateStatus Đã giao failed: ${r1.message}`);
+  }
+
+  const dash = await callOpsApi('getDashboardSummary', { start: '2026-12-20', end: '2026-12-20' });
+  assert.equal(dash.ok, true);
+  assert.equal(dash.summary.orders, 3);
+  assert.equal(dash.summary.grossRevenue, 1200000);
+  assert.equal(dash.summary.debt, 650000, 'Total debt = 500k (unpaid) + 150k (350k-200k deposit) + 0 (350k-350k)');
+  assert.equal(dash.summary.settledRevenue, 0, 'Deposits are NOT full-settled revenue until settlement/Full Paid');
+  assert.equal(dash.summary.unsettledRevenue, 1200000);
+
+  const debtReview = await callOpsApi('getDebtReview', { start: '2026-12-20', end: '2026-12-20' });
+  assert.equal(debtReview.ok, true);
+  assert.equal(debtReview.items.length, 2, 'Only orders with debt > 0 appear in Debt Review');
+  assert.equal(debtReview.summary.debt, 650000);
+
+  const kpi = await callOpsApi('getKpi', { month: '2026-12' });
+  assert.equal(kpi.ok, true);
+  assert.equal(kpi.items.length, 0, 'Commission KPI must stay 0 before settlement/Full Paid verification');
+
+  const fpReport = await callOpsApi('getFullPaidReport', { month: '2026-12' });
+  assert.equal(fpReport.ok, true);
+  assert.equal(fpReport.items.length, 0, 'Full Paid report must not include deposit/sample orders');
+});
+
+test('Contract 15: Over-deposit (> total) is blocked until corrected; editing money after deposit recalculates remaining cleanly and preserves OPS images on update', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { syncOrderPaymentToOps } = await import('../order-bot/cloudflare/ops-client.mjs');
+  const { db, r2, opsToken, opsHandler, callOpsApi } = await createRealOpsHarness();
+
+  globalThis.fetch = async (url) => {
+    if (url.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/s.jpg', file_size: 1024 } }));
+    if (url.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9]));
+    if (url.includes('/sendMessage')) return new Response(JSON.stringify({ ok: true }));
+    return new Response('Not found', { status: 404 });
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: opsToken,
+    OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+    OPS_SERVICE: { fetch: opsHandler },
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  const sendMsg = async (updateId, msg) => handleTelegramWebhook(
+    makeWebhookRequest({ update_id: updateId, message: { message_id: updateId, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, ...msg } }),
+    env
+  );
+
+  // 1. Over-deposit (500k on 350k total) flags uncertainFields and blocks /confirm
+  await sendMsg(15001, {
+    photo: [{ file_id: 'p_over', file_unique_id: 'u_over' }],
+    caption: 'Tổng 350k cọc 500k\nKhách Test Over\n20/12/2026 & 14h\nhoa: Bó baby\nship: Ghé lấy'
+  });
+  let drafts = await loadDrafts(db, 5252724920);
+  let draft = drafts[drafts.__active];
+  assert.ok(draft.uncertainFields.depositAmount, 'Over-deposit must be flagged in uncertainFields');
+
+  await sendMsg(15002, { text: '/confirm' });
+  let ordersRes = await callOpsApi('getOrders', { start: '2026-12-20', end: '2026-12-20' });
+  assert.equal(ordersRes.items.length, 0, '/confirm must be blocked while depositAmount > totalDue');
+
+  // 2. Fix deposit to 200k then edit flowerTotal to 450k -> uncertain cleared, remaining = 250k
+  await sendMsg(15003, { text: 'cọc: 200k' });
+  await sendMsg(15004, { text: 'tiền hoa: 450k' });
+  drafts = await loadDrafts(db, 5252724920);
+  draft = drafts[drafts.__active];
+  assert.equal(draft.uncertainFields.depositAmount, undefined);
+  assert.equal(draft.fields.depositAmount, 200000);
+  assert.equal(draft.fields.flowerTotal, '450000');
+
+  await sendMsg(15005, { text: '/confirm' });
+  ordersRes = await callOpsApi('getOrders', { start: '2026-12-20', end: '2026-12-20' });
+  assert.equal(ordersRes.items.length, 1);
+  assert.equal(ordersRes.items[0].paid, 200000);
+  assert.equal(ordersRes.items[0].debt, 250000);
+  assert.equal(ordersRes.items[0].imageUrls.length, 1);
+
+  // 3. Updating payment afterwards via valid OPS updateOrder preserves existing sample image URLs
+  const updatedSync = await syncOrderPaymentToOps({
+    opsUrl: env.OPS_API_URL,
+    opsToken,
+    orderId: ordersRes.items[0].id,
+    expectedPayment: 'Đã cọc 300.000 đ',
+    expectedPaid: 300000,
+    requestId: 'req-edit-deposit-300',
+    fetcher: opsHandler
+  });
+  assert.equal(updatedSync.ok, true, `syncOrderPaymentToOps should succeed: ${updatedSync.message}`);
+  assert.equal(updatedSync.order.paid, 300000);
+  assert.equal(updatedSync.order.debt, 150000);
+  assert.equal(updatedSync.order.imageUrls.length, 1, 'Existing order sample image must be preserved across updateOrder');
+});
+
+test('Contract 16: Step-2 failure & double-deposit lock: no duplicate order on retry, /retry_payment repairs legacy pre-deposit order cleanly', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { db, r2, opsToken, opsHandler, callOpsApi } = await createRealOpsHarness();
+  const sentMessages = [];
+  let failUpdateOnce = true;
+
+  // Wrap real opsHandler to simulate Step-2 updateOrder failure on first attempt AND createOrder initially writing Chưa thanh toán
+  const flakyOpsService = {
+    async fetch(input, init) {
+      const req = input instanceof Request ? input : new Request(input, init);
+      const clone = req.clone();
+      const body = await clone.json();
+      if (body.name === 'createOrder') {
+        // Simulate OPS temporarily returning Chưa thanh toán on create (forcing Step-2 payment sync path)
+        body.payload.order.payment = 'Chưa thanh toán';
+        return opsHandler(new Request(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(body) }));
+      }
+      if (body.name === 'updateOrder' && failUpdateOnce) {
+        failUpdateOnce = false;
+        return new Response(JSON.stringify({ ok: false, message: 'OPS timeout during deposit update' }), { status: 503 });
+      }
+      return opsHandler(req);
+    }
+  };
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/s.jpg', file_size: 1024 } }));
+    if (url.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 7]));
+    if (url.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: opsToken,
+    OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+    OPS_SERVICE: flakyOpsService,
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  const sendMsg = async (updateId, msg) => handleTelegramWebhook(
+    makeWebhookRequest({ update_id: updateId, message: { message_id: updateId, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, ...msg } }),
+    env
+  );
+
+  await sendMsg(16001, {
+    photo: [{ file_id: 'p_step', file_unique_id: 'u_step' }],
+    caption: 'Tổng 350k cọc 200k\nChị Retry\n20/12/2026 & 11h\nhoa: Bó hồng\nship: Ghé lấy\nnote: Chúc mừng [Khách báo: Đã cọc 200.000 đ]'
+  });
+  await sendMsg(16002, { text: '/confirm' });
+
+  // Order created (1 total), deposit NOT yet synced, clear warning sent
+  let ordersRes = await callOpsApi('getOrders', { start: '2026-12-20', end: '2026-12-20' });
+  assert.equal(ordersRes.items.length, 1);
+  assert.equal(ordersRes.items[0].paid, 0);
+  const createdOrderId = ordersRes.items[0].id;
+  assert.ok(sentMessages[sentMessages.length - 1].text.includes('/retry_payment'));
+
+  let drafts = await loadDrafts(db, 5252724920);
+  let draft = drafts[drafts.__active];
+  assert.equal(draft.status, 'submitted');
+  assert.equal(draft.opsOrderId, createdOrderId);
+  assert.equal(draft.paymentSynced, false);
+
+  // Run /retry_payment -> syncs deposit via updateOrder cleanly without creating 2nd order
+  await sendMsg(16003, { text: '/retry_payment' });
+  ordersRes = await callOpsApi('getOrders', { start: '2026-12-20', end: '2026-12-20' });
+  assert.equal(ordersRes.items.length, 1, 'Retry MUST NOT create a second order');
+  assert.equal(ordersRes.items[0].payment, 'Đã cọc 200.000 đ');
+  assert.equal(ordersRes.items[0].paid, 200000);
+  assert.equal(ordersRes.items[0].debt, 150000);
+  assert.equal(ordersRes.items[0].note, 'Chúc mừng');
+  assert.equal(ordersRes.items[0].imageUrls.length, 1);
+
+  drafts = await loadDrafts(db, 5252724920);
+  assert.equal(drafts[drafts.__active].paymentSynced, true);
+
+  // Double-deposit lock: repeated /retry_payment or /confirm must NOT write updateOrder a second time
+  const logsBefore = await db.prepare("SELECT COUNT(*) as cnt FROM activity_log WHERE json_extract(data, '$.action') = 'updateOrder'").first();
+  await sendMsg(16004, { text: `/retry_payment ${createdOrderId}` });
+  await sendMsg(16005, { text: '/confirm' });
+  const logsAfter = await db.prepare("SELECT COUNT(*) as cnt FROM activity_log WHERE json_extract(data, '$.action') = 'updateOrder'").first();
+  assert.equal(logsAfter.cnt, logsBefore.cnt, 'Double-deposit lock must block repeat updateOrder');
+  assert.ok(sentMessages.some(m => m.text.includes('chặn ghi lặp')));
+});
+
+test('Contract 17: Crash/stuck-confirming recovery & Full Paid deferral: never auto-marks Full Paid from sample photo and keeps idempotency in OPS', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts, saveDrafts, findStaleConfirming, resetStaleConfirming } = await import('../order-bot/cloudflare/d1-store.mjs');
+  const { db, r2, opsToken, opsHandler, callOpsApi } = await createRealOpsHarness();
+  const sentMessages = [];
+
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/s.jpg', file_size: 1024 } }));
+    if (url.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 5]));
+    if (url.includes('/sendMessage')) {
+      sentMessages.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response('Not found', { status: 404 });
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: opsToken,
+    OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+    OPS_SERVICE: { fetch: opsHandler },
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  // Seed a draft stuck in confirming after simulated worker interruption (requestId already fixed)
+  const sampleKey = 'order-images/sample-crash-01.jpg';
+  await r2.put(sampleKey, new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 5]), { httpMetadata: { contentType: 'image/jpeg' } });
+  const stuckDraftId = 'draft-crash-recover-01';
+  await saveDrafts(db, 5252724920, {
+    __active: stuckDraftId,
+    [stuckDraftId]: {
+      id: stuckDraftId,
+      status: 'confirming',
+      requestId: 'req-crash-fixed-01',
+      fields: {
+        customer: 'Crash Recover',
+        flower: 'Bó ly hồng',
+        flowerTotal: '400000',
+        date: '2026-12-21',
+        time: '15:00',
+        shipping: 'Ghé lấy',
+        paymentState: 'deposit',
+        depositAmount: 150000
+      },
+      sampleRefs: [{ fileId: 'f1', r2_key: sampleKey, uri: `supabase://${sampleKey}`, mimeType: 'image/jpeg' }],
+      draftBillRefs: [],
+      updatedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+      createdAt: '2026-12-01T00:00:00.000Z'
+    }
+  });
+
+  // Stale-confirming recovery resets status -> confirmed while keeping fixed requestId
+  const stale = await findStaleConfirming(db, 15);
+  assert.equal(stale.length, 1);
+  assert.equal(await resetStaleConfirming(db, 5252724920, stuckDraftId), true);
+
+  // Recovery /confirm finishes creating the single order with exact deposit
+  await handleTelegramWebhook(
+    makeWebhookRequest({ update_id: 17001, message: { message_id: 17001, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' } }),
+    env
+  );
+  // Duplicate Telegram delivery of the same update_id or another /confirm creates zero duplicates
+  await handleTelegramWebhook(
+    makeWebhookRequest({ update_id: 17001, message: { message_id: 17001, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' } }),
+    env
+  );
+  await handleTelegramWebhook(
+    makeWebhookRequest({ update_id: 17002, message: { message_id: 17002, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' } }),
+    env
+  );
+
+  const ordersRes = await callOpsApi('getOrders', { start: '2026-12-21', end: '2026-12-21' });
+  assert.equal(ordersRes.items.length, 1);
+  assert.equal(ordersRes.items[0].paid, 150000);
+  assert.equal(ordersRes.items[0].debt, 250000);
+
+  // New Full Paid message with ONLY sample photo -> blocked at /confirm (must supply bill later at OPS / send bill)
+  await handleTelegramWebhook(
+    makeWebhookRequest({
+      update_id: 17003,
+      message: {
+        message_id: 17003,
+        chat: { id: 5252724920, type: 'private' },
+        from: { id: 5252724920 },
+        photo: [{ file_id: 'p_fp', file_unique_id: 'u_fp' }],
+        caption: 'Khách Full\nhoa: Bó cúc 300k\nngày: 2026-12-22\ngiờ: 10h\nship: Ghé lấy\nfullpaid'
+      }
+    }),
+    env
+  );
+  await handleTelegramWebhook(
+    makeWebhookRequest({ update_id: 17004, message: { message_id: 17004, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' } }),
+    env
+  );
+  const fpOrders = await callOpsApi('getOrders', { start: '2026-12-22', end: '2026-12-22' });
+  assert.equal(fpOrders.items.length, 0, 'Full Paid with only sample photo must be blocked until bill is attached');
+  const draftsNow = await loadDrafts(db, 5252724920);
+  assert.equal(draftsNow[draftsNow.__active].fields.paymentState, 'fullpaid');
+  assert.ok(sentMessages[sentMessages.length - 1].text.includes('ảnh bill'));
 });

@@ -410,7 +410,7 @@ export function parsePaymentInfo(text, existingFlowerTotal = 0) {
         depositAmount: null,
         reportedPaidAmount: null,
         isUncertain: true,
-        reason: 'Khách báo đã cọc nhưng chưa rõ số tiền cọc. Vui lòng bổ sung số tiền cọc.',
+        reason: 'Đã ghi nhận trạng thái cọc nhưng chưa rõ số tiền cọc. Vui lòng bổ sung số tiền cọc.',
         billRequired: false,
         text: 'Đã cọc (chưa có số tiền)'
       };
@@ -433,39 +433,57 @@ export function parsePaymentInfo(text, existingFlowerTotal = 0) {
 }
 
 /**
- * Format customer's unverified payment claim as an OPS note tag.
- * Customer claims and unverified bill photos MUST ONLY be recorded in note / draft
- * until an authorized reviewer reconciles actual funds in OPS.
+ * Strip any legacy "[Khách báo: ...]" tag from an order note.
  */
-export function formatPaymentClaimNote(fields = {}) {
+export function stripPaymentClaimTags(note) {
+  return String(note || '')
+    .replace(/\s*\[Khách báo:[^\]]*\]/gi, '')
+    .trim();
+}
+
+/**
+ * Compute expected order total from draft fields (flower + accessories + VAT + confirmed ship).
+ */
+export function computeDraftTotal(fields = {}) {
   const f = fields || {};
-  if (f.paymentState === 'deposit' && f.depositAmount) {
-    const depStr = Number(f.depositAmount).toLocaleString('vi');
-    return `[Khách báo: Đã cọc ${depStr} đ]`;
-  }
-  if (f.paymentState === 'bankfull') {
-    const bfAmount = f.reportedPaidAmount || f.flowerTotal;
-    const bfStr = bfAmount ? ` ${Number(bfAmount).toLocaleString('vi')} đ` : '';
-    return `[Khách báo: Bankfull tiền hoa${bfStr}]`;
-  }
-  if (f.paymentState === 'fullpaid') {
-    return '[Khách báo: Fullpaid toàn bộ đơn]';
-  }
+  const flowerTotal = Number(f.flowerTotal) || 0;
+  const cardFee = f.card ? Math.max(1, Number(f.cardQty) || 1) * 10000 : 0;
+  const bannerFee = f.banner ? Math.max(1, Number(f.bannerQty) || 1) * 35000 : 0;
+  const charmFee = Number(f.charmFee) || 0;
+  const paperFee = Number(f.paperFee) || 0;
+  const vat = Number(f.vat) || 0;
+  const shipFee = (f.shipping === 'Shop book ship' && Number(f.shipFee) > 0) ? Number(f.shipFee) : 0;
+  return flowerTotal + cardFee + bannerFee + charmFee + paperFee + vat + shipFee;
+}
+
+/**
+ * Owner-verified payment claim note helper.
+ * Under the confirmed owner-verification rule, payment state is recorded directly
+ * in OPS `orders.payment` rather than relegated to a "Khách báo" note tag.
+ */
+export function formatPaymentClaimNote(_fields = {}) {
   return '';
 }
 
 /**
  * Map order-bot payment state to OPS canonical payment string.
  *
- * STRICT FINANCIAL INVARIANT:
- *   Customer claims ("đã cọc", "bankfull", "fullpaid") and unverified bill photos
- *   NEVER auto-confirm payment, NEVER increase OPS paidAmount, NEVER reduce debt,
- *   and NEVER trigger Full Paid or KPI credit.
- *   Therefore, orders created by the bot ALWAYS send payment = 'Chưa thanh toán'
- *   and fullPaidRequested = false. Customer claims are preserved via formatPaymentClaimNote()
- *   in order.note and bill photos in unverified_bill_urls for human review in OPS.
+ * Confirmed Business Rule:
+ *   Every message accepted by the bot comes from the verified owner (`ALLOWED_USER_IDS`).
+ *   - unpaid   -> 'Chưa thanh toán'
+ *   - deposit  -> 'Đã cọc <amount> đ' (verified deposit; OPS computes paid = deposit, debt = total - deposit)
+ *   - bankfull -> 'Đã thanh toán đủ tiền hoa (Full)' (verified flower paid; debt = accessories + vat + ship)
+ *   - fullpaid -> 'Chưa thanh toán' (STRICT: OPS Full Paid / AUTO_FULL_PAID requires bill + sample + confirmed shipFee;
+ *                 never auto-set full_paid from bot text or sample photos without OPS Full Paid bill evidence)
  */
-export function mapPaymentToOps(_paymentState, _depositAmount, _flowerTotal) {
+export function mapPaymentToOps(paymentState, depositAmount, _flowerTotal) {
+  if (paymentState === 'deposit' && Number(depositAmount) > 0) {
+    const depStr = Number(depositAmount).toLocaleString('vi-VN');
+    return `Đã cọc ${depStr} đ`;
+  }
+  if (paymentState === 'bankfull') {
+    return 'Đã thanh toán đủ tiền hoa (Full)';
+  }
   return 'Chưa thanh toán';
 }
 
@@ -495,14 +513,15 @@ export function draftSummary(draft) {
   const pState = f.paymentState || 'unpaid';
   if (pState === 'deposit') {
     const depStr = f.depositAmount ? `${Number(f.depositAmount).toLocaleString('vi')} đ` : '(chưa có số tiền)';
-    const remStr = (f.flowerTotal && f.depositAmount) ? ` — còn lại: ${(Math.max(0, Number(f.flowerTotal) - Number(f.depositAmount))).toLocaleString('vi')} đ` : '';
-    lines.push(`💳 Thanh toán: Đã cọc ${depStr}${remStr} (khách báo — OPS tạo Chưa thanh toán)`);
+    const totalDue = computeDraftTotal(f);
+    const remStr = (totalDue > 0 && f.depositAmount) ? ` — còn lại: ${(Math.max(0, totalDue - Number(f.depositAmount))).toLocaleString('vi')} đ` : '';
+    lines.push(`💳 Thanh toán: Đã cọc ${depStr}${remStr}`);
   } else if (pState === 'bankfull') {
     const bfAmount = f.reportedPaidAmount || f.flowerTotal;
-    const bfStr = bfAmount ? ` (khách báo đã chuyển ${Number(bfAmount).toLocaleString('vi')} đ tiền hoa)` : ' (khách báo)';
-    lines.push(`💳 Thanh toán: Bankfull${bfStr} — OPS tạo Chưa thanh toán`);
+    const bfStr = bfAmount ? ` (đã thu ${Number(bfAmount).toLocaleString('vi')} đ tiền hoa)` : '';
+    lines.push(`💳 Thanh toán: Đã thanh toán đủ tiền hoa (Full)${bfStr}`);
   } else if (pState === 'fullpaid') {
-    lines.push(`💳 Thanh toán: Fullpaid (khách báo đã thanh toán toàn bộ đơn — OPS tạo Chưa thanh toán)`);
+    lines.push(`💳 Thanh toán: Fullpaid (cần bill & đối soát tại OPS — không tự tất toán)`);
   } else {
     lines.push(`💳 Thanh toán: Chưa thanh toán`);
   }
@@ -571,8 +590,9 @@ function requiredMissing(draft) {
   if (f.shipping === 'Shop book ship' && (!f.address || isPendingAddress(f.address))) {
     need.push('địa chỉ giao hàng');
   }
-  if (f.paymentState === 'deposit' && (!f.depositAmount || Number(f.depositAmount) <= 0)) {
-    need.push('số tiền cọc');
+  if (f.paymentState === 'deposit') {
+    if (!f.flowerTotal || Number(f.flowerTotal) <= 0) need.push('tiền hoa');
+    if (!f.depositAmount || Number(f.depositAmount) <= 0) need.push('số tiền cọc');
   }
   if (f.paymentState === 'fullpaid' && (!draft.draftBillRefs || draft.draftBillRefs.length === 0)) {
     need.push('ảnh bill chuyển khoản (bắt buộc với đơn Fullpaid)');
@@ -831,7 +851,8 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
     // 6. Flower description detection
     if (FLOWER_PATTERN.test(normLine)) {
       fields.flower = cleanLine;
-      const mPrice = cleanLine.match(/(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)?|\d{5,9})/i);
+      const lineWithoutPhones = cleanLine.replace(/(?:sdt|phone|sđt|số\s*điện\s*thoại)?\s*[:=-]?\s*\b0\d{9,10}\b/gi, ' ');
+      const mPrice = lineWithoutPhones.match(/(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)|(?<![\d.])\b[1-9]\d{4,8}\b)/i);
       if (mPrice) {
         const norm = normalizeMoney(mPrice[1]);
         if (/^\d+$/.test(norm) && Number(norm) >= 50000) {
@@ -920,6 +941,7 @@ function applyFieldLine(draft, line) {
       reason = `Số tiền cọc "${rawVal}" không hợp lệ`;
     } else {
       value = Number(val);
+      extra = { paymentState: 'deposit', reportedPaidAmount: Number(val) };
     }
   } else if (field === 'flowerTotal' || field === 'charmFee' || field === 'paperFee' || field === 'vat' || field === 'shipFee') {
     value = normalizeMoney(rawVal);
@@ -978,6 +1000,7 @@ function applyFields(draft, text, options = {}) {
       changes.push({ field, value });
 
       if (extra) {
+        if (extra.paymentState !== undefined) newFields.paymentState = extra.paymentState;
         if (extra.depositAmount !== undefined) newFields.depositAmount = extra.depositAmount;
         if (extra.flowerTotal) newFields.flowerTotal = String(extra.flowerTotal);
         if (extra.reportedPaidAmount !== undefined) newFields.reportedPaidAmount = extra.reportedPaidAmount;
@@ -1014,6 +1037,23 @@ function applyFields(draft, text, options = {}) {
   }
 
   if (!changes.length && !warnings.length) return { draft, changes: [], warnings: [] };
+
+  // Re-validate payment consistency against current order total after all field updates
+  if (newFields.paymentState === 'bankfull' && newFields.flowerTotal) {
+    newFields.reportedPaidAmount = Number(newFields.flowerTotal);
+  }
+  if (newFields.paymentState === 'deposit' && Number(newFields.depositAmount) > 0) {
+    const totalDue = computeDraftTotal(newFields);
+    if (totalDue > 0 && Number(newFields.depositAmount) > totalDue) {
+      const reason = `Số tiền cọc (${Number(newFields.depositAmount).toLocaleString('vi')} đ) lớn hơn tổng đơn (${totalDue.toLocaleString('vi')} đ). Vui lòng kiểm tra lại tổng tiền hoặc tiền cọc.`;
+      uncertain.depositAmount = reason;
+      changes.push({ field: 'depositAmount', value: newFields.depositAmount, uncertain: true, reason });
+    } else if (uncertain.depositAmount && /lớn hơn tổng đơn/.test(uncertain.depositAmount)) {
+      delete uncertain.depositAmount;
+    }
+  } else if (uncertain.depositAmount && /lớn hơn tổng đơn/.test(uncertain.depositAmount)) {
+    delete uncertain.depositAmount;
+  }
 
   const historyEntry = {
     at: new Date().toISOString(),

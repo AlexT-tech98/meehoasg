@@ -203,7 +203,18 @@ test('Kịch bản 2: Đơn Đã cọc có số tiền cọc, không kèm bill: 
       return new Response(JSON.stringify({ ok: true }));
     }
     if (url.includes('/api-core')) {
-      capturedOpsPayload = JSON.parse(opts.body);
+      const body = JSON.parse(opts.body);
+      if (body.name === 'createOrder') {
+        capturedOpsPayload = body;
+        const o = body.payload.order;
+        const paid = o.payment === 'Đã cọc 200.000 đ' ? 200000 : 0;
+        const total = Number(o.flowerTotal) || 600000;
+        return new Response(JSON.stringify({
+          ok: true,
+          orderId: 'M-261122-002',
+          order: { id: 'M-261122-002', flowerTotal: total, totalDue: total, payment: o.payment, paid, debt: total - paid }
+        }), { status: 200 });
+      }
       return new Response(JSON.stringify({ ok: true, orderId: 'M-261122-002' }), { status: 200 });
     }
     return new Response('Not found', { status: 404 });
@@ -259,10 +270,10 @@ test('Kịch bản 2: Đơn Đã cọc có số tiền cọc, không kèm bill: 
   }), env);
 
   assert.ok(capturedOpsPayload);
-  // STRICT FINANCIAL INVARIANT: Customer claim never alters OPS payment or reduces debt
-  assert.equal(capturedOpsPayload.payload.order.payment, 'Chưa thanh toán');
+  // Owner-verified deposit is recorded directly on OPS order.payment (no [Khách báo:] tag)
+  assert.equal(capturedOpsPayload.payload.order.payment, 'Đã cọc 200.000 đ');
   assert.equal(capturedOpsPayload.payload.order.fullPaidRequested, false);
-  assert.ok(capturedOpsPayload.payload.order.note.includes('[Khách báo: Đã cọc 200.000 đ]'));
+  assert.ok(!String(capturedOpsPayload.payload.order.note || '').includes('[Khách báo:'));
 });
 
 // -----------------------------------------------------------------------------
@@ -277,7 +288,17 @@ test('Kịch bản 3: Đơn Bankfull không kèm bill: tạo đơn thành công,
   globalThis.fetch = async (url, opts) => {
     if (url.includes('/sendMessage')) return new Response(JSON.stringify({ ok: true }));
     if (url.includes('/api-core')) {
-      capturedOpsPayload = JSON.parse(opts.body);
+      const body = JSON.parse(opts.body);
+      if (body.name === 'createOrder') {
+        capturedOpsPayload = body;
+        const o = body.payload.order;
+        const total = Number(o.flowerTotal) || 1200000;
+        return new Response(JSON.stringify({
+          ok: true,
+          orderId: 'M-261122-003',
+          order: { id: 'M-261122-003', flowerTotal: total, totalDue: total, payment: o.payment, paid: total, debt: 0 }
+        }), { status: 200 });
+      }
       return new Response(JSON.stringify({ ok: true, orderId: 'M-261122-003' }), { status: 200 });
     }
     return new Response('Not found', { status: 404 });
@@ -317,10 +338,10 @@ test('Kịch bản 3: Đơn Bankfull không kèm bill: tạo đơn thành công,
   }), env);
 
   assert.ok(capturedOpsPayload);
-  // STRICT FINANCIAL INVARIANT: Bankfull claim stays in note, payment stays unpaid until reviewed in OPS
-  assert.equal(capturedOpsPayload.payload.order.payment, 'Chưa thanh toán');
+  // Owner-verified bankfull is recorded directly on OPS order.payment; fullPaidRequested remains false until OPS settlement
+  assert.equal(capturedOpsPayload.payload.order.payment, 'Đã thanh toán đủ tiền hoa (Full)');
   assert.equal(capturedOpsPayload.payload.order.fullPaidRequested, false);
-  assert.ok(capturedOpsPayload.payload.order.note.includes('[Khách báo: Bankfull tiền hoa'));
+  assert.ok(!String(capturedOpsPayload.payload.order.note || '').includes('[Khách báo:'));
 });
 
 // -----------------------------------------------------------------------------
@@ -404,10 +425,10 @@ test('Kịch bản 4: Đơn Fullpaid CÓ bill: tạo đơn thành công, liên k
   }), env);
 
   assert.ok(capturedOpsPayload);
-  // STRICT FINANCIAL INVARIANT: Fullpaid claim + bill photo NEVER auto-confirm payment
+  // Full Paid is still deferred to OPS settlement flow (fullPaidRequested stays false, payment stays Chưa thanh toán)
   assert.equal(capturedOpsPayload.payload.order.payment, 'Chưa thanh toán');
   assert.equal(capturedOpsPayload.payload.order.fullPaidRequested, false);
-  assert.ok(capturedOpsPayload.payload.order.note.includes('[Khách báo: Fullpaid toàn bộ đơn]'));
+  assert.ok(!String(capturedOpsPayload.payload.order.note || '').includes('[Khách báo:'));
 
   // Check bill linked in D1 orders table
   const updatedOrderRow = db.sqlite.prepare('SELECT data FROM orders WHERE row_key = ?;').get('M-261122-004');
@@ -495,7 +516,7 @@ Mình đã bank full tiền hoa rồi nha`;
   const summary = draftSummary({ fields: parsed.fields });
   assert.ok(summary.includes('Hoàng Huy'));
   assert.ok(summary.includes('850.000 đ'));
-  assert.ok(summary.includes('Bankfull'));
+  assert.ok(summary.includes('Đã thanh toán đủ tiền hoa (Full)'));
 });
 
 // -----------------------------------------------------------------------------
@@ -1164,14 +1185,14 @@ test('Kịch bản 18: Lệnh /relink thử lại liên kết bill thành công 
 // -----------------------------------------------------------------------------
 // KỊCH BẢN 19: Bất biến thanh toán và đồng bộ 4 trạng thái thanh toán lên OPS
 // -----------------------------------------------------------------------------
-test('Kịch bản 19: Bất biến thanh toán: mọi trạng thái khách báo đều tạo OPS Chưa thanh toán, lời khai vào note, fullPaidRequested = false', async () => {
+test('Kịch bản 19: Đồng bộ 4 trạng thái thanh toán lên OPS theo xác nhận của owner, không nhồi [Khách báo:] vào note, fullPaidRequested = false', async () => {
   const { callCreateOrder } = await import('../order-bot/cloudflare/ops-client.mjs');
 
   const testStates = [
-    { paymentState: 'unpaid', expectedNoteFragment: null },
-    { paymentState: 'deposit', depositAmount: 300000, expectedNoteFragment: '[Khách báo: Đã cọc 300.000 đ]' },
-    { paymentState: 'bankfull', reportedPaidAmount: 850000, expectedNoteFragment: '[Khách báo: Bankfull tiền hoa 850.000 đ]' },
-    { paymentState: 'fullpaid', expectedNoteFragment: '[Khách báo: Fullpaid toàn bộ đơn]' }
+    { paymentState: 'unpaid', expectedPayment: 'Chưa thanh toán' },
+    { paymentState: 'deposit', depositAmount: 300000, expectedPayment: 'Đã cọc 300.000 đ' },
+    { paymentState: 'bankfull', reportedPaidAmount: 850000, expectedPayment: 'Đã thanh toán đủ tiền hoa (Full)' },
+    { paymentState: 'fullpaid', expectedPayment: 'Chưa thanh toán' }
   ];
 
   for (const st of testStates) {
@@ -1197,11 +1218,9 @@ test('Kịch bản 19: Bất biến thanh toán: mọi trạng thái khách báo
 
     await callCreateOrder('https://ops-staging/api-core', 'token', draft, [], [], mockFetcher);
     assert.ok(sentOrder, 'Payload must be sent');
-    assert.equal(sentOrder.payment, 'Chưa thanh toán', `Payment must always be "Chưa thanh toán" for state ${st.paymentState}`);
+    assert.equal(sentOrder.payment, st.expectedPayment, `Payment must match owner-verified state ${st.paymentState}`);
     assert.equal(sentOrder.fullPaidRequested, false, `fullPaidRequested must be false for state ${st.paymentState}`);
-    if (st.expectedNoteFragment) {
-      assert.ok(sentOrder.note.includes(st.expectedNoteFragment), `Note must record customer claim for ${st.paymentState}`);
-    }
+    assert.ok(!String(sentOrder.note || '').includes('[Khách báo:'), `Note must not include [Khách báo:] for ${st.paymentState}`);
   }
 });
 
@@ -1320,7 +1339,7 @@ Ngày 22/11 - 21h
   assert.ok(summary1.includes('Hoàng Huy'));
   assert.ok(summary1.includes('Ly có nhuộm viền sơ sơ'));
   assert.ok(summary1.includes('400.000 đ'));
-  assert.ok(summary1.includes('Bankfull'));
+  assert.ok(summary1.includes('Đã thanh toán đủ tiền hoa (Full)'));
   assert.ok(summary1.includes('2026-11-22'));
   assert.ok(summary1.includes('21:00'));
   assert.ok(summary1.includes('Địa chỉ báo sau'));
@@ -1383,9 +1402,9 @@ Ngày 22/11 - 21h
   assert.equal(opsOrder.flower_total, 400000);
   assert.equal(opsOrder.order_date, '2026-11-22');
   assert.equal(opsOrder.order_time, '21:00');
-  assert.equal(opsOrder.payment, 'Chưa thanh toán');
+  assert.equal(opsOrder.payment, 'Đã thanh toán đủ tiền hoa (Full)');
   assert.equal(opsOrder.fullPaidRequested, false);
-  assert.ok(opsOrder.note.includes('[Khách báo: Bankfull tiền hoa 400.000 đ]'));
+  assert.ok(!String(opsOrder.note || '').includes('[Khách báo:'));
 
   // 6. Kiểm tra tính tương thích với hàm normalizeOperationOrder của OPS
   const { normalizeOperationOrder } = await import('../supabase/functions/_shared/operations.js');
@@ -1394,10 +1413,10 @@ Ngày 22/11 - 21h
   assert.equal(normalized.order_date, '2026-11-22');
   assert.equal(normalized.order_time, '21:00');
   assert.equal(normalized.flower_total, 400000);
-  assert.equal(normalized.payment, 'Chưa thanh toán');
+  assert.equal(normalized.payment, 'Đã thanh toán đủ tiền hoa (Full)');
 });
 
-test('Kiểm tra đối soát nợ và thanh toán OPS cho 4 trạng thái: không tự ý gạch nợ và bảo toàn 100% công nợ', async () => {
+test('Kiểm tra đối soát nợ và thanh toán OPS cho 4 trạng thái theo xác nhận owner: cọc/bankfull giảm nợ thực, Fullpaid giữ để OPS quyết toán', async () => {
   const { mapPaymentToOps } = await import('../order-bot/cloudflare/ops-client.mjs');
 
   // Mô phỏng chính xác hàm paidAmount và công thức tính nợ trong OPS core.js
@@ -1430,14 +1449,19 @@ test('Kiểm tra đối soát nợ và thanh toán OPS cho 4 trạng thái: khô
   const shipFee = 50000;
   const totalDue = flowerTotal + shipFee; // 450.000 đ
 
-  // Mọi lời khách báo qua Bot (unpaid, deposit, bankfull, fullpaid) KHÔNG BAO GIỜ tự tăng paidAmount hay giảm công nợ
-  for (const [state, deposit] of [['unpaid', 0], ['deposit', 200000], ['bankfull', 0], ['fullpaid', 0]]) {
+  const expectedCases = [
+    ['unpaid', 0, 'Chưa thanh toán', 0, 450000],
+    ['deposit', 200000, 'Đã cọc 200.000 đ', 200000, 250000],
+    ['bankfull', 0, 'Đã thanh toán đủ tiền hoa (Full)', 400000, 50000],
+    ['fullpaid', 0, 'Chưa thanh toán', 0, 450000]
+  ];
+  for (const [state, deposit, expectedPayment, expectedPaid, expectedDebt] of expectedCases) {
     const paymentStr = mapPaymentToOps(state, deposit, flowerTotal);
-    assert.equal(paymentStr, 'Chưa thanh toán', `OPS payment must stay unpaid for ${state}`);
+    assert.equal(paymentStr, expectedPayment, `OPS payment must match for ${state}`);
     const paid = paidAmount(paymentStr, flowerTotal, 0);
-    assert.equal(paid, 0, `paidAmount must remain 0 before human verification for ${state}`);
+    assert.equal(paid, expectedPaid, `paidAmount must match OPS rule for ${state}`);
     const debt = totalDue - paid;
-    assert.equal(debt, 450000, `100% debt must be preserved before human verification for ${state}`);
+    assert.equal(debt, expectedDebt, `debt must equal totalDue - paid for ${state}`);
   }
 });
 
