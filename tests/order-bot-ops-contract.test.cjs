@@ -1880,24 +1880,58 @@ test('Contract 18: /retry_payment & /relink reject wrong, unknown, non-submitted
       status: 'pending',
       fields: { customer: 'Nháp Chưa Gửi', flowerTotal: '400000', paymentState: 'deposit', depositAmount: 200000 },
       draftBillRefs: []
+    },
+    'draft-foreign-04': {
+      id: 'draft-foreign-04',
+      userId: 999999999,
+      status: 'submitted',
+      opsOrderId: 'MEE-FOREIGN00000001',
+      paymentSynced: false,
+      fields: { customer: 'Foreign', flowerTotal: '400000', paymentState: 'deposit', depositAmount: 200000 },
+      draftBillRefs: [{ fileId: 'bill_4', r2_key: billKey, uri: `supabase://${billKey}` }]
     }
   };
-  await saveDrafts(db, 5252724920, initialDrafts);
+  // Set active draft to pending to verify omitting arg NEVER jumps to submitted drafts
+  const draftsWithPendingActive = { ...initialDrafts, __active: 'draft-pending-03' };
+  await saveDrafts(db, 5252724920, draftsWithPendingActive);
 
-  // Unit assertions on resolveSubmittedDraftTarget
+  // Unit assertions on resolveSubmittedDraftTarget strict exact OPS ID & active-only rules
   assert.deepEqual(
-    { ok: resolveSubmittedDraftTarget(initialDrafts, 'MEE-WRONG-CODE').ok, reason: resolveSubmittedDraftTarget(initialDrafts, 'MEE-WRONG-CODE').reason },
+    { ok: resolveSubmittedDraftTarget(initialDrafts, 'MEE-WRONG-CODE', 5252724920).ok, reason: resolveSubmittedDraftTarget(initialDrafts, 'MEE-WRONG-CODE', 5252724920).reason },
     { ok: false, reason: 'NOT_FOUND' }
   );
+  // Unique suffix of OPS ID MUST BE REJECTED
   assert.deepEqual(
-    { ok: resolveSubmittedDraftTarget(initialDrafts, '99').ok, reason: resolveSubmittedDraftTarget(initialDrafts, '99').reason },
-    { ok: false, reason: 'AMBIGUOUS' }
+    { ok: resolveSubmittedDraftTarget(initialDrafts, '8086A83B24D99', 5252724920).ok, reason: resolveSubmittedDraftTarget(initialDrafts, '8086A83B24D99', 5252724920).reason },
+    { ok: false, reason: 'EXACT_OPS_ID_REQUIRED' }
+  );
+  // Ambiguous suffix MUST BE REJECTED
+  assert.deepEqual(
+    { ok: resolveSubmittedDraftTarget(initialDrafts, '99', 5252724920).ok, reason: resolveSubmittedDraftTarget(initialDrafts, '99', 5252724920).reason },
+    { ok: false, reason: 'EXACT_OPS_ID_REQUIRED' }
+  );
+  // Full draft ID & short draft ID MUST BE REJECTED
+  assert.deepEqual(
+    { ok: resolveSubmittedDraftTarget(initialDrafts, 'draft-sub-01', 5252724920).ok, reason: resolveSubmittedDraftTarget(initialDrafts, 'draft-sub-01', 5252724920).reason },
+    { ok: false, reason: 'EXACT_OPS_ID_REQUIRED' }
   );
   assert.deepEqual(
-    { ok: resolveSubmittedDraftTarget(initialDrafts, 'draft-pending-03').ok, reason: resolveSubmittedDraftTarget(initialDrafts, 'draft-pending-03').reason },
-    { ok: false, reason: 'NOT_SUBMITTED' }
+    { ok: resolveSubmittedDraftTarget(initialDrafts, 'sub-01', 5252724920).ok, reason: resolveSubmittedDraftTarget(initialDrafts, 'sub-01', 5252724920).reason },
+    { ok: false, reason: 'EXACT_OPS_ID_REQUIRED' }
   );
-  assert.equal(resolveSubmittedDraftTarget(initialDrafts, 'MEE-EDE8086A83B24D99').draft.id, 'draft-sub-01');
+  // Foreign draft MUST BE REJECTED
+  assert.deepEqual(
+    { ok: resolveSubmittedDraftTarget(initialDrafts, 'MEE-FOREIGN00000001', 5252724920).ok, reason: resolveSubmittedDraftTarget(initialDrafts, 'MEE-FOREIGN00000001', 5252724920).reason },
+    { ok: false, reason: 'NOT_AUTHORIZED' }
+  );
+  // Omitting arg when active draft is pending MUST BE REJECTED (no fallback to submitted drafts)
+  assert.deepEqual(
+    { ok: resolveSubmittedDraftTarget(draftsWithPendingActive, '', 5252724920).ok, reason: resolveSubmittedDraftTarget(draftsWithPendingActive, '', 5252724920).reason },
+    { ok: false, reason: 'ACTIVE_NOT_SUBMITTED' }
+  );
+  // Only exact full OPS ID (case-insensitive) OR active submitted draft without arg succeeds
+  assert.equal(resolveSubmittedDraftTarget(initialDrafts, 'mee-ede8086a83b24d99', 5252724920).draft.id, 'draft-sub-01');
+  assert.equal(resolveSubmittedDraftTarget(initialDrafts, '', 5252724920).draft.id, 'draft-sub-01');
 
   const env = {
     DB: db,
@@ -1915,14 +1949,22 @@ test('Contract 18: /retry_payment & /relink reject wrong, unknown, non-submitted
     env
   );
 
-  // Wrong code, ambiguous suffix, and non-submitted draft MUST NOT modify ANY order
+  // Wrong code, unique suffix, ambiguous suffix, full/short draft ID, foreign code, and omitted arg with non-submitted active draft MUST ALL make 0 OPS calls
   const badCommands = [
     '/retry_payment MEE-KHONG-TON-TAI',
+    '/retry_payment 8086A83B24D99',
     '/retry_payment 99',
-    '/retry_payment draft-pending-03',
+    '/retry_payment draft-sub-01',
+    '/retry_payment sub-01',
+    '/retry_payment MEE-FOREIGN00000001',
+    '/retry_payment',
     '/relink MEE-KHONG-TON-TAI',
+    '/relink 8086A83B24D99',
     '/relink 99',
-    '/relink draft-pending-03'
+    '/relink draft-sub-01',
+    '/relink sub-01',
+    '/relink MEE-FOREIGN00000001',
+    '/relink'
   ];
 
   for (let i = 0; i < badCommands.length; i++) {
@@ -1931,7 +1973,7 @@ test('Contract 18: /retry_payment & /relink reject wrong, unknown, non-submitted
     assert.ok(sentMessages[sentMessages.length - 1].text.includes('Không có đơn nào bị thay đổi'));
   }
 
-  assert.equal(opsCalls.length, 0, 'Wrong/ambiguous/non-submitted /retry_payment must make ZERO OPS calls');
+  assert.equal(opsCalls.length, 0, 'Every invalid /retry_payment & /relink invocation must generate ZERO OPS calls');
 
   // Verify neither OPS order was altered in payment, note, unverified_bill_urls, or updated_at
   const row1 = JSON.parse((await db.prepare('SELECT data FROM orders WHERE row_key = ?').bind(ord1.id).first()).data);
@@ -2197,4 +2239,159 @@ test('Contract 21: Bot dynamically enforces OPS shared getOrderRules on rule cha
   assert.equal(opsList.items.length, 1);
   assert.equal(opsList.items[0].phone, '0909888777');
   assert.equal(opsList.items[0].saleUsername, 'cmui');
+});
+
+// ─── Contract 22: cmui pre-confirm permission guard blocks SALE accounts that cannot assign cmui ───
+
+test('Contract 22: /confirm blocks before createOrder when OPS caller cannot assign default sale (cmui); preserves draft', async () => {
+  const { handleTelegramWebhook } = await import('../order-bot/cloudflare/worker.mjs');
+  const { loadDrafts, saveDrafts } = await import('../order-bot/cloudflare/d1-store.mjs');
+
+  const db = createMockD1();
+  const r2 = createMockR2();
+  const sentMessages = [];
+  const opsRequests = [];
+
+  // Create a "SALE" user named "otherSale" who cannot assign cmui
+  let callerResponse = {
+    ok: true,
+    rules: {
+      saleDefault: 'cmui',
+      saleDefaultName: 'C Mụi',
+      required: ['customer', 'flower', 'date', 'time', 'shipping', 'flowerTotal'],
+      requireFlowerTotal: true,
+      minDepositRatio: 0.5,
+      depositBase: 'flowerTotal',
+      supportedRuleFeatures: ['required_fields', 'conditional_required', 'min_deposit_ratio', 'flower_total_required', 'shipping_enum', 'sale_default']
+    },
+    caller: { username: 'otherSale', role: 'SALE', canAssignDefaultSale: false }
+  };
+
+  const trackedOpsService = {
+    async fetch(url, opts) {
+      opsRequests.push({ url: String(url), body: opts?.body ? JSON.parse(opts.body) : null });
+      const body = opts?.body ? JSON.parse(opts.body) : {};
+      if (body.name === 'getOrderRules') {
+        return new Response(JSON.stringify(callerResponse), { status: 200 });
+      }
+      // createOrder should NEVER be reached
+      if (body.name === 'createOrder') {
+        return new Response(JSON.stringify({ ok: true, orderId: 'MEE-SHOULD-NOT-EXIST' }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: false, message: 'unknown' }), { status: 200 });
+    }
+  };
+
+  const env = {
+    DB: db,
+    MEDIA_R2: r2,
+    BOT_TOKEN: 'fake_bot_token',
+    OPS_TOKEN: 'fake_ops_token_other_sale',
+    OPS_API_URL: 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
+    OPS_SERVICE: trackedOpsService,
+    TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
+    ALLOWED_USER_IDS: '5252724920'
+  };
+
+  // Override sendTelegramMessage
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    const urlStr = String(url);
+    if (urlStr.includes('api.telegram.org')) {
+      const body = opts?.body ? JSON.parse(opts.body) : {};
+      sentMessages.push({ url: urlStr, text: body.text || '' });
+      return new Response(JSON.stringify({ ok: true, result: { message_id: sentMessages.length } }));
+    }
+    return origFetch(url, opts);
+  };
+
+  try {
+    const makeReq = (update) => new Request('https://bot.example.com/webhook', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Telegram-Bot-Api-Secret-Token': 'staging_secret_token_123'
+      },
+      body: JSON.stringify(update)
+    });
+
+    const sendMsg = (updateId, msg) => handleTelegramWebhook(
+      makeReq({ update_id: updateId, message: { message_id: updateId, chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, ...msg } }),
+      env
+    );
+
+    // Seed a complete draft ready for /confirm
+    const photoFileId = 'AgACAgTest22Photo';
+    r2.objects.set(`meehoa-bot/5252724920/sample-${photoFileId}`, {
+      body: Buffer.from('fake-photo-data'),
+      httpMetadata: { contentType: 'image/jpeg' }
+    });
+
+    const draftId = 'draft-sale-guard-01';
+    const readyDraft = {
+      id: draftId,
+      status: 'pending',
+      fields: {
+        customer: 'Khách Test Sale Guard',
+        flower: 'Bó hồng đỏ',
+        date: '2026-12-01',
+        time: '10:00',
+        shipping: 'Ghé lấy',
+        flowerTotal: 300000,
+        sale: 'cmui',
+        paymentState: 'unpaid'
+      },
+      sampleRefs: [{ r2_key: `meehoa-bot/5252724920/sample-${photoFileId}` }],
+      createdAt: new Date().toISOString()
+    };
+
+    const drafts = { __active: draftId, [draftId]: readyDraft };
+    await saveDrafts(db, 5252724920, drafts);
+
+    // Try /confirm with SALE account that cannot assign cmui
+    sentMessages.length = 0;
+    opsRequests.length = 0;
+    await sendMsg(22001, { text: '/confirm' });
+
+    // 1. Bot must BLOCK before createOrder
+    const createOrderCalls = opsRequests.filter(r => r.body?.name === 'createOrder');
+    assert.equal(createOrderCalls.length, 0, 'createOrder must NOT be called when caller cannot assign cmui');
+
+    // 2. Bot must warn user clearly
+    const blockReply = sentMessages[sentMessages.length - 1].text;
+    assert.ok(blockReply.includes('không có quyền') || blockReply.includes('không có quyền gán'), 'Must explain permission denial');
+    assert.ok(blockReply.includes('cmui') || blockReply.includes('C Mụi'), 'Must mention cmui or C Mụi');
+
+    // 3. Draft must be preserved (not deleted, not submitted)
+    const afterDrafts = await loadDrafts(db, 5252724920);
+    assert.ok(afterDrafts[draftId], 'Draft must still exist');
+    assert.equal(afterDrafts[draftId].status, 'pending', 'Draft status must remain pending');
+    assert.equal(afterDrafts[draftId].fields.customer, 'Khách Test Sale Guard', 'Draft fields preserved');
+
+    // 4. Now test with ADMIN caller → should proceed normally
+    callerResponse = {
+      ...callerResponse,
+      caller: { username: 'admin', role: 'ADMIN', canAssignDefaultSale: true }
+    };
+    sentMessages.length = 0;
+    opsRequests.length = 0;
+    await sendMsg(22002, { text: '/confirm' });
+
+    const createCallsAdmin = opsRequests.filter(r => r.body?.name === 'createOrder');
+    assert.equal(createCallsAdmin.length, 1, 'ADMIN caller should reach createOrder');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+// ─── Contract 23: Fake-conversation benchmark (Telegram → worker → real OPS core, fake Gemini) ───
+
+test('Contract 23: conversation benchmark — keep "Như" on ship add-on, AI on natural caption, split 2 orders, ask back, 350k/200k paid/debt from OPS, AI failure fallback', async () => {
+  const path = require('node:path');
+  const { runConversationBenchmark } = await import('./helpers/conversation-benchmark.mjs');
+  const root = path.resolve(__dirname, '..');
+  const results = await runConversationBenchmark(root, root);
+  const failed = results.filter(r => !r.pass);
+  assert.equal(failed.length, 0, `Failed benchmark cases: ${JSON.stringify(failed, null, 2)}`);
+  assert.equal(results.length, 6);
 });

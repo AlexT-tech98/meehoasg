@@ -48,7 +48,7 @@ export async function fetchOpsOrderRules(opsUrl, opsToken, fetcher = fetch, { fo
   const cacheKey = `${opsUrl}::${opsToken.slice(0, 8)}`;
   const cached = OPS_RULES_CACHE.get(cacheKey);
   if (!forceRefresh && cached && (Date.now() - cached.fetchedAt) < OPS_RULES_TTL_MS) {
-    return { ok: true, source: cached.source, rules: cached.rules, cached: true };
+    return { ok: true, source: cached.source, rules: cached.rules, caller: cached.caller || null, cached: true };
   }
 
   const controller = new AbortController();
@@ -73,8 +73,9 @@ export async function fetchOpsOrderRules(opsUrl, opsToken, fetcher = fetch, { fo
     const json = await res.json();
     if (json?.ok && json?.rules && typeof json.rules === 'object') {
       const merged = { ...DEFAULT_OPS_ORDER_RULES, ...json.rules };
-      OPS_RULES_CACHE.set(cacheKey, { source: 'ops', rules: merged, fetchedAt: Date.now() });
-      return { ok: true, source: 'ops', rules: merged };
+      const caller = json.caller && typeof json.caller === 'object' ? json.caller : null;
+      OPS_RULES_CACHE.set(cacheKey, { source: 'ops', rules: merged, caller, fetchedAt: Date.now() });
+      return { ok: true, source: 'ops', rules: merged, caller };
     }
   } catch {
     clearTimeout(timeoutId);

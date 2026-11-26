@@ -134,6 +134,7 @@ const FIELD_ALIASES = {
   khach: 'customer', 'tên khách': 'customer', 'ten khach': 'customer', customer: 'customer',
   ten: 'customer', 'tên': 'customer',
   'mẫu hoa': 'flower', 'mau hoa': 'flower', hoa: 'flower', flower: 'flower',
+  'mẫu': 'flower', mau: 'flower',
   ngay: 'date', 'ngày nhận': 'date', 'ngay nhan': 'date', date: 'date',
   gio: 'time', 'giờ nhận': 'time', 'gio nhan': 'time', time: 'time',
   'hình thức': 'shipping', 'hinh thuc': 'shipping', ship: 'shipping', shipping: 'shipping',
@@ -939,8 +940,10 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
     }
 
     // 2. Date and Time detection
-    const hasDate = /\b(ngay|\d{1,2}[/-]\d{1,2}|hom\s*nay|ngay\s*mai|sang\s*mai|trua\s*mai|chieu\s*mai|toi\s*mai|giao\s*mai|lay\s*mai|nhan\s*mai|ngay\s*mot)\b/.test(normLine) || /^mai(?:\b|$)/.test(normLine);
-    const hasTime = /\b(?:\d{1,2}h(?:\d{2})?|\d{1,2}:\d{2}|buoi\s*sang|sang\s*mai|sang\s*nay|sang\s*som|\d{1,2}h\s*sang|buoi\s*chieu|chieu\s*mai|chieu\s*nay|\d{1,2}h\s*chieu|buoi\s*toi|toi\s*nay|toi\s*mai|\d{1,2}h\s*toi)\b/i.test(normLine);
+    // A "Name + phone" line (e.g. "Mai + 0909111222") is never a date even when the name is "Mai" (= tomorrow).
+    const isNamePhoneLine = /^[A-ZÀ-Ỹa-zà-ỹ\s]{1,40}\s*[+\-/|,;:&]?\s*0\d{9,10}$/.test(cleanLine);
+    const hasDate = !isNamePhoneLine && (/\b(ngay|\d{1,2}[/-]\d{1,2}|hom\s*nay|ngay\s*mai|sang\s*mai|trua\s*mai|chieu\s*mai|toi\s*mai|giao\s*mai|lay\s*mai|nhan\s*mai|ngay\s*mot)\b/.test(normLine) || /^mai(?:\b|$)/.test(normLine));
+    const hasTime = !isNamePhoneLine && /\b(?:\d{1,2}h(?:\d{2})?|\d{1,2}:\d{2}|buoi\s*sang|sang\s*mai|sang\s*nay|sang\s*som|\d{1,2}h\s*sang|buoi\s*chieu|chieu\s*mai|chieu\s*nay|\d{1,2}h\s*chieu|buoi\s*toi|toi\s*nay|toi\s*mai|\d{1,2}h\s*toi)\b/i.test(normLine);
     if (hasDate || hasTime) {
       if (hasDate) {
         const smartDate = parseSmartDate(cleanLine, referenceDate);
@@ -1020,7 +1023,18 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
 
     // 6. Flower description detection
     if (FLOWER_PATTERN.test(normLine)) {
-      fields.flower = cleanLine;
+      // Keep only the flower description: drop comma-separated fragments that are dates, times, prices or shipping
+      const flowerOnly = cleanLine
+        .split(/\s*[,;]\s*/)
+        .filter(seg => {
+          const n = seg.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+          if (!n) return false;
+          if (FLOWER_PATTERN.test(n)) return true;
+          return !/(\d{1,2}[/-]\d{1,2}|\d{1,2}h|\d{1,2}:\d{2}|\b(nhan|giao|lay|ngay|gio|sang|chieu|toi|trua|mai)\b|\d+\s*(k|tr|trieu)\b|\d{4,}|ship|book|ghe\s*lay)/.test(n);
+        })
+        .join(', ')
+        .trim();
+      fields.flower = flowerOnly || cleanLine;
       const lineWithoutPhones = cleanLine.replace(/(?:sdt|phone|sđt|số\s*điện\s*thoại)?\s*[:=-]?\s*\b0\d{9,10}\b/gi, ' ');
       const mPrice = lineWithoutPhones.match(/(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*(?:k|tr|trieu)|(?<![\d.])\b[1-9]\d{4,8}\b)/i);
       if (mPrice) {

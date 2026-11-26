@@ -539,7 +539,13 @@ export async function handleTelegramWebhook(request, rawEnv) {
         let captionApplied = false;
         const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
         if (caption && !isBill) {
-          const { draft: updatedDraft, changes, warnings } = applyFields(drafts[drafts.__active], caption, { rules: opsRules });
+          const { draft: updatedDraft, changes, warnings } = await mergeAiFallback(
+            drafts[drafts.__active],
+            caption,
+            applyFields(drafts[drafts.__active], caption, { rules: opsRules }),
+            env,
+            opsRules
+          );
           if (changes && changes.length > 0) {
             drafts[drafts.__active] = updatedDraft;
             captionApplied = true;
@@ -645,7 +651,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
         const reply = selected ? `Đang xem đơn #${selected.id.slice(-6)}.\n\n${draftSummary(selected, opsRules)}` : res.reply;
         await sendTelegramMessage(env.BOT_TOKEN, chatId, reply);
       } else if (cmd === '/show') {
-        const opsRules = await loadCurrentOpsRules(env, { forceRefresh: false });
+        const { rules: opsRules } = await loadCurrentOpsRules(env, { forceRefresh: false });
         const res = cmdShow(drafts, arg, opsRules);
         await sendTelegramMessage(env.BOT_TOKEN, chatId, res.reply);
       } else if (cmd === '/cancel') {
@@ -704,25 +710,13 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
     // Apply structured fields via core applyFields against cached/default OPS validation rules
     const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
-    let { draft: updated, changes, warnings } = applyFields(draft, rawText, { rules: opsRules });
-
-    // AI Fallback if structured parsing yields nothing and Gemini Key is available
-    if ((!changes || changes.length === 0) && env.GEMINI_API_KEY) {
-      const rawAi = await extractFieldsWithGemini(env.GEMINI_API_KEY, rawText, env.GEMINI_MODEL);
-      const aiExtracted = sanitizeAiFields(rawAi);
-      if (aiExtracted && Object.keys(aiExtracted).length > 0) {
-        // Convert sanitized allowlisted JSON to single-line entries and apply
-        const lines = Object.entries(aiExtracted)
-          .map(([k, v]) => `${k}: ${String(v).replace(/[\r\n]+/g, ' ').trim()}`)
-          .join('\n');
-        const aiApplied = applyFields(draft, lines, { rules: opsRules });
-        if (aiApplied.changes?.length) {
-          updated = aiApplied.draft;
-          changes = aiApplied.changes;
-          warnings = aiApplied.warnings;
-        }
-      }
-    }
+    let { draft: updated, changes, warnings } = await mergeAiFallback(
+      draft,
+      rawText,
+      applyFields(draft, rawText, { rules: opsRules }),
+      env,
+      opsRules
+    );
 
     if (isOutOfOrder && changes?.length) {
       // If an older message arrives after a newer message, do NOT overwrite fields that are already set
@@ -799,12 +793,52 @@ export async function handleTelegramWebhook(request, rawEnv) {
   return new Response('OK', { status: 200 });
 }
 
+const AI_FILLABLE_FIELDS = ['customer', 'phone', 'flower', 'date', 'time', 'shipping', 'address', 'flowerTotal'];
+const isBlankField = v => v === undefined || v === null || String(v).trim() === '';
+
+/**
+ * Run Gemini AI fallback on top of the deterministic parser for both photo captions and text.
+ * - Called when the parser found nothing, or found something but important fields are still blank.
+ * - AI may ONLY fill fields that are still blank after the parser and that the parser did not touch;
+ *   it can never overwrite an existing customer/price/date (e.g. keeps "Như" when "Shop book ship" is added).
+ * - Any AI failure silently falls back to the parser result (owner still reviews summary before /confirm).
+ */
+export async function mergeAiFallback(baseDraft, text, structured, env, opsRules) {
+  const result = structured || { draft: baseDraft, changes: [], warnings: [] };
+  if (!env?.GEMINI_API_KEY || !text || String(text).trim().length < 5) return result;
+  const after = result.draft || baseDraft;
+  const stillMissing = AI_FILLABLE_FIELDS.filter(f => isBlankField(after?.fields?.[f]));
+  if (result.changes?.length && stillMissing.length === 0) return result;
+
+  let aiExtracted = null;
+  try {
+    aiExtracted = sanitizeAiFields(await extractFieldsWithGemini(env.GEMINI_API_KEY, text, env.GEMINI_MODEL));
+  } catch {
+    return result;
+  }
+  if (!aiExtracted || !Object.keys(aiExtracted).length) return result;
+
+  const touched = new Set((result.changes || []).map(c => c.field));
+  const lines = Object.entries(aiExtracted)
+    .filter(([k]) => !touched.has(k) && isBlankField(after?.fields?.[k]))
+    .map(([k, v]) => `${k}: ${String(v).replace(/[\r\n]+/g, ' ').trim()}`);
+  if (!lines.length) return result;
+
+  const aiApplied = applyFields(after, lines.join('\n'), { rules: opsRules });
+  if (!aiApplied.changes?.length) return result;
+  return {
+    draft: aiApplied.draft,
+    changes: [...(result.changes || []), ...aiApplied.changes.map(c => ({ ...c, source: 'ai' }))],
+    warnings: [...(result.warnings || []), ...(aiApplied.warnings || [])]
+  };
+}
+
 async function loadCurrentOpsRules(env, { forceRefresh = false } = {}) {
-  if (!env?.OPS_TOKEN) return DEFAULT_OPS_ORDER_RULES;
+  if (!env?.OPS_TOKEN) return { rules: DEFAULT_OPS_ORDER_RULES, caller: null };
   const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
   const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
   const res = await fetchOpsOrderRules(opsUrl, env.OPS_TOKEN, fetcher, { forceRefresh });
-  return res.rules || DEFAULT_OPS_ORDER_RULES;
+  return { rules: res.rules || DEFAULT_OPS_ORDER_RULES, caller: res.caller || null };
 }
 
 function expectedPaymentDetails(fields = {}) {
@@ -842,7 +876,21 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   }
 
   // 1. Pre-validation right before createOrder against fresh shared OPS validation rules
-  const opsRules = await loadCurrentOpsRules(env, { forceRefresh: true });
+  const { rules: opsRules, caller: opsCaller } = await loadCurrentOpsRules(env, { forceRefresh: true });
+
+  // 1a. Pre-check: can the connected OPS account assign the default sale (cmui)?
+  const expectedSale = String(draft.fields?.sale || opsRules.saleDefault || DEFAULT_BOT_SALE).trim();
+  if (opsCaller && opsCaller.canAssignDefaultSale === false) {
+    await sendTelegramMessage(
+      env.BOT_TOKEN,
+      chatId,
+      `❌ Tài khoản OPS hiện tại (<code>${html(opsCaller.username || '?')}</code>, vai trò: ${html(opsCaller.role || '?')}) không có quyền gán Sale phụ trách <code>${html(expectedSale)}</code>.\n\n` +
+      `Đơn nháp được giữ nguyên. Vui lòng đổi tài khoản OPS hoặc liên hệ Admin.`,
+      'HTML'
+    );
+    return;
+  }
+
   const confirmResult = cmdConfirm(drafts, '', opsRules);
   if (confirmResult.reply !== '__CONFIRM__') {
     await sendTelegramMessage(env.BOT_TOKEN, chatId, confirmResult.reply);
@@ -1299,78 +1347,90 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
 
 /**
  * Resolve target submitted draft safely for /retry_payment and /relink.
- * When an explicit code/id argument is provided, NEVER fall back to the active
- * or most recent submitted draft if it does not match uniquely.
+ * Rules:
+ *   - When an explicit argument is supplied: ONLY match the FULL OPS order ID (exact case-insensitive)
+ *     uniquely among submitted drafts owned by actorUserId. Rejects both unique suffixes and draft IDs.
+ *   - When no argument is supplied: ONLY use the currently selected active draft if it is submitted
+ *     with an opsOrderId owned by actorUserId. Never falls back to another draft.
  */
-export function resolveSubmittedDraftTarget(drafts, arg) {
+export function resolveSubmittedDraftTarget(drafts, arg, actorUserId = null) {
   const draftEntries = Object.entries(drafts || {})
     .filter(([k, d]) => !k.startsWith('__') && d && d.id)
     .map(([, d]) => d);
 
+  const isOwnedByCaller = d => {
+    if (!actorUserId) return true;
+    const ownerId = d.userId ?? d.ownerUserId;
+    return ownerId == null || String(ownerId) === String(actorUserId);
+  };
+
   const trimmed = String(arg || '').trim();
   if (trimmed) {
     const upper = trimmed.toUpperCase();
-    const exactMatches = draftEntries.filter(d =>
-      String(d.id || '') === trimmed ||
-      (d.opsOrderId && String(d.opsOrderId).toUpperCase() === upper)
-    );
-    if (exactMatches.length === 1) {
-      const hit = exactMatches[0];
-      if (hit.status !== 'submitted' || !hit.opsOrderId) {
-        return { ok: false, reason: 'NOT_SUBMITTED', query: trimmed, draft: hit };
+    const opsCodeMatches = draftEntries.filter(d => d.opsOrderId && String(d.opsOrderId).toUpperCase() === upper);
+
+    if (opsCodeMatches.length > 0) {
+      const authorized = opsCodeMatches.filter(isOwnedByCaller);
+      if (authorized.length === 0) {
+        return { ok: false, reason: 'NOT_AUTHORIZED', query: trimmed };
       }
-      return { ok: true, draft: hit };
-    }
-    if (exactMatches.length > 1) {
-      return { ok: false, reason: 'AMBIGUOUS', query: trimmed, matches: exactMatches };
+      const submitted = authorized.filter(d => d.status === 'submitted');
+      if (submitted.length === 1) {
+        return { ok: true, draft: submitted[0] };
+      }
+      if (submitted.length > 1) {
+        return { ok: false, reason: 'AMBIGUOUS', query: trimmed, matches: submitted };
+      }
+      return { ok: false, reason: 'NOT_SUBMITTED', query: trimmed, draft: authorized[0] };
     }
 
-    const suffixMatches = draftEntries.filter(d =>
+    // Explicitly detect draft ID / short suffix attempts so we reject them clearly with zero side effects
+    const looksLikeDraftOrSuffix = draftEntries.some(d =>
+      String(d.id || '') === trimmed ||
       String(d.id || '').endsWith(trimmed) ||
       (d.opsOrderId && String(d.opsOrderId).toUpperCase().endsWith(upper))
     );
-    if (suffixMatches.length === 0) {
-      return { ok: false, reason: 'NOT_FOUND', query: trimmed };
+    if (looksLikeDraftOrSuffix) {
+      return { ok: false, reason: 'EXACT_OPS_ID_REQUIRED', query: trimmed };
     }
-    if (suffixMatches.length > 1) {
-      return { ok: false, reason: 'AMBIGUOUS', query: trimmed, matches: suffixMatches };
-    }
-    const hit = suffixMatches[0];
-    if (hit.status !== 'submitted' || !hit.opsOrderId) {
-      return { ok: false, reason: 'NOT_SUBMITTED', query: trimmed, draft: hit };
-    }
-    return { ok: true, draft: hit };
+    return { ok: false, reason: 'NOT_FOUND', query: trimmed };
   }
 
   const active = activeDraft(drafts);
-  if (active && active.status === 'submitted' && active.opsOrderId) {
-    return { ok: true, draft: active };
+  if (!active) {
+    return { ok: false, reason: 'NO_ACTIVE_DRAFT' };
   }
-  const submitted = draftEntries
-    .filter(d => d.status === 'submitted' && d.opsOrderId)
-    .sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
-  if (submitted[0]) {
-    return { ok: true, draft: submitted[0] };
+  if (!isOwnedByCaller(active)) {
+    return { ok: false, reason: 'NOT_AUTHORIZED', query: active.opsOrderId || active.id };
   }
-  return { ok: false, reason: 'NO_SUBMITTED_DRAFT' };
+  if (active.status !== 'submitted' || !active.opsOrderId) {
+    return { ok: false, reason: 'ACTIVE_NOT_SUBMITTED', draft: active };
+  }
+  return { ok: true, draft: active };
 }
 
 function formatTargetResolutionError(resolved, commandName) {
+  if (resolved.reason === 'EXACT_OPS_ID_REQUIRED') {
+    return `⚠️ Lệnh ${commandName} chỉ nhận TOÀN BỘ mã đơn OPS (ví dụ: MEE-...). Từ chối hậu tố ngắn hoặc ID nháp "${resolved.query}". Không có đơn nào bị thay đổi.`;
+  }
   if (resolved.reason === 'NOT_FOUND') {
-    return `⚠️ Không tìm thấy đơn nào khớp mã "${resolved.query}". Không có đơn nào bị thay đổi.`;
+    return `⚠️ Không tìm thấy đơn OPS khớp chính xác mã "${resolved.query}". Không có đơn nào bị thay đổi.`;
+  }
+  if (resolved.reason === 'NOT_AUTHORIZED') {
+    return `🛡️ Bạn không có quyền thao tác đơn "${resolved.query || ''}". Không có đơn nào bị thay đổi.`;
   }
   if (resolved.reason === 'AMBIGUOUS') {
     const options = (resolved.matches || [])
       .slice(0, 5)
       .map(d => d.opsOrderId || `#${String(d.id || '').slice(-6)}`)
       .join(', ');
-    return `⚠️ Mã "${resolved.query}" khớp nhiều đơn (${options}). Vui lòng nhập đầy đủ mã đơn OPS (ví dụ MEE-...) để tránh cập nhật nhầm. Không có đơn nào bị thay đổi.`;
+    return `⚠️ Mã "${resolved.query}" khớp nhiều bản ghi (${options}). Từ chối cập nhật tự động. Không có đơn nào bị thay đổi.`;
   }
-  if (resolved.reason === 'NOT_SUBMITTED') {
+  if (resolved.reason === 'NOT_SUBMITTED' || resolved.reason === 'ACTIVE_NOT_SUBMITTED') {
     const shortId = String(resolved.draft?.id || '').slice(-6);
-    return `⚠️ Nháp #${shortId} chưa tạo đơn trên OPS nên không thể chạy ${commandName}. Không có đơn nào bị thay đổi.`;
+    return `⚠️ Nháp đang chọn #${shortId} chưa tạo đơn trên OPS nên không thể chạy ${commandName}. Dùng /select <id> sang đơn đã tạo hoặc nhập đầy đủ ${commandName} MEE-... . Không có đơn nào bị thay đổi.`;
   }
-  return `⚠️ Không tìm thấy đơn đã tạo trên OPS. Dùng ${commandName} <mã_đơn> nếu cần.`;
+  return `⚠️ Không có đơn đang chọn hợp lệ trên OPS để chạy ${commandName}. Dùng ${commandName} <mã_đơn_OPS_đầy_đủ> nếu cần. Không có đơn nào bị thay đổi.`;
 }
 
 /**
@@ -1379,7 +1439,7 @@ function formatTargetResolutionError(resolved, commandName) {
  * with idempotent paymentSyncRequestId and double-deposit lock. NEVER calls createOrder.
  */
 async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
-  const resolved = resolveSubmittedDraftTarget(drafts, arg);
+  const resolved = resolveSubmittedDraftTarget(drafts, arg, userId);
   if (!resolved.ok || !resolved.draft?.opsOrderId) {
     await sendTelegramMessage(env.BOT_TOKEN, chatId, formatTargetResolutionError(resolved, '/retry_payment'));
     return;
@@ -1473,7 +1533,7 @@ async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
  * without calling createOrder again (100% idempotent, zero duplicate orders).
  */
 async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
-  const resolved = resolveSubmittedDraftTarget(drafts, arg);
+  const resolved = resolveSubmittedDraftTarget(drafts, arg, userId);
   if (!resolved.ok || !resolved.draft?.opsOrderId) {
     await sendTelegramMessage(env.BOT_TOKEN, chatId, formatTargetResolutionError(resolved, '/relink'));
     return;

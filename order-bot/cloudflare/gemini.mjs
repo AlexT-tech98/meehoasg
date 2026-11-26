@@ -25,6 +25,10 @@ Quy tắc trích xuất:
 QUY TẮC BẢO MẬT & CHÍNH XÁC:
 - TUYỆT ĐỐI KHÔNG tự bịa hoặc suy đoán bất kỳ trường quan trọng nào (tên khách, SĐT, ngày, giờ, địa chỉ, hình thức ship, giá tiền). Trường nào không có trong tin nhắn thì để null.
 - TUYỆT ĐỐI KHÔNG trích xuất hoặc thay đổi trạng thái thanh toán, công nợ, full paid, quyền admin hoặc vai trò hệ thống.
+- KHÔNG đoán mẫu hoa từ ảnh; flower chỉ lấy khi tin nhắn mô tả rõ mẫu/loại hoa.
+- Cụm "Shop book ship", "ship", "giao", "book ship" là hình thức giao nhận, KHÔNG phải tên khách.
+- Tin nhắn có thể chỉ bổ sung một phần (ví dụ chỉ thêm địa chỉ); chỉ trả các trường thật sự có trong tin nhắn này, các trường khác để null.
+- Không trả trường sale, payment, paid, debt, fullPaid; hệ thống tự gán Sale C Mụi và xử lý thanh toán riêng.
 - Chỉ trả về duy nhất chuỗi JSON hợp lệ không có markdown backticks.`;
 
 export const ALLOWED_AI_FIELDS = new Set([

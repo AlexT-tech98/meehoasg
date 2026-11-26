@@ -432,7 +432,7 @@ Deno.serve(async request=>{
     else if(name==='logOrderSaveFailure')result=await logOrderSaveFailure(payload);
     else if(name==='prepareOrderUploads')result=await prepareOrderUploads(payload);
     else if(name==='getOrder')result=await fastOrder(payload);
-    else if(name==='getOrderRules'){await requireUser(payload);result={ok:true,rules:ORDER_VALIDATION_RULES};}
+    else if(name==='getOrderRules'){const rulesUser=await requireUser(payload);result={ok:true,rules:ORDER_VALIDATION_RULES,caller:{username:rulesUser.username,role:rulesUser.role,canAssignDefaultSale:rulesUser.role!=='SALE'||saleKey(rulesUser.username)===saleKey(ORDER_VALIDATION_RULES.saleDefault||'cmui')}};}
     else if(name==='getDebtReview')result=await fastDebt(payload);
     else if(name==='getFullPaidReport')result=await fullPaidReport(payload);
     else if(name==='getSettlementQueue')result=await fastSettlementQueue(payload);
