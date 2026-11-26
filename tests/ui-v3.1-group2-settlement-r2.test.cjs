@@ -328,15 +328,22 @@ test('Group 2B: dual-source 919 bills migration (settlement_requests + orders.fu
   }
 });
 
-test('Group 2C: Go-Live R2 cleanup checks real schema (before_data, after_data, order_snapshot, operation_receipts) and distinguishes purged test receipts', async () => {
-  assert.equal(ALLOWED_GOLIVE_TEST_OBJECTS.length, 6);
+test('Group 2C: Go-Live R2 cleanup checks real schema (before_data, after_data, order_snapshot, operation_receipts) and deletes only the 4 remaining QA objects', async () => {
+  assert.equal(ALLOWED_GOLIVE_TEST_OBJECTS.length, 7);
+  assert.equal(ALLOWED_GOLIVE_TEST_OBJECTS.includes('settlement-bills/2d44d3e7-d82f-4f2b-90b7-4e56d815a74a.jpg'), true);
   assert.equal(ALLOWED_GOLIVE_TEST_OBJECTS.some((k) => k.includes('efe981ed')), false);
 
-  const deleted = [];
+  const fourRemainingQaKeys = new Set([
+    'order-images/c0dbba8c-8556-4c8e-a876-1a8d2d0123b5.jpg',
+    'order-images/c0dbba8c-8556-4c8e-a876-1a8d2d0123b5.preview.jpg',
+    'settlement-bills/ebb0c8f9-6cb0-4a91-b451-857338a12a82.jpg',
+    'settlement-bills/2d44d3e7-d82f-4f2b-90b7-4e56d815a74a.jpg',
+  ]);
+  const existingInR2 = new Set(fourRemainingQaKeys);
   const fakeR2 = {
-    exists: async (k) => !deleted.includes(k) && k.includes('c0dbba8c'),
+    exists: async (k) => existingInR2.has(k),
     reference: (k) => `r2://meehoasg-website-media/${k}`,
-    discard: async (ref) => { deleted.push(ref.replace('r2://meehoasg-website-media/', '')); },
+    discard: async (ref) => { existingInR2.delete(ref.replace('r2://meehoasg-website-media/', '')); },
   };
 
   // Verify exact column names queried (NEVER queries non-existent activity_log.detail!)
@@ -344,7 +351,7 @@ test('Group 2C: Go-Live R2 cleanup checks real schema (before_data, after_data, 
   const resPurgedReceipt = await countReferencesInDb({
     supabaseUrl: 'https://proj.supabase.co',
     serviceKey: 'svc',
-    objectKey: ALLOWED_GOLIVE_TEST_OBJECTS[0],
+    objectKey: ALLOWED_GOLIVE_TEST_OBJECTS[6],
     fetcher: async (url) => {
       const s = String(url);
       seenPaths.push(s);
@@ -353,16 +360,16 @@ test('Group 2C: Go-Live R2 cleanup checks real schema (before_data, after_data, 
         return {
           ok: true,
           status: 200,
-          json: async () => [{ actor: 'admin', request_id: 'r1', action: 'deleteOrder', result: { orderId: 'MEE-4C8D65C26A8B4BA1' } }],
+          json: async () => [{ actor: 'admin', request_id: 'r1', action: 'submitSettlement', result: { orderId: 'MEE-V31QA-290B49D7' } }],
         };
       }
-      // Order MEE-4C8D65C26A8B4BA1 is absent from orders -> historical purged test receipt!
+      // Order MEE-V31QA-290B49D7 is absent from orders -> historical purged test receipt!
       return { ok: true, status: 200, json: async () => [] };
     },
   });
   assert.equal(resPurgedReceipt.referenced, false);
   assert.equal(resPurgedReceipt.historicalTestReceipts, 1);
-  assert.deepEqual(resPurgedReceipt.historicalTestReceiptOrderIds, ['MEE-4C8D65C26A8B4BA1']);
+  assert.deepEqual(resPurgedReceipt.historicalTestReceiptOrderIds, ['MEE-V31QA-290B49D7']);
   assert.ok(seenPaths.some((p) => p.includes('/order_deletion_history?') && p.includes('order_snapshot.cs.')));
   assert.ok(seenPaths.some((p) => p.includes('/activity_log?') && p.includes('before_data.cs.') && p.includes('after_data.cs.')));
 
@@ -383,7 +390,7 @@ test('Group 2C: Go-Live R2 cleanup checks real schema (before_data, after_data, 
   assert.equal(resActiveReceipt.referenced, true);
   assert.deepEqual(resActiveReceipt.matchedTables, ['orders', 'order_deletion_history', 'activity_log', 'operation_receipts']);
 
-  // Dry-run marks existing R2 objects DRY_RUN_ELIGIBLE and missing R2 objects ALREADY_ABSENT_IN_R2
+  // Dry-run marks existing 4 QA objects DRY_RUN_ELIGIBLE and 3 absent objects ALREADY_ABSENT_IN_R2
   const dry = await runCleanup({
     execute: false,
     supabaseUrl: 'https://proj.supabase.co',
@@ -392,7 +399,25 @@ test('Group 2C: Go-Live R2 cleanup checks real schema (before_data, after_data, 
     fetcher: async () => ({ ok: true, status: 200, json: async () => [] }),
   });
   assert.equal(dry.ok, true);
-  assert.equal(dry.items.filter((i) => i.status === 'DRY_RUN_ELIGIBLE').length, 2);
-  assert.equal(dry.items.filter((i) => i.status === 'ALREADY_ABSENT_IN_R2').length, 4);
-  assert.equal(deleted.length, 0);
+  assert.equal(dry.deletedCount, 0);
+  assert.equal(dry.items.filter((i) => i.status === 'DRY_RUN_ELIGIBLE').length, 4);
+  assert.equal(dry.items.filter((i) => i.status === 'ALREADY_ABSENT_IN_R2').length, 3);
+  assert.equal(existingInR2.size, 4);
+
+  // Execute deletes ONLY the 4 remaining QA objects and confirms HEAD 404 (!exists)
+  const exec = await runCleanup({
+    execute: true,
+    supabaseUrl: 'https://proj.supabase.co',
+    serviceKey: 'svc',
+    r2Media: fakeR2,
+    fetcher: async () => ({ ok: true, status: 200, json: async () => [] }),
+  });
+  assert.equal(exec.ok, true);
+  assert.equal(exec.blockedCount, 0);
+  assert.equal(exec.deletedCount, 4);
+  assert.equal(exec.items.filter((i) => i.status === 'DELETED_AND_VERIFIED').length, 4);
+  assert.equal(exec.items.filter((i) => i.status === 'ALREADY_ABSENT_IN_R2').length, 3);
+  for (const k of fourRemainingQaKeys) {
+    assert.equal(await fakeR2.exists(k), false, `Expected HEAD 404 after cleanup for ${k}`);
+  }
 });

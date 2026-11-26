@@ -5,8 +5,8 @@
  * MEEHOA OPS V3.1 — Strict Allow-List Cleanup for Verified Go-Live R2 Test Objects
  *
  * SAFETY GUARANTEES:
- * 1. ONLY operates on the 6 hardcoded JPEG keys traced via `operation_receipts` to the two
- *    purged Go-Live `[QA TEST R2]` orders (`MEE-4C8D65C26A8B4BA1`, `MEE-3ECAF7FA21984333`).
+ * 1. ONLY operates on the 7 hardcoded JPEG keys traced via `operation_receipts` / verified Go-Live smoke logs to the
+ *    purged Go-Live test orders (`MEE-4C8D65C26A8B4BA1`, `MEE-3ECAF7FA21984333`, `MEE-V31QA-290B49D7`).
  * 2. Explicitly EXCLUDES `MEE-4CEA187B770C469B` (`TEST R2 20261121`, `efe981ed-...jpg`) which
  *    is still referenced in Trash `public.orders`, `order_deletion_history`, and `activity_log`.
  * 3. NEVER scans buckets or infers "unreferenced = deletable"; NEVER touches real customer
@@ -16,7 +16,7 @@
  *      - `public.settlement_requests` (`bill_urls`)
  *      - `public.order_deletion_history` (`order_snapshot`)
  *      - `public.activity_log` (`before_data`, `after_data`)
- *      - `public.operation_receipts` (`result`) — distinguishing historical receipts of the two
+ *      - `public.operation_receipts` (`result`) — distinguishing historical receipts of the
  *        already-purged Go-Live QA test orders (verified absent in `public.orders`) from active
  *        or unknown order references.
  *    For `.preview.jpg` keys, both the `.preview.jpg` key and its parent original `.jpg` key are checked.
@@ -31,11 +31,14 @@ const ALLOWED_GOLIVE_TEST_OBJECTS = Object.freeze([
   'order-images/81f792e0-274c-44d9-b2b8-638dcb637f58.jpg',
   'order-images/81f792e0-274c-44d9-b2b8-638dcb637f58.preview.jpg',
   'settlement-bills/0f56829a-cfb8-4351-96b3-a9c59ea24d8c.jpg',
+  // Purged Go-Live Production R2 smoke test order MEE-V31QA-290B49D7 (2026-11-26T14:59:02Z)
+  'settlement-bills/2d44d3e7-d82f-4f2b-90b7-4e56d815a74a.jpg',
 ]);
 
 const VERIFIED_PURGED_TEST_ORDER_IDS = Object.freeze([
   'MEE-4C8D65C26A8B4BA1',
   'MEE-3ECAF7FA21984333',
+  'MEE-V31QA-290B49D7',
 ]);
 
 function candidateRefsForKey(objectKey, r2Bucket) {
