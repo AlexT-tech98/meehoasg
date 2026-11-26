@@ -276,11 +276,14 @@ describe('Form ↔ Bot ↔ createOrder read same loadOrderRules', () => {
 
 async function createCoreHarness() {
   const { DatabaseSync } = await import('node:sqlite');
-  const { readFileSync } = await import('node:fs');
+  const { existsSync, readFileSync } = await import('node:fs');
   const { createCore } = await import('../runtime/core.js');
 
   const sqlite = new DatabaseSync(':memory:');
-  sqlite.exec(readFileSync(new URL('../generated/schema.sql', import.meta.url), 'utf8'));
+  const schemaUrl = existsSync(new URL('../schema/schema.sql', import.meta.url))
+    ? new URL('../schema/schema.sql', import.meta.url)
+    : new URL('../generated/schema.sql', import.meta.url);
+  sqlite.exec(readFileSync(schemaUrl, 'utf8'));
 
   const db = {
     sqlite,
