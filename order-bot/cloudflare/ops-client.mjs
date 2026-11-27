@@ -56,7 +56,10 @@ export function buildOpsHeaders(opsToken, opsApiKey = '') {
 
 /**
  * Check OPS backend reachability & session validity for `/status`.
- * - Supabase Production: probes `POST getOrderRules` with Gateway Auth + App Session token.
+ * - Supabase Production: probes `POST getOrderRules` first with Gateway Auth + App Session token;
+ *   when live OPS v33 delegates unknown `getOrderRules` to `meehoasg-api` ("Thao tác không được hỗ trợ."),
+ *   falls back to lightweight read-only `getOrder` (`__BOT_HEALTH_CHECK__`) directly on `meehoasg-api-core`
+ *   to verify Gateway JWT, `app_sessions` expiry, `app_users.active`, and `THO_OPS/ADMIN/SALE` role.
  * - Cloudflare Staging: probes `GET <opsBase>/health`.
  */
 export async function checkOpsHealth(opsUrl, opsToken, fetcher = fetch, { opsApiKey = '' } = {}) {
@@ -68,6 +71,22 @@ export async function checkOpsHealth(opsUrl, opsToken, fetcher = fetch, { opsApi
     if (!opsToken) {
       return { ok: false, authMode: 'supabase_gateway_jwt+app_session', httpStatus: null, error: 'OPS_TOKEN_MISSING' };
     }
+    const classifyAppAuthError = (json, httpStatus) => {
+      const msg = String(json?.message || '');
+      const inferredCode = /phiên đăng nhập|hết hạn|invalid jwt|unauthorized/i.test(msg)
+        ? 'OPS_SESSION_EXPIRED'
+        : (/bị khóa/i.test(msg)
+          ? 'OPS_ACCOUNT_LOCKED'
+          : (/không có quyền|forbidden/i.test(msg) ? 'OPS_FORBIDDEN' : (json?.code || 'OPS_APP_ERROR')));
+      return {
+        ok: false,
+        authMode: 'supabase_gateway_jwt+app_session',
+        httpStatus,
+        error: inferredCode,
+        message: msg || null
+      };
+    };
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
@@ -90,31 +109,63 @@ export async function checkOpsHealth(opsUrl, opsToken, fetcher = fetch, { opsApi
         };
       }
       const json = await res.json();
-      if (!json?.ok) {
-        const msg = String(json?.message || '');
-        const inferredCode = json?.code || (
-          /phiên đăng nhập|hết hạn|invalid jwt|unauthorized/i.test(msg)
-            ? 'OPS_SESSION_EXPIRED'
-            : (/bị khóa/i.test(msg)
-              ? 'OPS_ACCOUNT_LOCKED'
-              : (/không có quyền|forbidden/i.test(msg) ? 'OPS_FORBIDDEN' : 'OPS_APP_ERROR'))
-        );
+      if (json?.ok) {
         return {
-          ok: false,
+          ok: true,
           authMode: 'supabase_gateway_jwt+app_session',
           httpStatus: res.status,
-          error: inferredCode,
-          message: msg || null
+          error: null,
+          schemaVersion: json.rules?.schemaVersion || null,
+          callerRole: json.caller?.role || null,
+          apiCompatibility: 'getOrderRules'
         };
       }
-      return {
-        ok: true,
-        authMode: 'supabase_gateway_jwt+app_session',
-        httpStatus: res.status,
-        error: null,
-        schemaVersion: json.rules?.schemaVersion || null,
-        callerRole: json.caller?.role || null
-      };
+
+      const rulesMsg = String(json?.message || '');
+      if (!/không được hỗ trợ/i.test(rulesMsg)) {
+        return classifyAppAuthError(json, res.status);
+      }
+
+      // Live Production meehoasg-api-core v33 compatibility probe:
+      // verify session/role directly on `meehoasg-api-core` via read-only `getOrder`.
+      const compatController = new AbortController();
+      const compatTimeout = setTimeout(() => compatController.abort(), 5000);
+      try {
+        const probeRes = await fetcher(url, {
+          method: 'POST',
+          headers: buildOpsHeaders(opsToken, gatewayKey),
+          body: JSON.stringify({
+            name: 'getOrder',
+            payload: { token: opsToken, orderId: '__BOT_HEALTH_CHECK__' }
+          }),
+          signal: compatController.signal
+        });
+        clearTimeout(compatTimeout);
+        if (!probeRes.ok) {
+          return {
+            ok: false,
+            authMode: 'supabase_gateway_jwt+app_session',
+            httpStatus: probeRes.status,
+            error: probeRes.status === 401 ? 'GATEWAY_UNAUTHORIZED' : `HTTP_${probeRes.status}`
+          };
+        }
+        const probeJson = await probeRes.json();
+        if (probeJson?.ok || (!probeJson?.code && /không tìm thấy đơn/i.test(String(probeJson?.message || '')))) {
+          return {
+            ok: true,
+            authMode: 'supabase_gateway_jwt+app_session',
+            httpStatus: probeRes.status,
+            error: null,
+            schemaVersion: DEFAULT_OPS_ORDER_RULES.schemaVersion,
+            callerRole: 'THO_OPS_OR_COMPAT',
+            apiCompatibility: 'live_v33'
+          };
+        }
+        return classifyAppAuthError(probeJson, probeRes.status);
+      } catch {
+        clearTimeout(compatTimeout);
+        return { ok: false, authMode: 'supabase_gateway_jwt+app_session', httpStatus: null, error: 'OPS_HEALTH_UNAVAILABLE' };
+      }
     } catch {
       clearTimeout(timeoutId);
       return { ok: false, authMode: 'supabase_gateway_jwt+app_session', httpStatus: null, error: 'OPS_HEALTH_UNAVAILABLE' };

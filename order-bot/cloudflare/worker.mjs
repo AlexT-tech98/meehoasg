@@ -431,18 +431,16 @@ export default {
           }
         }
 
-        const environment = env.ENVIRONMENT || (isSupabaseOpsUrl(opsUrl) ? 'production' : 'staging');
-        const serviceName = env.SERVICE_NAME || (environment === 'production' ? 'meehoa-order-bot' : 'meehoa-order-bot-staging');
-
         return new Response(JSON.stringify({
           ok: true,
-          service: serviceName,
-          environment,
+          service: runtime.serviceName,
+          environment: runtime.environment,
           d1Connected: d1Test,
           r2Connected: Boolean(env.MEDIA_R2),
           opsConnected: opsHealth,
           opsError: opsError,
           opsAuthMode: opsCheck.authMode,
+          opsApiCompatibility: opsCheck.apiCompatibility || null,
           opsGatewayKeyConfigured: Boolean(opsApiKey),
           opsRuleSchemaVersion: opsCheck.schemaVersion || null,
           opsCallerRole: opsCheck.callerRole || null,

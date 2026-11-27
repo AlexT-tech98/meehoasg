@@ -107,7 +107,7 @@ async function createIsolatedProdPg({ includeUnverifiedBillMigrations = false } 
  * Build a simulated Supabase Edge Gateway (`verify_jwt: true`) + `meehoasg-api-core` app layer
  * backed by an isolated PGlite database.
  */
-function createProdSupabaseEdgeMock({ db, supaOps, validGatewayJwt }) {
+function createProdSupabaseEdgeMock({ db, supaOps, validGatewayJwt, mode = 'live_v33' }) {
   const stats = { gatewayRejects: 0, appExecs: 0, opsCalls: [], uploadedSamples: [], uploadedBills: [] };
 
   const decorateRow = async (row) => {
@@ -192,10 +192,17 @@ function createProdSupabaseEdgeMock({ db, supaOps, validGatewayJwt }) {
     const user = { username: sess.username, display_name: sess.display_name, role: sess.role, active: sess.active };
 
     if (name === 'getOrderRules') {
-      const rules = await supaOps.loadOrderRules(null, {});
+      if (mode === 'live_v33') {
+        // Exact live meehoasg-api-core v33 behavior: unknown route delegates to meehoasg-api,
+        // which calls requireUser (already checked above) then returns "Thao tác không được hỗ trợ."
+        return new Response(JSON.stringify({ ok: false, message: 'Thao tác không được hỗ trợ.' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
       return new Response(JSON.stringify({
         ok: true,
-        rules,
+        rules: supaOps.ORDER_VALIDATION_RULES,
         caller: {
           username: user.username,
           role: user.role,
@@ -206,7 +213,14 @@ function createProdSupabaseEdgeMock({ db, supaOps, validGatewayJwt }) {
 
     if (name === 'getOrder') {
       const row = (await db.query('select * from public.orders where id = $1', [String(payload.orderId || '').trim()])).rows[0];
-      if (!row) return new Response(JSON.stringify({ ok: false, code: 'NOT_FOUND', message: 'Không tìm thấy đơn.' }), { status: 200 });
+      if (!row) {
+        return new Response(
+          JSON.stringify(mode === 'live_v33'
+            ? { ok: false, message: 'Không tìm thấy đơn.' }
+            : { ok: false, code: 'NOT_FOUND', message: 'Không tìm thấy đơn.' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
       return new Response(JSON.stringify({ ok: true, order: await decorateRow(row) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
 
@@ -591,19 +605,19 @@ describe('Production Readiness 3: Supabase Gateway Auth vs OPS App Session & Rol
       assert.equal(stats.gatewayRejects, 1);
       assert.equal(stats.appExecs, 0);
 
-      // Valid gateway JWT + valid cmui session -> 200 OK
+      // Valid gateway JWT + valid cmui session -> 200 OK via live v33 compat probe (`getOrder(__BOT_HEALTH_CHECK__)`)
       const okHealth = await opsClient.checkOpsHealth(PROD_OPS_URL, CMUI_SESSION, fetcher, { opsApiKey: VALID_JWT });
       assert.equal(okHealth.ok, true);
       assert.equal(okHealth.authMode, 'supabase_gateway_jwt+app_session');
-      assert.equal(okHealth.callerRole, 'THO_OPS');
+      assert.equal(okHealth.apiCompatibility, 'live_v33');
       assert.equal(okHealth.schemaVersion, '2026-11-26.v3');
 
-      // Valid gateway JWT + expired cmui session -> AUTH_REQUIRED
+      // Valid gateway JWT + expired cmui session -> OPS_SESSION_EXPIRED
       const expHealth = await opsClient.checkOpsHealth(PROD_OPS_URL, EXPIRED_SESSION, fetcher, { opsApiKey: VALID_JWT });
       assert.equal(expHealth.ok, false);
-      assert.equal(expHealth.error, 'AUTH_REQUIRED');
+      assert.equal(expHealth.error, 'OPS_SESSION_EXPIRED');
 
-      // Wrong role: SALE (`hien`) cannot assign `cmui` and cannot edit `cmui`'s order (`NOT_OWNER`)
+      // Wrong role: SALE (`hien`) cannot assign `cmui` on live v33 and cannot edit `cmui`'s order (`NOT_OWNER`)
       const draft = {
         id: 'draft-role-1',
         requestId: 'req-role-cmui',
@@ -617,9 +631,11 @@ describe('Production Readiness 3: Supabase Gateway Auth vs OPS App Session & Rol
       assert.equal(cmuiOrder.ok, true);
       assert.equal(cmuiOrder.order.saleUsername, 'cmui');
 
+      // Live v33 falls back cleanly when getOrderRules is unsupported
       const saleRules = await opsClient.fetchOpsOrderRules(PROD_OPS_URL, SALE_SESSION, fetcher, { forceRefresh: true, opsApiKey: VALID_JWT });
-      assert.equal(saleRules.caller.role, 'SALE');
-      assert.equal(saleRules.caller.canAssignDefaultSale, false);
+      assert.equal(saleRules.ok, true);
+      assert.equal(saleRules.source, 'fallback');
+      assert.equal(saleRules.rules.saleDefault, 'cmui');
 
       const saleOrder = await opsClient.callCreateOrder(PROD_OPS_URL, SALE_SESSION, { ...draft, requestId: 'req-role-sale' }, [], [], fetcher, { opsApiKey: VALID_JWT });
       assert.equal(saleOrder.ok, true);
@@ -629,7 +645,7 @@ describe('Production Readiness 3: Supabase Gateway Auth vs OPS App Session & Rol
       assert.equal(saleEdit.ok, false);
       assert.equal(saleEdit.code, 'NOT_OWNER');
 
-      // /status reports Production state without leaking secrets
+      // /status reports Production state (live_v33 compat) without leaking secrets
       const statusRes = await workerMod.default.fetch(new Request('https://meehoa-order-bot.meehoasg.workers.dev/status'), {
         ENVIRONMENT: 'production',
         SERVICE_NAME: 'meehoa-order-bot',
@@ -647,6 +663,7 @@ describe('Production Readiness 3: Supabase Gateway Auth vs OPS App Session & Rol
       assert.equal(statusJson.ok, true);
       assert.equal(statusJson.environment, 'production');
       assert.equal(statusJson.opsConnected, true);
+      assert.equal(statusJson.opsApiCompatibility, 'live_v33');
       const rawStatus = JSON.stringify(statusJson);
       assert.ok(!rawStatus.includes(VALID_JWT) && !rawStatus.includes(CMUI_SESSION) && !rawStatus.includes('secret-never-shown'));
     } finally {
@@ -655,8 +672,8 @@ describe('Production Readiness 3: Supabase Gateway Auth vs OPS App Session & Rol
   });
 });
 
-describe('Production Readiness 4: Form + API + Bot Rule Parity on Pre-Migration Production PG', () => {
-  test('verifies all 7 approved rules across Form html, API operations.js/PG, and Bot core.mjs', async () => {
+describe('Production Readiness 4: Bot Pre-Submit Rule Enforcement + Live OPS v33 Parity (Untouched Form V3.1 & Pre-Migration PG)', () => {
+  test('enforces all 7 approved rules in Bot BEFORE calling live OPS v33, and matches Form V3.1 + PG totals/deposit/Full Paid', async () => {
     const { coreMod, supaOps } = await loadModules();
     const pg = await createIsolatedProdPg({ includeUnverifiedBillMigrations: false });
     try {
@@ -677,20 +694,42 @@ describe('Production Readiness 4: Form + API + Bot Rule Parity on Pre-Migration 
         newId: (prefix) => `${prefix}-${crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase()}`
       });
 
+      // Bot MUST enforce flowerTotal >= 1, deposit >= 50% flowerTotal (ignoring ship/accessories),
+      // and Shop book ship reminder BEFORE calling live API v33 (just as Form V3.1 validates client-side)
+      const zeroFlowerValidation = coreMod.validateOrderAgainstRules({
+        fields: { customer: 'Hương', flower: 'Tulip', date: '2026-12-29', time: '16:00', shipping: 'Shop book ship', flowerTotal: '0', sale: 'cmui' }
+      }, coreMod.DEFAULT_OPS_ORDER_RULES);
+      assert.equal(zeroFlowerValidation.ok, false);
+      assert.ok(zeroFlowerValidation.missing.includes('tiền hoa'));
+
+      const lowDepositValidation = coreMod.validateOrderAgainstRules({
+        fields: {
+          customer: 'Hương', flower: 'Tulip', date: '2026-12-29', time: '16:00',
+          shipping: 'Shop book ship', address: '', flowerTotal: '350000',
+          paymentState: 'deposit', depositAmount: '174999',
+          shipFee: '100000', card: true, cardQty: 1, banner: true, bannerQty: 1, sale: 'cmui'
+        }
+      }, coreMod.DEFAULT_OPS_ORDER_RULES);
+      assert.equal(lowDepositValidation.ok, false);
+      assert.ok(lowDepositValidation.ruleErrors.some((e) => e.includes('50%')));
+
+      const exact50Validation = coreMod.validateOrderAgainstRules({
+        fields: {
+          customer: 'Hương', flower: 'Tulip', date: '2026-12-29', time: '16:00',
+          shipping: 'Shop book ship', address: '', flowerTotal: '350000',
+          paymentState: 'deposit', depositAmount: '175000',
+          card: true, cardQty: 3, cardText: 'Thiệp', banner: true, bannerQty: 2, bannerText: 'Banner', sale: 'cmui'
+        }
+      }, coreMod.DEFAULT_OPS_ORDER_RULES);
+      assert.equal(exact50Validation.ok, true);
+      assert.deepEqual(exact50Validation.missing, []);
+      assert.ok(exact50Validation.reminders.length > 0, 'Missing Shop book ship address should be reminder-only');
+
       const baseOrder = {
         customer: 'Chị Hương', phone: '0909111222', date: '2026-12-29', time: '16:00',
         flower: 'Bó tulip trắng', shipping: 'Shop book ship', address: '', flowerTotal: 350000,
         payment: 'Chưa thanh toán (0 đ)', sale: 'cmui', card: false, banner: false, shipFeeActive: '0', shipFee: 0
       };
-
-      const zeroFlower = await opService.run('createOrder', { requestId: 'p4-1', order: { ...baseOrder, flowerTotal: 0 } }, cmuiUser);
-      assert.equal(zeroFlower.code, 'FLOWER_TOTAL_REQUIRED');
-
-      const lowDep = await opService.run('createOrder', {
-        requestId: 'p4-2',
-        order: { ...baseOrder, payment: 'Đã cọc 174.999 đ', shipFeeActive: '1', shipFee: 100000, card: true, cardQty: 1, cardText: 'A', banner: true, bannerQty: 1, bannerText: 'B' }
-      }, cmuiUser);
-      assert.equal(lowDep.code, 'DEPOSIT_BELOW_MIN_RATIO');
 
       const ok = await opService.run('createOrder', {
         requestId: 'p4-3',
@@ -702,20 +741,13 @@ describe('Production Readiness 4: Form + API + Bot Rule Parity on Pre-Migration 
       assert.equal(Number(fin.paid), 175000);
       assert.equal(Number(fin.debt), 275000);
 
-      // Bot validation with Production v3 rules: missing address is reminder-only
-      const v = coreMod.validateOrderAgainstRules({
-        fields: { customer: 'Hương', flower: 'Tulip', date: '2026-12-29', time: '16:00', shipping: 'Shop book ship', address: '', flowerTotal: '350000', sale: 'cmui' }
-      }, supaOps.ORDER_VALIDATION_RULES);
-      assert.deepEqual(v.missing, []);
-      assert.ok(v.reminders.length > 0);
-
-      // Full Paid guards
+      // Full Paid guards on OPS
       const fpNoBill = await opService.run('createOrder', { requestId: 'p4-4', order: { ...baseOrder, fullPaidRequested: true, imageFiles: [{ data: 'data:image/jpeg;base64,AA==' }], shipFeeActive: '1', shipFee: 35000 } }, cmuiUser);
       assert.equal(fpNoBill.code, 'FULL_PAID_EVIDENCE_REQUIRED');
       const fpNoShip = await opService.run('createOrder', { requestId: 'p4-5', order: { ...baseOrder, fullPaidRequested: true, imageFiles: [{ data: 'data:image/jpeg;base64,AA==' }], fullPaidBillFiles: [{ data: 'data:image/jpeg;base64,BB==' }], shipFeeActive: '0' } }, cmuiUser);
       assert.equal(fpNoShip.code, 'FULL_PAID_EVIDENCE_REQUIRED');
 
-      // Production Form V3.1 (untouched origin/main html) compatibility checks
+      // Untouched Web OPS V3.1 compatibility checks
       const prodHtml = fs.readFileSync(path.join(ROOT, 'html'), 'utf8');
       assert.ok(prodHtml.includes('bannerQty*35000') && prodHtml.includes('qty*10000'), 'Untouched Form V3.1 must preserve unit x qty accessory formula');
       assert.ok(prodHtml.includes('dep<order.flowerTotal*.5'), 'Untouched Form V3.1 must preserve 50% flower deposit check');
@@ -847,8 +879,8 @@ describe('Production Readiness 6: wrangler.production.toml Anti-Staging-Leakage 
   });
 });
 
-describe('Production Readiness 7: OPS V3.1 Backward-Compatibility & Legacy Order Edit Matrix (Pre-Migration PG)', () => {
-  test('allows unrelated edits on legacy orders (<50% deposit, 0 flower, empty phone) while enforcing rules on new orders or payment/flower changes, plus full V3.1 lifecycle', async () => {
+describe('Production Readiness 7: OPS V3.1 Full Operational Lifecycle on Untouched Live-Equivalent Pre-Migration PG', () => {
+  test('verifies full V3.1 lifecycle (Walk-in CASH/TRANSFER, Sale create -> Ship -> Status -> Settlement -> Approve, Full Paid, Soft-Delete & Restore) alongside Bot orders', async () => {
     const { supaOps } = await loadModules();
     const pg = await createIsolatedProdPg({ includeUnverifiedBillMigrations: false });
     try {
@@ -856,7 +888,7 @@ describe('Production Readiness 7: OPS V3.1 Backward-Compatibility & Legacy Order
       const cmuiUser = { username: 'cmui', display_name: 'C Mụi', role: 'THO_OPS', active: true };
       const saleUser = { username: 'hien', display_name: 'Hiền', role: 'SALE', active: true };
 
-      const makeOpService = (rulesOverride = supaOps.ORDER_VALIDATION_RULES) => supaOps.createOperationService({
+      const opService = supaOps.createOperationService({
         db: async (endpoint, _q, _m, rpcBody) => {
           if (endpoint === 'rpc/mee_ops_lookup') {
             return (await pg.query('select public.mee_ops_lookup($1,$2,$3,$4) as res', [rpcBody.p_actor, rpcBody.p_request_id, rpcBody.p_action, rpcBody.p_fingerprint])).rows[0].res;
@@ -875,181 +907,10 @@ describe('Production Readiness 7: OPS V3.1 Backward-Compatibility & Legacy Order
         },
         uploadImages: async (files, bucket) => files.map((_, i) => `r2://meehoasg-website-media/${bucket}/v31-${crypto.randomUUID().slice(0, 8)}-${i}.jpg`),
         sha256: async (s) => hash(s),
-        newId: (prefix) => `${prefix}-${crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase()}`,
-        getRules: async () => rulesOverride
+        newId: (prefix) => `${prefix}-${crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase()}`
       });
 
-      const opService = makeOpService();
-
-      // 1. Seed a legacy order with <50% deposit (500k flower, 100k deposit) directly in DB (as existed under live v33)
-      await pg.query(`
-        insert into public.orders (
-          id, customer, phone, order_date, order_time, flower, note, order_source, order_type,
-          shipping, address, flower_total, payment, sale, card, card_qty, banner, banner_qty,
-          ship_fee, ship_confirmed, status, image_urls, full_paid_bill_urls, created_by
-        ) values (
-          'MEE-LEGACY500K100K', 'Khách Cũ Cọc Thấp', '', '2026-12-28', '10:00', 'Bó hồng đỏ', 'Ghi chú ban đầu',
-          'Zalo', 'STANDARD', 'Shop book ship', '10 Nguyễn Huệ', 500000, 'Đã cọc 100.000 đ', 'cmui',
-          false, 0, false, 0, 0, false, 'Chờ bó', '[]'::jsonb, '[]'::jsonb, 'cmui'
-        )
-      `);
-      const legacyRow = (await pg.query("select * from public.orders where id = 'MEE-LEGACY500K100K'")).rows[0];
-
-      // 1a. Unrelated edit (note + address + time + shipFee) on legacy <50% order MUST SUCCEED
-      const unrelatedEdit = await opService.run('updateOrder', {
-        requestId: 'v31-legacy-unrelated-1',
-        orderId: 'MEE-LEGACY500K100K',
-        expectedUpdatedAt: legacyRow.updated_at.toISOString(),
-        order: {
-          customer: 'Khách Cũ Cọc Thấp',
-          phone: '',
-          date: '2026-12-28',
-          time: '11:30',
-          flower: 'Bó hồng đỏ',
-          note: 'Giao cổng sau - đã sửa ghi chú',
-          orderSource: 'Zalo',
-          shipping: 'Shop book ship',
-          address: '20 Lê Lợi, Q1',
-          flowerTotal: 500000,
-          payment: 'Đã cọc 100.000 đ',
-          sale: 'cmui',
-          shipFeeActive: '1',
-          shipFee: 30000
-        }
-      }, cmuiUser);
-      assert.equal(unrelatedEdit.ok, true, `Unrelated edit on legacy <50% order must succeed: ${JSON.stringify(unrelatedEdit)}`);
-      assert.equal(unrelatedEdit.row.note, 'Giao cổng sau - đã sửa ghi chú');
-      assert.equal(unrelatedEdit.row.address, '20 Lê Lợi, Q1');
-      assert.equal(Number(unrelatedEdit.row.ship_fee), 30000);
-
-      // 1b. Changing deposit to another <50% amount MUST BE BLOCKED
-      const badDepositEdit = await opService.run('updateOrder', {
-        requestId: 'v31-legacy-bad-dep-2',
-        orderId: 'MEE-LEGACY500K100K',
-        expectedUpdatedAt: unrelatedEdit.row.updated_at,
-        order: {
-          customer: 'Khách Cũ Cọc Thấp',
-          phone: '',
-          date: '2026-12-28',
-          time: '11:30',
-          flower: 'Bó hồng đỏ',
-          note: 'Sửa cọc vẫn dưới 50%',
-          orderSource: 'Zalo',
-          shipping: 'Shop book ship',
-          address: '20 Lê Lợi, Q1',
-          flowerTotal: 500000,
-          payment: 'Đã cọc 150.000 đ',
-          sale: 'cmui',
-          shipFeeActive: '1',
-          shipFee: 30000
-        }
-      }, cmuiUser);
-      assert.equal(badDepositEdit.ok, false);
-      assert.equal(badDepositEdit.code, 'DEPOSIT_BELOW_MIN_RATIO');
-
-      // 1c. Changing flowerTotal higher while deposit stays <50% MUST BE BLOCKED
-      const badFlowerRaise = await opService.run('updateOrder', {
-        requestId: 'v31-legacy-flower-raise-3',
-        orderId: 'MEE-LEGACY500K100K',
-        expectedUpdatedAt: unrelatedEdit.row.updated_at,
-        order: {
-          customer: 'Khách Cũ Cọc Thấp',
-          phone: '',
-          date: '2026-12-28',
-          time: '11:30',
-          flower: 'Bó hồng đỏ',
-          note: 'Tăng tiền hoa nhưng không tăng cọc',
-          orderSource: 'Zalo',
-          shipping: 'Shop book ship',
-          address: '20 Lê Lợi, Q1',
-          flowerTotal: 700000,
-          payment: 'Đã cọc 100.000 đ',
-          sale: 'cmui',
-          shipFeeActive: '1',
-          shipFee: 30000
-        }
-      }, cmuiUser);
-      assert.equal(badFlowerRaise.ok, false);
-      assert.equal(badFlowerRaise.code, 'DEPOSIT_BELOW_MIN_RATIO');
-
-      // 1d. Legacy order with empty phone edited while phoneRequired=true MUST SUCCEED on unrelated edit,
-      //     while creating a NEW order without phone MUST BE BLOCKED
-      const phoneReqService = makeOpService(supaOps.buildOrderRules({ phoneRequired: true }));
-      const legacyNoPhoneEdit = await phoneReqService.run('updateOrder', {
-        requestId: 'v31-legacy-nophone-edit',
-        orderId: 'MEE-LEGACY500K100K',
-        expectedUpdatedAt: unrelatedEdit.row.updated_at,
-        order: {
-          customer: 'Khách Cũ Cọc Thấp',
-          phone: '',
-          date: '2026-12-28',
-          time: '12:00',
-          flower: 'Bó hồng đỏ',
-          note: 'Đổi giờ giao khi bật phoneRequired',
-          orderSource: 'Zalo',
-          shipping: 'Shop book ship',
-          address: '20 Lê Lợi, Q1',
-          flowerTotal: 500000,
-          payment: 'Đã cọc 100.000 đ',
-          sale: 'cmui',
-          shipFeeActive: '1',
-          shipFee: 30000
-        }
-      }, cmuiUser);
-      assert.equal(legacyNoPhoneEdit.ok, true);
-
-      const newNoPhoneBlocked = await phoneReqService.run('createOrder', {
-        requestId: 'v31-new-nophone-blocked',
-        order: {
-          customer: 'Khách Mới Thiếu SĐT',
-          phone: '',
-          date: '2026-12-29',
-          time: '14:00',
-          flower: 'Bó ly trắng',
-          orderSource: 'Zalo',
-          shipping: 'Ghé lấy',
-          flowerTotal: 400000,
-          payment: 'Chưa thanh toán (0 đ)',
-          sale: 'cmui'
-        }
-      }, cmuiUser);
-      assert.equal(newNoPhoneBlocked.ok, false);
-      assert.equal(newNoPhoneBlocked.code, 'PHONE_REQUIRED');
-
-      // 2. Legacy 0-flower order unrelated edit MUST SUCCEED
-      await pg.query(`
-        insert into public.orders (
-          id, customer, phone, order_date, order_time, flower, note, order_source, order_type,
-          shipping, address, flower_total, payment, sale, card, card_qty, banner, banner_qty,
-          ship_fee, ship_confirmed, status, image_urls, full_paid_bill_urls, created_by
-        ) values (
-          'MEE-LEGACY0FLOWER', 'Đơn Bảo Hành Cũ', '0901234567', '2026-12-28', '09:00', 'Đổi hoa bảo hành', 'Ghi chú cũ',
-          'Zalo', 'STANDARD', 'Ghé lấy', '', 0, 'Chưa thanh toán (0 đ)', 'cmui',
-          false, 0, false, 0, 0, false, 'Chờ bó', '[]'::jsonb, '[]'::jsonb, 'cmui'
-        )
-      `);
-      const zeroRow = (await pg.query("select * from public.orders where id = 'MEE-LEGACY0FLOWER'")).rows[0];
-      const zeroUnrelatedEdit = await opService.run('updateOrder', {
-        requestId: 'v31-legacy-zero-unrelated',
-        orderId: 'MEE-LEGACY0FLOWER',
-        expectedUpdatedAt: zeroRow.updated_at.toISOString(),
-        order: {
-          customer: 'Đơn Bảo Hành Cũ',
-          phone: '0901234567',
-          date: '2026-12-28',
-          time: '09:30',
-          flower: 'Đổi hoa bảo hành',
-          note: 'Cập nhật giờ lấy',
-          orderSource: 'Zalo',
-          shipping: 'Ghé lấy',
-          flowerTotal: 0,
-          payment: 'Chưa thanh toán (0 đ)',
-          sale: 'cmui'
-        }
-      }, cmuiUser);
-      assert.equal(zeroUnrelatedEdit.ok, true);
-
-      // 3. Full V3.1 operational lifecycle: Walk-in (CASH & TRANSFER), Standard + Ship + Status + Settlement + Approve, Full Paid, Soft-Delete + Restore
+      // Full V3.1 operational lifecycle: Walk-in (CASH & TRANSFER), Standard + Ship + Status + Settlement + Approve, Full Paid, Soft-Delete + Restore
       const walkInCash = await opService.run('createOrder', {
         requestId: 'v31-walkin-cash',
         order: { orderType: 'WALK_IN', date: '2026-12-29', time: '10:15', flowerTotal: 220000, walkInPaymentMethod: 'CASH', flower: 'Bó nhỏ tại tiệm' }
@@ -1338,6 +1199,7 @@ describe('Production Readiness 8: Bot Production Acceptance — 350k/200k Deposi
       const rows = (await pg.query('select *, public.mee_ops_total(orders) as total_due, public.mee_ops_paid(orders) as paid, public.mee_ops_debt(orders) as debt from public.orders')).rows;
       assert.equal(rows.length, 1, 'Exactly 1 OPS order must exist');
       assert.equal(rows[0].sale, 'cmui');
+      assert.equal(Array.isArray(rows[0].image_urls) ? rows[0].image_urls.length : 0, 1, 'Sample photo must be stored on OPS image_urls');
       assert.equal(Number(rows[0].flower_total), 350000);
       assert.equal(Number(rows[0].total_due), 350000);
       assert.equal(Number(rows[0].paid), 200000);
@@ -1365,6 +1227,68 @@ describe('Production Readiness 8: Bot Production Acceptance — 350k/200k Deposi
       assert.equal(rowsAfterRetries.length, 1, 'Repeated /confirm, duplicate update_id, /retry_payment, and wrong /relink must NEVER duplicate orders');
       assert.equal(Number(rowsAfterRetries[0].paid), 200000, 'Deposit must remain exactly 200,000 (never double-recorded)');
       assert.equal(Number(rowsAfterRetries[0].debt), 150000, 'Debt must remain exactly 150,000');
+
+      // E. E2E Bot -> Live v33 with accessories qty > 1 (2 cards + 2 banners), Shop book ship missing address (reminder-only), and exact 50% flower deposit
+      const accEnv = {
+        ...env,
+        GEMINI_FETCHER: async () => {
+          const sse = `data: ${JSON.stringify({
+            candidates: [{
+              finishReason: 'STOP',
+              content: {
+                parts: [{
+                  text: JSON.stringify({
+                    customer: 'Chị Thảo Phụ Kiện',
+                    phone: '[PHONE_1]',
+                    flower: 'kệ lan vàng',
+                    flowerTotal: 400000,
+                    date: '29/12',
+                    time: '17:30',
+                    shipping: 'Shop book ship',
+                    address: null,
+                    card: true,
+                    cardQty: 2,
+                    cardText: 'Mừng khai trương',
+                    banner: true,
+                    bannerQty: 2,
+                    bannerText: 'Công ty Phát Đạt',
+                    paymentState: 'deposit',
+                    depositAmount: 200000
+                  })
+                }]
+              }
+            }]
+          })}\n\n`;
+          return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+        }
+      };
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80020,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/new' }
+      }), accEnv);
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80021,
+        message: {
+          chat: { id: 5252724920, type: 'private' },
+          from: { id: 5252724920 },
+          photo: [{ file_id: 'f_acc_qty', file_unique_id: 'u_acc_qty' }],
+          caption: 'Chị Thảo Phụ Kiện 0909444555 đặt kệ lan vàng 400k, 2 thiệp "Mừng khai trương", 2 banner "Công ty Phát Đạt", 17:30 29/12 shop giao, cọc 200k'
+        }
+      }), accEnv);
+      assert.ok(sentReplies.at(-1).includes('Nhắc bổ sung'), 'Missing Shop book ship address must trigger reminder in summary');
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80022,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+      }), accEnv);
+      const accRow = (await pg.query("select *, public.mee_ops_total(orders) as total_due, public.mee_ops_paid(orders) as paid, public.mee_ops_debt(orders) as debt from public.orders where customer = 'Chị Thảo Phụ Kiện'")).rows[0];
+      assert.ok(accRow, 'Accessories qty > 1 order must be saved on live v33');
+      assert.equal(accRow.sale, 'cmui');
+      assert.equal(Number(accRow.card_qty), 2);
+      assert.equal(Number(accRow.banner_qty), 2);
+      assert.equal(accRow.ship_confirmed, false);
+      assert.equal(Number(accRow.total_due), 490000); // 400k + 2*10k + 2*35k
+      assert.equal(Number(accRow.paid), 200000);
+      assert.equal(Number(accRow.debt), 290000);
 
       // Verify exact 50% boundary (350k flower + 175k deposit) passes via OPS API
       const exact50 = await opsClient.callCreateOrder(PROD_OPS_URL, CMUI_SESSION, {

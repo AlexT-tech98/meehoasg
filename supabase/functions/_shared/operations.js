@@ -3,14 +3,8 @@ export function operationFailure(message, code='ORDER_INPUT_INVALID') { return {
 const clean=v=>String(v??'').trim();
 const bool=v=>v===true||v===1||v==='1'||v==='true'||v==='on';
 
-function ruleError(message, code='ORDER_INPUT_INVALID') {
-  const err = new Error(message);
-  err.code = code;
-  return err;
-}
-
 export const ORDER_VALIDATION_RULES = {
-  schemaVersion: '2026-11-26.v3',
+  schemaVersion: '2026-11-26.v2',
   saleDefault: 'cmui',
   saleDefaultName: 'C Mụi',
   required: ['customer', 'flower', 'date', 'time', 'shipping', 'flowerTotal'],
@@ -18,72 +12,22 @@ export const ORDER_VALIDATION_RULES = {
   minFlowerTotal: 1,
   minDepositRatio: 0.5,
   depositBase: 'flowerTotal',
-  conditionalRequired: [],
-  conditionalReminders: [
+  conditionalRequired: [
     { field: 'address', when: { field: 'shipping', equals: 'Shop book ship' }, rejectPending: true }
   ],
-  accessoryPrices: {
-    cardUnitFee: 10000,
-    bannerUnitFee: 35000
-  },
   enums: {
     shipping: ['Shop book ship', 'Khách tự book', 'Ghé lấy'],
     statuses: ['Chờ bó', 'Đã bó', 'Đã giao']
   },
   supportedRuleFeatures: [
     'required_fields',
-    'conditional_reminders',
-    'accessory_unit_pricing',
+    'conditional_required',
     'min_deposit_ratio',
     'flower_total_required',
     'shipping_enum',
     'sale_default'
-  ],
-  phoneRequired: false,
-  source: 'default'
+  ]
 };
-
-export function buildOrderRules(overrides = {}) {
-  const phoneRequired = Boolean(overrides.phoneRequired ?? overrides.phone_required);
-  const rawRatio = Number(overrides.minDepositRatio ?? overrides.min_deposit_ratio ?? ORDER_VALIDATION_RULES.minDepositRatio);
-  const minDepositRatio = Number.isFinite(rawRatio) && rawRatio >= 0 && rawRatio <= 1 ? rawRatio : ORDER_VALIDATION_RULES.minDepositRatio;
-  const requireFlowerTotal = overrides.requireFlowerTotal !== undefined
-    ? Boolean(overrides.requireFlowerTotal)
-    : (overrides.require_flower_total !== undefined ? Boolean(overrides.require_flower_total) : true);
-  const baseRequired = [...ORDER_VALIDATION_RULES.required];
-  if (phoneRequired && !baseRequired.includes('phone')) baseRequired.push('phone');
-  return {
-    ...ORDER_VALIDATION_RULES,
-    schemaVersion: phoneRequired ? '2026-11-26.v3+phone' : ORDER_VALIDATION_RULES.schemaVersion,
-    required: baseRequired,
-    requireFlowerTotal,
-    minDepositRatio,
-    phoneRequired,
-    source: overrides.source || 'default'
-  };
-}
-
-export function loadOrderRules(oneFn, env = {}) {
-  return (async () => {
-    const envPhoneRequired = String(env?.OPS_PHONE_REQUIRED || '').trim() === '1';
-    let overrides = { source: 'default' };
-    if (typeof oneFn === 'function') {
-      try {
-        const cfg = await oneFn('sync_config', { id: 'eq.true' });
-        const rawRules = cfg?.order_rules && typeof cfg.order_rules === 'object' ? cfg.order_rules : null;
-        if (rawRules) {
-          overrides = { ...rawRules, source: 'postgres:sync_config/order_rules' };
-        }
-      } catch {
-        // Fallback cleanly to default rules when sync_config has no order_rules column/override
-      }
-    }
-    if (overrides.phoneRequired === undefined && overrides.phone_required === undefined) {
-      overrides.phoneRequired = envPhoneRequired;
-    }
-    return buildOrderRules(overrides);
-  })();
-}
 
 export function extractDepositPaymentAmount(payment) {
   const raw = clean(payment);
@@ -109,7 +53,7 @@ export function validateOrderDepositRule(flowerTotal, payment, rules = ORDER_VAL
   // Minimum deposit threshold is strictly based on flowerTotal alone (excluding ship & accessories); exact 50% passes.
   const minDeposit = totalFlower * ratio;
   if (deposit < minDeposit) {
-    throw ruleError(`Tiền cọc phải đạt tối thiểu ${Math.round(ratio * 100)}% tiền hoa (không tính phí ship hay phụ kiện).`, 'DEPOSIT_BELOW_MIN_RATIO');
+    throw Error(`Tiền cọc phải đạt tối thiểu ${Math.round(ratio * 100)}% tiền hoa.`);
   }
 }
 export function operationMoney(value, optional=false) {
@@ -127,7 +71,7 @@ export function operationMoney(value, optional=false) {
 }
 export const ORDER_SOURCES=['Threads','TikTok','Page/IG','Zalo','Google Map','Khách ghé tiệm'];
 function vnNowHHMM(){return new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());}
-export function normalizeOperationOrder(input,user,current={},rules=ORDER_VALIDATION_RULES) {
+export function normalizeOperationOrder(input,user,current={}) {
   const d=input||{},date=clean(d.date);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+'T00:00:00Z'))||new Date(date+'T00:00:00Z').toISOString().slice(0,10)!==date)throw Error('Ngày nhận không hợp lệ.');
   const orderType=clean(d.orderType||d.order_type||current.order_type||'STANDARD').toUpperCase();
@@ -164,21 +108,9 @@ export function normalizeOperationOrder(input,user,current={},rules=ORDER_VALIDA
   const shipping=clean(d.shipping),shipActive=clean(d.shipFeeActive)==='1';
   if(shipActive&&shipping!=='Shop book ship')throw Error('Phí ship chỉ dùng cho đơn Shop book ship.');
   const flowerTotal=operationMoney(d.flowerTotal);
-  const activeRules=rules&&typeof rules==='object'?rules:ORDER_VALIDATION_RULES;
-  const isEdit=Boolean(clean(current?.id)||(current&&typeof current==='object'&&Object.keys(current).length>0&&('payment' in current||'flower_total' in current||'order_type' in current)));
-  const minFlowerTotal=Number(activeRules.minFlowerTotal??1);
-  const prevFlowerTotal=isEdit?Number(current.flower_total??0):0;
-  const flowerTotalChanged=!isEdit||flowerTotal!==prevFlowerTotal;
-  if(activeRules.requireFlowerTotal!==false&&!(flowerTotal>=minFlowerTotal)&&(!isEdit||flowerTotalChanged||prevFlowerTotal>=minFlowerTotal))throw ruleError('Tiền hoa bắt buộc và phải lớn hơn 0 đ.','FLOWER_TOTAL_REQUIRED');
-  const nextPhone=clean(d.phone),prevPhone=isEdit?clean(current.phone):'';
-  if(activeRules.phoneRequired&&!nextPhone&&(!isEdit||Boolean(prevPhone)))throw ruleError('Số điện thoại khách hàng là bắt buộc theo quy tắc OPS hiện hành.','PHONE_REQUIRED');
   const payment=clean(d.payment);
-  const prevPayment=isEdit?clean(current.payment):'';
-  const paymentChanged=!isEdit||payment!==prevPayment||extractDepositPaymentAmount(payment)!==extractDepositPaymentAmount(prevPayment);
-  if(!isEdit||paymentChanged||flowerTotalChanged){
-    validateOrderDepositRule(flowerTotal, payment, activeRules);
-  }
-  return {customer:clean(d.customer),phone:nextPhone,order_date:date,order_time:t[1].padStart(2,'0')+':'+t[2],
+  validateOrderDepositRule(flowerTotal, payment);
+  return {customer:clean(d.customer),phone:clean(d.phone),order_date:date,order_time:t[1].padStart(2,'0')+':'+t[2],
     flower:clean(d.flower),note:clean(d.note),
     tag_note_free:d.tagNoteFree===undefined&&d.tag_note_free===undefined?clean(current.tag_note_free):clean(d.tagNoteFree??d.tag_note_free),
     order_source:orderSource,order_type:'STANDARD',walk_in_payment_method:'',
@@ -207,7 +139,7 @@ export function privateImageIdentity(value){
   return m?`supabase://${m[1]}/${decodeURIComponent(m[2])}`:s;
 }
 function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(k=>[k,stable(value[k])]));return value;}
-export function createOperationService({db,one,uploadImages,sha256,newId,discardImages=async()=>{},verifyStagedUploads=async()=>{throw Error('DIRECT_UPLOAD_UNAVAILABLE')},getRules=async()=>ORDER_VALIDATION_RULES}) {
+export function createOperationService({db,one,uploadImages,sha256,newId,discardImages=async()=>{},verifyStagedUploads=async()=>{throw Error('DIRECT_UPLOAD_UNAVAILABLE')}}) {
   async function rpc(name,body){return db('rpc/'+name,{},'POST',body);}
   async function run(action,payload,user){
     const p=payload||{},requestId=clean(p.requestId);
@@ -228,8 +160,7 @@ export function createOperationService({db,one,uploadImages,sha256,newId,discard
         current=await one('orders',{id:'eq.'+input.orderId});if(!current)return operationFailure('Không tìm thấy đơn.','NOT_FOUND');
         if(user.role==='SALE'&&![clean(user.username).toLowerCase(),clean(user.display_name).toLowerCase()].includes(clean(current.sale).toLowerCase()))return operationFailure('Sale chỉ được sửa đơn do mình phụ trách.','NOT_OWNER');
       }
-      const activeRules=typeof getRules==='function'?await getRules():ORDER_VALIDATION_RULES;
-      try{input.order=normalizeOperationOrder(p.order,user,current,activeRules);}catch(e){return operationFailure(e.message,e.code||'ORDER_INPUT_INVALID');}
+      try{input.order=normalizeOperationOrder(p.order,user,current);}catch(e){return operationFailure(e.message);}
       input.newOrderId=newId('MEE');
       input.requireOrderSource=bool(p.order?.requireOrderSource||p.requireOrderSource);
       input.fullPaidRequested=input.order.order_type==='WALK_IN'?false:bool(p.order?.fullPaidRequested);
