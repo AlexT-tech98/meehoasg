@@ -389,7 +389,7 @@ test('Kịch bản 4: Đơn Fullpaid CÓ bill: tạo đơn thành công, liên k
     return new Response('Not found', { status: 404 });
   };
 
-  const env = createMockEnv(db, r2);
+  const env = { ...createMockEnv(db, r2), ALLOW_LEGACY_DRAFT_BILLS: '1' };
 
   await handleTelegramWebhook(makeWebhookRequest({
     update_id: 401,
@@ -1135,7 +1135,7 @@ test('Kịch bản 18: Lệnh /relink thử lại liên kết bill thành công 
     return new Response(JSON.stringify({ ok: true }));
   };
 
-  const env = createMockEnv(db, r2);
+  const env = { ...createMockEnv(db, r2), ALLOW_LEGACY_DRAFT_BILLS: '1' };
 
   await handleTelegramWebhook(makeWebhookRequest({
     update_id: 1801,

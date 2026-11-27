@@ -476,7 +476,8 @@ export async function extractFieldsWithGeminiDetailed(
   if (!apiKey) return { ok: false, fields: null, model: activeModel, latencyMs: 0, stage: 'connect', error: 'NO_API_KEY', retries: 0, attempts: [] };
   if (!text || text.trim().length < 5) return { ok: false, fields: null, model: activeModel, latencyMs: 0, stage: 'connect', error: 'TEXT_TOO_SHORT', retries: 0, attempts: [] };
 
-  const body = buildGeminiRequestBody(text, activeModel);
+  // Send raw verbatim caption text (photos & bills stay strictly outside AI); never log full caption.
+  const body = buildGeminiRequestBody(String(text), activeModel);
   const opts = (typeof timeoutMs === 'object' && timeoutMs !== null) ? timeoutMs : (options || {});
   const rawTimeout = typeof timeoutMs === 'object' ? DEFAULT_GEMINI_TIMEOUT_MS : timeoutMs;
   const effectiveTimeout = Number.isFinite(Number(rawTimeout)) && Number(rawTimeout) > 0 ? Number(rawTimeout) : DEFAULT_GEMINI_TIMEOUT_MS;
@@ -554,6 +555,7 @@ export async function extractFieldsWithGeminiDetailed(
     if (res.ok && (!res.corruptedFields || res.corruptedFields.length === 0)) {
       return {
         ...res,
+        fields: res.fields,
         latencyMs: Date.now() - budgetStart,
         retries,
         budgetExhausted: false,
@@ -565,6 +567,7 @@ export async function extractFieldsWithGeminiDetailed(
       if (retries >= effectiveMaxRetries) {
         return {
           ...res,
+          fields: res.fields,
           latencyMs: Date.now() - budgetStart,
           retries,
           budgetExhausted: false,
@@ -576,6 +579,7 @@ export async function extractFieldsWithGeminiDetailed(
       if (delay + minReserve > budgetLeft) {
         return {
           ...res,
+          fields: res.fields,
           latencyMs: Date.now() - budgetStart,
           retries,
           budgetExhausted: true,

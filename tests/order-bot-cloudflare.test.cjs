@@ -407,7 +407,8 @@ test('Scenario 7: Bill photo is classified into draftBillRefs as unverified bill
     MEDIA_R2: r2,
     BOT_TOKEN: 'fake_bot_token',
     TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
-    ALLOWED_USER_IDS: '5252724920'
+    ALLOWED_USER_IDS: '5252724920',
+    ALLOW_LEGACY_DRAFT_BILLS: '1'
   };
 
   globalThis.fetch = async (url) => {
@@ -810,7 +811,8 @@ test('Scenario 16: Unverified bill is permanently linked directly into D1 orders
     OPS_TOKEN: 'test_ops_token',
     OPS_API_URL: 'https://ops-staging.local/api-core',
     TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
-    ALLOWED_USER_IDS: '5252724920'
+    ALLOWED_USER_IDS: '5252724920',
+    ALLOW_LEGACY_DRAFT_BILLS: '1'
   };
 
   globalThis.fetch = async (url, opts) => {
@@ -943,7 +945,8 @@ test('Scenario 18: Bill linking failure warns user without false-positive, keeps
     OPS_TOKEN: 'test_ops_token',
     OPS_API_URL: 'https://ops-staging.local/api-core',
     TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
-    ALLOWED_USER_IDS: '5252724920'
+    ALLOWED_USER_IDS: '5252724920',
+    ALLOW_LEGACY_DRAFT_BILLS: '1'
   };
 
   globalThis.fetch = async (url, opts) => {

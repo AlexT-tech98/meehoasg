@@ -62,7 +62,7 @@ import {
   bytesToBase64
 } from './telegram.mjs';
 
-import { callCreateOrder, syncOrderPaymentToOps, fetchOpsOrderRules, getCachedOpsOrderRules, clearOpsOrderRulesCache } from './ops-client.mjs';
+import { callCreateOrder, syncOrderPaymentToOps, fetchOpsOrderRules, getCachedOpsOrderRules, clearOpsOrderRulesCache, buildOpsHeaders, checkOpsHealth, isSupabaseOpsUrl } from './ops-client.mjs';
 import {
   extractFieldsWithGeminiDetailed,
   sanitizeAiFields,
@@ -192,6 +192,10 @@ function formatAiFailureNotice(aiRes) {
   return `⚠️ AI đang quá tải tạm thời hoặc hết thời gian chờ (${status ? 'HTTP ' + status : err}). Ảnh mẫu và chú thích vẫn được giữ nguyên trong nháp — gõ /reparse để thử đọc lại cùng nháp hoặc bổ sung thủ công.`;
 }
 
+function isLegacyDraftBillsAllowed(env) {
+  return String(env?.ALLOW_LEGACY_DRAFT_BILLS || '').trim() === '1';
+}
+
 const html = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;',
   '<': '&lt;',
@@ -319,6 +323,25 @@ export function transitionDraftStatus(drafts, draftId, status, extra = {}) {
   };
 }
 
+function resolveBotRuntimeInfo(env) {
+  const opsUrl = env?.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+  const environment = env?.ENVIRONMENT || (isSupabaseOpsUrl(opsUrl) ? 'production' : 'staging');
+  const serviceName = env?.SERVICE_NAME || (environment === 'production' ? 'meehoa-order-bot' : 'meehoa-order-bot-staging');
+  const opsLabel = environment === 'production' ? 'MEEHOA OPS' : 'MEEHOA OPS Staging';
+  const opsShortLabel = environment === 'production' ? 'MEEHOA OPS' : 'OPS Staging';
+  return { opsUrl, environment, serviceName, opsLabel, opsShortLabel };
+}
+
+function isOpsAuthOrSessionFailure(opsRes) {
+  if (!opsRes || opsRes.ok) return false;
+  const code = String(opsRes.code || '').toUpperCase();
+  if (['HTTP_401', 'HTTP_403', 'GATEWAY_UNAUTHORIZED', 'OPS_SESSION_EXPIRED', 'OPS_ACCOUNT_LOCKED', 'OPS_FORBIDDEN'].includes(code)) {
+    return true;
+  }
+  const msg = String(opsRes.message || '');
+  return /phiên đăng nhập|hết hạn|invalid jwt|unauthorized|không có quyền|tài khoản đã bị khóa/i.test(msg);
+}
+
 export default {
   /**
    * Main fetch router for Cloudflare Worker
@@ -326,14 +349,15 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
+    const runtime = resolveBotRuntimeInfo(env);
 
     // 1. Health check endpoint
     if (path === '/health') {
       return new Response(JSON.stringify({
         ok: true,
-        service: 'meehoa-order-bot-staging',
+        service: runtime.serviceName,
         version: '1.0.0',
-        environment: 'staging',
+        environment: runtime.environment,
         timestamp: new Date().toISOString()
       }), {
         headers: { 'Content-Type': 'application/json' }
@@ -349,22 +373,13 @@ export default {
           d1Test = row?.alive === 1;
         }
 
-        let opsHealth = false;
-        let opsError = null;
-        try {
-          const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
-          const opsBase = (env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core').replace(/\/api-core\/?$/, '');
-          const opsRes = await fetcher(`${opsBase}/health`, { method: 'GET' });
-          if (opsRes.ok) {
-            const data = await opsRes.json();
-            opsHealth = Boolean(data?.ok);
-          } else {
-            opsError = `HTTP_${opsRes.status}`;
-          }
-        } catch {
-          opsHealth = false;
-          opsError = 'OPS_HEALTH_UNAVAILABLE';
-        }
+        const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+        const opsToken = env.OPS_TOKEN || env.OPS_SERVICE_ROLE_TOKEN || '';
+        const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
+        const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
+        const opsCheck = await checkOpsHealth(opsUrl, opsToken, fetcher, { opsApiKey });
+        const opsHealth = Boolean(opsCheck.ok);
+        const opsError = opsCheck.error || null;
 
         const stale = env.DB ? await findStaleConfirming(env.DB) : [];
         let lastGeminiCall = null;
@@ -418,12 +433,17 @@ export default {
 
         return new Response(JSON.stringify({
           ok: true,
-          service: 'meehoa-order-bot-staging',
-          environment: 'staging',
+          service: runtime.serviceName,
+          environment: runtime.environment,
           d1Connected: d1Test,
           r2Connected: Boolean(env.MEDIA_R2),
           opsConnected: opsHealth,
           opsError: opsError,
+          opsAuthMode: opsCheck.authMode,
+          opsApiCompatibility: opsCheck.apiCompatibility || null,
+          opsGatewayKeyConfigured: Boolean(opsApiKey),
+          opsRuleSchemaVersion: opsCheck.schemaVersion || null,
+          opsCallerRole: opsCheck.callerRole || null,
           staleConfirmingDrafts: stale.length,
           telegramConfigured: Boolean(botToken),
           webhookSecretConfigured: Boolean(env.TELEGRAM_SECRET_TOKEN),
@@ -444,19 +464,20 @@ export default {
     }
 
     // 3. AI Probe endpoint (POST /ai-probe) — Staging-only authenticated test harness.
-    //    Supports two modes:
-    //    - mode: "minimal"  → calls extractFieldsWithGeminiDetailed directly using Worker's GEMINI_API_KEY Secret.
-    //    - mode: "bot-flow" → runs the real handleTelegramWebhook flow (caption/photo, Gemini, merge, /reparse,
-    //                         deduplication) inside an in-memory D1/R2 sandbox with OPS writes strictly blocked.
-    //    Protected by AI_PROBE_TOKEN (x-ai-probe-token) or OPS_TOKEN (x-ops-token). Never weakens /webhook auth.
+    //    Disabled by default on Production unless ENABLE_STAGING_PROBES='1'.
     if (request.method === 'POST' && path === '/ai-probe') {
+      if (runtime.environment === 'production' && String(env?.ENABLE_STAGING_PROBES || '').trim() !== '1') {
+        return new Response('Not Found', { status: 404 });
+      }
       return handleAiProbe(request, env);
     }
 
-    // 3b. OPS Acceptance Probe endpoint (POST /ops-probe) — Staging-only authenticated test harness
-    //     Protected strictly by AI_PROBE_TOKEN so agents can verify authenticated OPS RPCs and E2E Form-vs-Bot parity
-    //     while keeping OPS_TOKEN secret inside the Worker and isolating bot_drafts from D1 Staging.
+    // 3b. OPS Acceptance Probe endpoint (POST /ops-probe) — Staging-only authenticated test harness.
+    //     Disabled by default on Production unless ENABLE_STAGING_PROBES='1'.
     if (request.method === 'POST' && path === '/ops-probe') {
+      if (runtime.environment === 'production' && String(env?.ENABLE_STAGING_PROBES || '').trim() !== '1') {
+        return new Response('Not Found', { status: 404 });
+      }
       return handleOpsProbe(request, env);
     }
 
@@ -1313,12 +1334,10 @@ async function handleOpsProbe(request, env) {
     }
     const rpcPayload = probeBody?.rpcPayload && typeof probeBody.rpcPayload === 'object' ? probeBody.rpcPayload : {};
     const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
+    const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
     const res = await fetcher(opsUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${opsToken}`
-      },
+      headers: buildOpsHeaders(opsToken, opsApiKey),
       body: JSON.stringify({
         name: rpcName,
         payload: { ...rpcPayload, token: opsToken }
@@ -1532,6 +1551,17 @@ export async function handleTelegramWebhook(request, rawEnv) {
       }
 
       const isBill = isBillCaption(caption);
+      if (isBill && !isLegacyDraftBillsAllowed(env)) {
+        await replyTg(
+          env,
+          chatId,
+          'ℹ️ Quy trình hiện hành không đính kèm ảnh bill trong luồng nhập đơn mới trên Telegram.\n' +
+          '• Khoản cọc/thanh toán được ghi nhận theo tin nhắn xác nhận của bạn.\n' +
+          '• Ảnh bill Full Paid / tất toán sẽ nộp sau trực tiếp trên OPS.\n' +
+          'Vui lòng chỉ gửi ảnh mẫu hoa kèm chú thích đơn hàng.'
+        );
+        return;
+      }
       const decision = classifyIncomingPhotoDraft(drafts, caption, isBill);
 
       if (decision.action === 'reject_no_draft') {
@@ -1966,6 +1996,15 @@ const isShippingLikeName = val => {
   return /\b(shop\s*(?:book|ship|giao)|khach\s*tu\s*book|tu\s*book|ghe\s*lay|tai\s*tiem|tu\s*lay|grab|aha)\b/.test(norm);
 };
 
+function mergePendingAiText(existingText, nextText) {
+  const prev = String(existingText || '').trim();
+  const next = String(nextText || '').trim();
+  if (!prev) return next;
+  if (!next || prev === next || prev.includes(next)) return prev;
+  if (next.includes(prev)) return next;
+  return `${prev}\n${next}`.slice(-4000);
+}
+
 /**
  * Run Gemini AI fallback on top of the deterministic parser for photo captions, text, and /reparse.
  * - Preserves all previously confirmed fields unless explicit edit intent is active (and not disabled via preserveExisting).
@@ -2054,10 +2093,13 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
   }
 
   if (!aiRes?.ok) {
+    const preservedPending = preserveExisting
+      ? String(text)
+      : mergePendingAiText(after?.pendingAiText, text);
     const failedDraft = after
       ? {
           ...after,
-          pendingAiText: String(text),
+          pendingAiText: preservedPending,
           lastAiError: {
             status: aiRes?.status ?? null,
             endpoint: aiRes?.endpoint || null,
@@ -2067,7 +2109,7 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
           }
         }
       : after;
-    const shouldNotify = stillMissing.length > 0 || !(result.changes?.length);
+    const shouldNotify = Boolean(options?.forceNotifyOnAiError) || stillMissing.length > 0 || !(result.changes?.length);
     return {
       draft: failedDraft,
       changes: result.changes || [],
@@ -2197,7 +2239,7 @@ async function handleReparseCommand(drafts, arg, env, userId, chatId) {
     env,
     opsRules,
     userId,
-    { preserveExisting: true }
+    { preserveExisting: true, forceNotifyOnAiError: true }
   );
 
   const updated = merged.draft || target;
@@ -2221,7 +2263,8 @@ async function loadCurrentOpsRules(env, { forceRefresh = false } = {}) {
   if (!env?.OPS_TOKEN) return { rules: DEFAULT_OPS_ORDER_RULES, caller: null };
   const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
   const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
-  const res = await fetchOpsOrderRules(opsUrl, env.OPS_TOKEN, fetcher, { forceRefresh });
+  const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
+  const res = await fetchOpsOrderRules(opsUrl, env.OPS_TOKEN, fetcher, { forceRefresh, opsApiKey });
   return { rules: res.rules || DEFAULT_OPS_ORDER_RULES, caller: res.caller || null };
 }
 
@@ -2297,7 +2340,8 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   });
   if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
-  await replyTg(env, chatId, '⏳ Đang kiểm tra ảnh và gửi yêu cầu tạo đơn sang MEEHOA OPS Staging...');
+  const runtime = resolveBotRuntimeInfo(env);
+  await replyTg(env, chatId, `⏳ Đang kiểm tra ảnh và gửi yêu cầu tạo đơn sang ${runtime.opsLabel}...`);
 
   // 3. Prepare images: load durably from R2 (fallback to Telegram ONLY for legacy refs without r2_key)
   const expectedSampleCount = (draft.sampleRefs || []).length;
@@ -2331,9 +2375,11 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     sampleFiles.push({ data: dataUrl });
   }
 
-  const expectedBillCount = (draft.draftBillRefs || []).length;
+  const legacyBillsEnabled = isLegacyDraftBillsAllowed(env);
+  const activeDraftBillRefs = legacyBillsEnabled ? (draft.draftBillRefs || []) : [];
+  const expectedBillCount = activeDraftBillRefs.length;
   const unverifiedBillFiles = [];
-  for (const ref of draft.draftBillRefs || []) {
+  for (const ref of activeDraftBillRefs) {
     let dataUrl = null;
     if (ref.r2_key) {
       dataUrl = await evidenceDataUrl(ref, env);
@@ -2379,7 +2425,12 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     return;
   }
 
+  const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+  const opsToken = env.OPS_TOKEN || '';
+  const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
+
   const allBillsInR2 = expectedBillCount > 0 && Boolean(env.DB && env.MEDIA_R2) &&
+    !isSupabaseOpsUrl(opsUrl) &&
     (draft.draftBillRefs || []).every(ref => Boolean(ref.r2_key));
   const billsForCreateOrder = (samplePayloadBytes + billPayloadBytes > MAX_OPS_PAYLOAD_BYTES && allBillsInR2)
     ? []
@@ -2392,21 +2443,19 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     return;
   }
 
-  // 4. Call OPS Staging API
+  // 4. Call OPS API
   const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
   const opsRes = await callCreateOrder(
-    env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
-    env.OPS_TOKEN || '',
+    opsUrl,
+    opsToken,
     drafts[draft.id],
     sampleFiles,
     billsForCreateOrder,
     fetcher,
-    { expectedBillCount }
+    { expectedBillCount, opsApiKey }
   );
 
   if (opsRes.ok && opsRes.orderId) {
-    const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
-    const opsToken = env.OPS_TOKEN || '';
     const { expectedPayment, expectedPaid } = expectedPaymentDetails(draft.fields);
     const paymentSyncRequestId = draft.paymentSyncRequestId || `${confirmedDraft.requestId}:pay:${draft.fields?.paymentState || 'unpaid'}:${expectedPaid}`;
 
@@ -2450,6 +2499,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       const syncRes = await syncOrderPaymentToOps({
         opsUrl,
         opsToken,
+        opsApiKey,
         orderId: opsRes.orderId,
         expectedPayment,
         expectedPaid,
@@ -2566,7 +2616,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       ? `\n⚠️ <b>LƯU Ý SALE PHỤ TRÁCH:</b> OPS đang lưu tài khoản <code>${html(opsSaleUsername)}</code> thay vì <code>${html(expectedSaleUsername)}</code>.\n`
       : '';
 
-    let successMsg = `✅ <b>TẠO ĐƠN THÀNH CÔNG TRÊN MEEHOA OPS STAGING!</b>\n\n` +
+    let successMsg = `✅ <b>TẠO ĐƠN THÀNH CÔNG TRÊN ${html(runtime.opsLabel.toUpperCase())}!</b>\n\n` +
       `🆔 <b>Mã đơn:</b> <code>${html(opsRes.orderId)}</code>\n` +
       saleLine +
       `👤 Khách: ${html(customer)}\n` +
@@ -2604,10 +2654,14 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
+    const authRecoveryHint = isOpsAuthOrSessionFailure(opsRes)
+      ? '\n\n🔑 Khắc phục phiên OPS: Phiên đăng nhập của tài khoản C Mụi (OPS_TOKEN) hoặc khóa cổng Supabase (OPS_SUPABASE_ANON_KEY) có thể đã hết hạn/sai quyền. Vui lòng đăng nhập lại cmui trên OPS để lấy phiên mới, cập nhật Secret OPS_TOKEN của Worker rồi gõ /confirm lại.'
+      : '';
+
     await replyTg(
       env,
       chatId,
-      `❌ Không thể tạo đơn trên OPS Staging:\n${opsRes.message}\n\nĐơn nháp vẫn được giữ nguyên. Bạn có thể kiểm tra lại và gõ /confirm để thử lại.`
+      `❌ Không thể tạo đơn trên ${runtime.opsShortLabel}:\n${opsRes.message}${authRecoveryHint}\n\nĐơn nháp vẫn được giữ nguyên. Bạn có thể kiểm tra lại và gõ /confirm để thử lại.`
     );
   }
 }
@@ -2867,10 +2921,12 @@ async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
   const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
   const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
   const opsToken = env.OPS_TOKEN || '';
+  const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
 
   const syncRes = await syncOrderPaymentToOps({
     opsUrl,
     opsToken,
+    opsApiKey,
     orderId: targetDraft.opsOrderId,
     expectedPayment,
     expectedPaid,
@@ -2942,6 +2998,14 @@ async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
   const targetDraft = resolved.draft;
 
   const billCount = targetDraft.draftBillRefs?.length || 0;
+  if (!isLegacyDraftBillsAllowed(env) || isSupabaseOpsUrl(env.OPS_API_URL || '')) {
+    await replyTg(
+      env,
+      chatId,
+      `ℹ️ Lệnh /relink chỉ áp dụng cho dữ liệu bill cũ trên D1 Staging. Trên luồng hiện hành, ảnh bill Full Paid / tất toán cho đơn ${targetDraft.opsOrderId} được nộp trực tiếp trên OPS.`
+    );
+    return;
+  }
   if (billCount === 0) {
     await replyTg(env, chatId, `ℹ️ Đơn ${targetDraft.opsOrderId} không có ảnh bill nào được lưu trong bản nháp.`);
     return;

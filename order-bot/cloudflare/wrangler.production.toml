@@ -1,0 +1,44 @@
+# MEEHOA Order Bot V1 — Production Wrangler Configuration (FOR OWNER REVIEW)
+# Strictly isolated from Staging:
+#   - Dedicated Worker: meehoa-order-bot (workers.dev for initial release)
+#   - Dedicated D1: meehoa-order-bot-prod (bot_drafts, bot_processed_updates, bot_audit_logs ONLY)
+#   - Dedicated R2: meehoa-order-bot-media-prod (temporary draft sample photos ONLY; separate from OPS permanent R2)
+#   - Production OPS API: Supabase Edge Function meehoasg-api-core v33 (verify_jwt: true, NO OPS API redeploy needed)
+#   - NO Staging service bindings, NO Staging D1/R2/KV IDs, NO Staging tokens.
+#
+# Required Secrets (configure via Cloudflare Dashboard or `npx wrangler secret put -c wrangler.production.toml`):
+#   - TELEGRAM_BOT_TOKEN      (existing Telegram bot token — webhook switches only at approved release step)
+#   - TELEGRAM_SECRET_TOKEN   (new 64-hex random webhook secret for Production cutover)
+#   - OPS_SUPABASE_ANON_KEY   (Supabase Production Gateway JWT — separate from OPS app session)
+#   - OPS_TOKEN               (dedicated 64-hex OPS app session token for `cmui` on Production)
+#   - GEMINI_API_KEY          (Google Gemini API Free-tier key; keep billing disabled)
+
+name = "meehoa-order-bot"
+main = "worker.mjs"
+compatibility_date = "2026-11-21"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+ENVIRONMENT = "production"
+SERVICE_NAME = "meehoa-order-bot"
+OPS_API_URL = "https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-core"
+ALLOWED_USER_IDS = "5252724920"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "meehoa-order-bot-prod"
+database_id = "REPLACE_WITH_NEW_PROD_D1_DATABASE_ID"
+
+[[r2_buckets]]
+binding = "MEDIA_R2"
+bucket_name = "meehoa-order-bot-media-prod"
+
+[[durable_objects.bindings]]
+name = "GEMINI_EGRESS_DO"
+class_name = "GeminiEgressProxy"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GeminiEgressProxy"]
