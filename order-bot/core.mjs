@@ -808,6 +808,18 @@ function activeDraft(drafts) {
 }
 
 /**
+ * Monotonic per-draft version number used to bind inline keyboard buttons
+ * strictly to the exact draft revision displayed to the operator.
+ */
+export function getDraftVersion(draft) {
+  if (!draft || typeof draft !== 'object') return 0;
+  const v = Number(draft.version);
+  if (Number.isInteger(v) && v >= 1) return v;
+  const histLen = Array.isArray(draft.history) ? draft.history.length : 0;
+  return histLen + 1;
+}
+
+/**
  * Returns true if a draft is still an empty, untouched pending draft.
  */
 export function isDraftEmpty(draft) {
@@ -839,7 +851,7 @@ function cmdNew(drafts, _args) {
     };
   }
   const id = newDraftId();
-  const draft = { id, fields: { sale: DEFAULT_BOT_SALE }, sampleRefs: [], draftBillRefs: [], status: 'pending', createdAt: new Date().toISOString() };
+  const draft = { id, fields: { sale: DEFAULT_BOT_SALE }, sampleRefs: [], draftBillRefs: [], status: 'pending', version: 1, createdAt: new Date().toISOString() };
   const next = { ...drafts, [id]: draft, __active: id };
   return { reply: `✅ Đã tạo đơn nháp mới #${id.slice(-6)} (Sale: ${DEFAULT_BOT_SALE_NAME}).\n\nGửi ảnh mẫu kèm thông tin đơn hoặc nhập theo dạng:\n  tên khách: Nguyễn A\n  mẫu hoa: Hoa hồng đỏ\n  giá: 500k\n  ngày nhận: 2026-12-01\n  giờ nhận: 10:00\n  hình thức: Shop book ship`, drafts: next };
 }
@@ -1406,6 +1418,7 @@ function applyFields(draft, text, options = {}) {
     fields: newFields,
     uncertainFields: uncertain,
     history: updatedHistory,
+    version: getDraftVersion(draft) + 1,
   };
   return { draft: updatedDraft, changes, warnings };
 }
@@ -1427,7 +1440,7 @@ export function addBillRef(drafts, telegramFileId, caption) {
   if (draft.status === 'confirming') return { ok: false, reply: '⏳ Đơn đang được tạo, không thể thêm ảnh lúc này.' };
   if ((draft.draftBillRefs || []).length >= 10) return { ok: false, reply: '⚠️ Tối đa 10 ảnh bill trong mỗi đơn nháp.' };
   const ref = { fileId: telegramFileId, caption: (caption || '').slice(0, 200), savedAt: new Date().toISOString() };
-  const updated = { ...draft, draftBillRefs: [...(draft.draftBillRefs || []), ref] };
+  const updated = { ...draft, draftBillRefs: [...(draft.draftBillRefs || []), ref], version: getDraftVersion(draft) + 1 };
   const next = { ...drafts, [draft.id]: updated };
   return {
     ok: true,
@@ -1447,7 +1460,7 @@ export function addSampleRef(drafts, telegramFileId, caption) {
   if (draft.status === 'confirming') return { ok: false, reply: '⏳ Đơn đang được tạo, không thể thêm ảnh lúc này.' };
   if ((draft.sampleRefs || []).length >= 10) return { ok: false, reply: '⚠️ Tối đa 10 ảnh mẫu trong mỗi đơn nháp.' };
   const ref = { fileId: telegramFileId, caption: (caption || '').slice(0, 200), savedAt: new Date().toISOString() };
-  const updated = { ...draft, sampleRefs: [...(draft.sampleRefs || []), ref] };
+  const updated = { ...draft, sampleRefs: [...(draft.sampleRefs || []), ref], version: getDraftVersion(draft) + 1 };
   const next = { ...drafts, [draft.id]: updated };
   return {
     ok: true,

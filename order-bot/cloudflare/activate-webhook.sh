@@ -117,7 +117,7 @@ echo "$CURRENT_INFO" | sed -E 's/"ip_address":"[^"]+"/"ip_address":"[REDACTED]"/
 
 echo ""
 echo "⏳ [4/4] Đang đăng ký Telegram Webhook tới Cloudflare Worker..."
-SET_PAYLOAD=$(printf '{"url":"%s","secret_token":"%s","allowed_updates":["message"]}' "$WORKER_URL" "$SECRET_TOKEN")
+SET_PAYLOAD=$(printf '{"url":"%s","secret_token":"%s","allowed_updates":["message","callback_query"]}' "$WORKER_URL" "$SECRET_TOKEN")
 SET_RES=$(call_telegram_api "setWebhook" \
   -H "Content-Type: application/json" \
   -d "$SET_PAYLOAD")

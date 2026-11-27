@@ -66,9 +66,10 @@ export function verifyWebhookSecret(request, expectedSecret) {
  * @param {string} text - Message text
  * @param {string} [parseMode] - Optional parse mode ('HTML', 'MarkdownV2')
  * @param {Function} [fetcher=fetch] - Injectable fetch
+ * @param {object} [options] - Optional Telegram parameters (e.g. { replyMarkup })
  * @returns {Promise<boolean>}
  */
-export async function sendTelegramMessage(botToken, chatId, text, parseMode = null, fetcher = fetch) {
+export async function sendTelegramMessage(botToken, chatId, text, parseMode = null, fetcher = fetch, options = {}) {
   if (!botToken || !chatId || !text) return false;
 
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
@@ -77,6 +78,8 @@ export async function sendTelegramMessage(botToken, chatId, text, parseMode = nu
     text: text
   };
   if (parseMode) body.parse_mode = parseMode;
+  const replyMarkup = options?.replyMarkup || options?.reply_markup || null;
+  if (replyMarkup) body.reply_markup = replyMarkup;
 
   try {
     const res = await fetcher(url, {
@@ -87,6 +90,70 @@ export async function sendTelegramMessage(botToken, chatId, text, parseMode = nu
     return res.ok;
   } catch {
     console.error('[telegram] sendMessage failed');
+    return false;
+  }
+}
+
+/**
+ * Acknowledge a Telegram callback_query so the client stops showing a loading indicator.
+ * @param {string} botToken
+ * @param {string} callbackQueryId
+ * @param {string} [text='']
+ * @param {boolean} [showAlert=false]
+ * @param {Function} [fetcher=fetch]
+ * @returns {Promise<boolean>}
+ */
+export async function answerTelegramCallbackQuery(botToken, callbackQueryId, text = '', showAlert = false, fetcher = fetch) {
+  if (!botToken || !callbackQueryId) return false;
+
+  const url = `https://api.telegram.org/bot${botToken}/answerCallbackQuery`;
+  const body = {
+    callback_query_id: String(callbackQueryId),
+    show_alert: Boolean(showAlert)
+  };
+  const trimmed = String(text || '').trim();
+  if (trimmed) body.text = trimmed.slice(0, 190);
+
+  try {
+    const res = await fetcher(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    return res.ok;
+  } catch {
+    console.error('[telegram] answerCallbackQuery failed');
+    return false;
+  }
+}
+
+/**
+ * Best-effort update or removal of an inline keyboard on a previously sent Telegram message.
+ * @param {string} botToken
+ * @param {number|string} chatId
+ * @param {number|string} messageId
+ * @param {object} [replyMarkup={ inline_keyboard: [] }]
+ * @param {Function} [fetcher=fetch]
+ * @returns {Promise<boolean>}
+ */
+export async function editTelegramMessageReplyMarkup(botToken, chatId, messageId, replyMarkup = { inline_keyboard: [] }, fetcher = fetch) {
+  if (!botToken || !chatId || !messageId) return false;
+
+  const url = `https://api.telegram.org/bot${botToken}/editMessageReplyMarkup`;
+  const body = {
+    chat_id: chatId,
+    message_id: Number(messageId),
+    reply_markup: replyMarkup || { inline_keyboard: [] }
+  };
+
+  try {
+    const res = await fetcher(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    return res.ok;
+  } catch {
     return false;
   }
 }
