@@ -29,7 +29,7 @@ GEMINI_MODEL = "gemini-3.5-flash-lite"
 [[d1_databases]]
 binding = "DB"
 database_name = "meehoa-order-bot-prod"
-database_id = "REPLACE_WITH_NEW_PROD_D1_DATABASE_ID"
+database_id = "cb95ddea-0f4a-415e-b62d-2a9cd021fbc8"
 
 [[r2_buckets]]
 binding = "MEDIA_R2"
