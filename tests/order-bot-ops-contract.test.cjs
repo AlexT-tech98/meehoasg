@@ -425,7 +425,8 @@ test('Contract 5: Multiple ~4.5MB images keep D1 JSON tiny, survive Telegram exp
     OPS_TOKEN: 'test_ops_token',
     OPS_API_URL: 'https://ops-staging.local/api-core',
     TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
-    ALLOWED_USER_IDS: '5252724920'
+    ALLOWED_USER_IDS: '5252724920',
+    ALLOW_LEGACY_DRAFT_BILLS: '1'
   };
 
   await handleTelegramWebhook(
@@ -618,7 +619,8 @@ test('Contract 7: /cancel cleans up cancelled draft R2 images but NEVER deletes 
     MEDIA_R2: r2,
     BOT_TOKEN: 'fake_bot_token',
     TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
-    ALLOWED_USER_IDS: '5252724920'
+    ALLOWED_USER_IDS: '5252724920',
+    ALLOW_LEGACY_DRAFT_BILLS: '1'
   };
 
   await handleTelegramWebhook(
@@ -1096,7 +1098,8 @@ test('Contract 12: Supplementary photo attaches to active draft; ambiguous confl
     MEDIA_R2: r2,
     BOT_TOKEN: 'fake_bot_token',
     TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
-    ALLOWED_USER_IDS: '5252724920'
+    ALLOWED_USER_IDS: '5252724920',
+    ALLOW_LEGACY_DRAFT_BILLS: '1'
   };
 
   // Start directly by sending 1 sample photo with caption (no /new needed!)
@@ -1234,7 +1237,8 @@ test('Contract 13: Repeated /new on empty draft does not spawn duplicate drafts;
     MEDIA_R2: r2,
     BOT_TOKEN: 'fake_bot_token',
     TELEGRAM_SECRET_TOKEN: 'staging_secret_token_123',
-    ALLOWED_USER_IDS: '5252724920'
+    ALLOWED_USER_IDS: '5252724920',
+    ALLOW_LEGACY_DRAFT_BILLS: '1'
   };
 
   // Press /new 3 times rapidly

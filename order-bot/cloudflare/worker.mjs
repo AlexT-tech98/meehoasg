@@ -192,6 +192,10 @@ function formatAiFailureNotice(aiRes) {
   return `⚠️ AI đang quá tải tạm thời hoặc hết thời gian chờ (${status ? 'HTTP ' + status : err}). Ảnh mẫu và chú thích vẫn được giữ nguyên trong nháp — gõ /reparse để thử đọc lại cùng nháp hoặc bổ sung thủ công.`;
 }
 
+function isLegacyDraftBillsAllowed(env) {
+  return String(env?.ALLOW_LEGACY_DRAFT_BILLS || '').trim() === '1';
+}
+
 const html = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;',
   '<': '&lt;',
@@ -1528,6 +1532,17 @@ export async function handleTelegramWebhook(request, rawEnv) {
       }
 
       const isBill = isBillCaption(caption);
+      if (isBill && !isLegacyDraftBillsAllowed(env)) {
+        await replyTg(
+          env,
+          chatId,
+          'ℹ️ Quy trình hiện hành không đính kèm ảnh bill trong luồng nhập đơn mới trên Telegram.\n' +
+          '• Khoản cọc/thanh toán được ghi nhận theo tin nhắn xác nhận của bạn.\n' +
+          '• Ảnh bill Full Paid / tất toán sẽ nộp sau trực tiếp trên OPS.\n' +
+          'Vui lòng chỉ gửi ảnh mẫu hoa kèm chú thích đơn hàng.'
+        );
+        return;
+      }
       const decision = classifyIncomingPhotoDraft(drafts, caption, isBill);
 
       if (decision.action === 'reject_no_draft') {
@@ -2328,9 +2343,11 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     sampleFiles.push({ data: dataUrl });
   }
 
-  const expectedBillCount = (draft.draftBillRefs || []).length;
+  const legacyBillsEnabled = isLegacyDraftBillsAllowed(env);
+  const activeDraftBillRefs = legacyBillsEnabled ? (draft.draftBillRefs || []) : [];
+  const expectedBillCount = activeDraftBillRefs.length;
   const unverifiedBillFiles = [];
-  for (const ref of draft.draftBillRefs || []) {
+  for (const ref of activeDraftBillRefs) {
     let dataUrl = null;
     if (ref.r2_key) {
       dataUrl = await evidenceDataUrl(ref, env);
@@ -2945,6 +2962,14 @@ async function handleRelinkCommand(drafts, arg, env, userId, chatId) {
   const targetDraft = resolved.draft;
 
   const billCount = targetDraft.draftBillRefs?.length || 0;
+  if (!isLegacyDraftBillsAllowed(env) || isSupabaseOpsUrl(env.OPS_API_URL || '')) {
+    await replyTg(
+      env,
+      chatId,
+      `ℹ️ Lệnh /relink chỉ áp dụng cho dữ liệu bill cũ trên D1 Staging. Trên luồng hiện hành, ảnh bill Full Paid / tất toán cho đơn ${targetDraft.opsOrderId} được nộp trực tiếp trên OPS.`
+    );
+    return;
+  }
   if (billCount === 0) {
     await replyTg(env, chatId, `ℹ️ Đơn ${targetDraft.opsOrderId} không có ảnh bill nào được lưu trong bản nháp.`);
     return;

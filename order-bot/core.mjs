@@ -975,7 +975,9 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
 
     // 2. Date and Time detection
     // A "Name + phone" line (e.g. "Mai + 0909111222") is never a date even when the name is "Mai" (= tomorrow).
-    const isNamePhoneLine = /^[A-ZÀ-Ỹa-zà-ỹ\s]{1,40}\s*[+\-/|,;:&]?\s*0\d{9,10}$/.test(cleanLine);
+    const vnPhoneRegex = /(?<!\d)(?:\+84[\s.\-]*|0)[2-9](?:[\s.\-]*\d){8,9}(?!\d)/;
+    const hasPhoneOnLine = vnPhoneRegex.test(cleanLine);
+    const isNamePhoneLine = /^[A-ZÀ-Ỹa-zà-ỹ\s]{1,40}\s*[+\-/|,;:&]?\s*(?:\+84[\s.\-]*|0)[2-9](?:[\s.\-]*\d){8,9}$/.test(cleanLine);
     const hasDate = !isNamePhoneLine && (/\b(ngay|\d{1,2}[/-]\d{1,2}|hom\s*nay|ngay\s*mai|sang\s*mai|trua\s*mai|chieu\s*mai|toi\s*mai|giao\s*mai|lay\s*mai|nhan\s*mai|ngay\s*mot)\b/.test(normLine) || /^mai(?:\b|$)/.test(normLine));
     const hasTime = !isNamePhoneLine && /\b(?:\d{1,2}h(?:\d{2})?|\d{1,2}:\d{2}|buoi\s*sang|sang\s*mai|sang\s*nay|sang\s*som|\d{1,2}h\s*sang|buoi\s*chieu|chieu\s*mai|chieu\s*nay|\d{1,2}h\s*chieu|buoi\s*toi|toi\s*nay|toi\s*mai|\d{1,2}h\s*toi)\b/i.test(normLine);
     if (hasDate || hasTime) {
@@ -995,18 +997,18 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
           fields.time = smartTime.value;
         }
       }
-      if (!FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|ship|book|lay|ghe|tan\s*noi)\b/.test(normLine)) {
+      if (!hasPhoneOnLine && !FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|ship|book|lay|ghe|tan\s*noi)\b/.test(normLine)) {
         continue;
       }
     }
 
     // 3. Phone detection (also extracts customer name on combined lines like "Như + 0394200327")
-    const mPhone = cleanLine.match(/(?:sdt|phone|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*(0\d{9,10})\b/i);
+    const mPhone = cleanLine.match(/(?:sdt|phone|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*((?:\+84[\s.\-]*|0)[2-9](?:[\s.\-]*\d){8,9})(?!\d)/i);
     if (mPhone) {
-      fields.phone = mPhone[1];
+      fields.phone = mPhone[1].replace(/[\s.\-]+/g, '').replace(/^\+84/, '0');
       if (!fields.customer && !FLOWER_PATTERN.test(normLine) && !/\b(dia\s*chi|dc|duong|phuong|quan|p\.|q\.|ship|book|lay|ghe|tan\s*noi)\b/i.test(normLine)) {
         const namePart = cleanLine
-          .replace(/(?:sdt|phone|số\s*điện\s*thoại|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*0\d{9,10}\b/gi, '')
+          .replace(/(?:sdt|phone|số\s*điện\s*thoại|so\s*dien\s*thoai|sđt)?\s*[:=-]?\s*(?:\+84[\s.\-]*|0)[2-9](?:[\s.\-]*\d){8,9}(?!\d)/gi, '')
           .replace(/^[\s+\-/|,;:—&]+|[\s+\-/|,;:—&]+$/g, '')
           .trim();
         if (namePart && /^[A-ZÀ-Ỹa-zà-ỹ\s]+$/.test(namePart) && namePart.split(/\s+/).length <= 4) {
