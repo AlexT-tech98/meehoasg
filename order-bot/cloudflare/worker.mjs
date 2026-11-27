@@ -323,6 +323,25 @@ export function transitionDraftStatus(drafts, draftId, status, extra = {}) {
   };
 }
 
+function resolveBotRuntimeInfo(env) {
+  const opsUrl = env?.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+  const environment = env?.ENVIRONMENT || (isSupabaseOpsUrl(opsUrl) ? 'production' : 'staging');
+  const serviceName = env?.SERVICE_NAME || (environment === 'production' ? 'meehoa-order-bot' : 'meehoa-order-bot-staging');
+  const opsLabel = environment === 'production' ? 'MEEHOA OPS' : 'MEEHOA OPS Staging';
+  const opsShortLabel = environment === 'production' ? 'MEEHOA OPS' : 'OPS Staging';
+  return { opsUrl, environment, serviceName, opsLabel, opsShortLabel };
+}
+
+function isOpsAuthOrSessionFailure(opsRes) {
+  if (!opsRes || opsRes.ok) return false;
+  const code = String(opsRes.code || '').toUpperCase();
+  if (['HTTP_401', 'HTTP_403', 'GATEWAY_UNAUTHORIZED', 'OPS_SESSION_EXPIRED', 'OPS_ACCOUNT_LOCKED', 'OPS_FORBIDDEN'].includes(code)) {
+    return true;
+  }
+  const msg = String(opsRes.message || '');
+  return /phiên đăng nhập|hết hạn|invalid jwt|unauthorized|không có quyền|tài khoản đã bị khóa/i.test(msg);
+}
+
 export default {
   /**
    * Main fetch router for Cloudflare Worker
@@ -330,14 +349,15 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
+    const runtime = resolveBotRuntimeInfo(env);
 
     // 1. Health check endpoint
     if (path === '/health') {
       return new Response(JSON.stringify({
         ok: true,
-        service: 'meehoa-order-bot-staging',
+        service: runtime.serviceName,
         version: '1.0.0',
-        environment: 'staging',
+        environment: runtime.environment,
         timestamp: new Date().toISOString()
       }), {
         headers: { 'Content-Type': 'application/json' }
@@ -446,19 +466,20 @@ export default {
     }
 
     // 3. AI Probe endpoint (POST /ai-probe) — Staging-only authenticated test harness.
-    //    Supports two modes:
-    //    - mode: "minimal"  → calls extractFieldsWithGeminiDetailed directly using Worker's GEMINI_API_KEY Secret.
-    //    - mode: "bot-flow" → runs the real handleTelegramWebhook flow (caption/photo, Gemini, merge, /reparse,
-    //                         deduplication) inside an in-memory D1/R2 sandbox with OPS writes strictly blocked.
-    //    Protected by AI_PROBE_TOKEN (x-ai-probe-token) or OPS_TOKEN (x-ops-token). Never weakens /webhook auth.
+    //    Disabled by default on Production unless ENABLE_STAGING_PROBES='1'.
     if (request.method === 'POST' && path === '/ai-probe') {
+      if (runtime.environment === 'production' && String(env?.ENABLE_STAGING_PROBES || '').trim() !== '1') {
+        return new Response('Not Found', { status: 404 });
+      }
       return handleAiProbe(request, env);
     }
 
-    // 3b. OPS Acceptance Probe endpoint (POST /ops-probe) — Staging-only authenticated test harness
-    //     Protected strictly by AI_PROBE_TOKEN so agents can verify authenticated OPS RPCs and E2E Form-vs-Bot parity
-    //     while keeping OPS_TOKEN secret inside the Worker and isolating bot_drafts from D1 Staging.
+    // 3b. OPS Acceptance Probe endpoint (POST /ops-probe) — Staging-only authenticated test harness.
+    //     Disabled by default on Production unless ENABLE_STAGING_PROBES='1'.
     if (request.method === 'POST' && path === '/ops-probe') {
+      if (runtime.environment === 'production' && String(env?.ENABLE_STAGING_PROBES || '').trim() !== '1') {
+        return new Response('Not Found', { status: 404 });
+      }
       return handleOpsProbe(request, env);
     }
 
@@ -2309,7 +2330,8 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   });
   if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
-  await replyTg(env, chatId, '⏳ Đang kiểm tra ảnh và gửi yêu cầu tạo đơn sang MEEHOA OPS Staging...');
+  const runtime = resolveBotRuntimeInfo(env);
+  await replyTg(env, chatId, `⏳ Đang kiểm tra ảnh và gửi yêu cầu tạo đơn sang ${runtime.opsLabel}...`);
 
   // 3. Prepare images: load durably from R2 (fallback to Telegram ONLY for legacy refs without r2_key)
   const expectedSampleCount = (draft.sampleRefs || []).length;
@@ -2584,7 +2606,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       ? `\n⚠️ <b>LƯU Ý SALE PHỤ TRÁCH:</b> OPS đang lưu tài khoản <code>${html(opsSaleUsername)}</code> thay vì <code>${html(expectedSaleUsername)}</code>.\n`
       : '';
 
-    let successMsg = `✅ <b>TẠO ĐƠN THÀNH CÔNG TRÊN MEEHOA OPS STAGING!</b>\n\n` +
+    let successMsg = `✅ <b>TẠO ĐƠN THÀNH CÔNG TRÊN ${html(runtime.opsLabel.toUpperCase())}!</b>\n\n` +
       `🆔 <b>Mã đơn:</b> <code>${html(opsRes.orderId)}</code>\n` +
       saleLine +
       `👤 Khách: ${html(customer)}\n` +
@@ -2622,10 +2644,14 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
+    const authRecoveryHint = isOpsAuthOrSessionFailure(opsRes)
+      ? '\n\n🔑 Khắc phục phiên OPS: Phiên đăng nhập của tài khoản C Mụi (OPS_TOKEN) hoặc khóa cổng Supabase (OPS_SUPABASE_ANON_KEY) có thể đã hết hạn/sai quyền. Vui lòng đăng nhập lại cmui trên OPS để lấy phiên mới, cập nhật Secret OPS_TOKEN của Worker rồi gõ /confirm lại.'
+      : '';
+
     await replyTg(
       env,
       chatId,
-      `❌ Không thể tạo đơn trên OPS Staging:\n${opsRes.message}\n\nĐơn nháp vẫn được giữ nguyên. Bạn có thể kiểm tra lại và gõ /confirm để thử lại.`
+      `❌ Không thể tạo đơn trên ${runtime.opsShortLabel}:\n${opsRes.message}${authRecoveryHint}\n\nĐơn nháp vẫn được giữ nguyên. Bạn có thể kiểm tra lại và gõ /confirm để thử lại.`
     );
   }
 }

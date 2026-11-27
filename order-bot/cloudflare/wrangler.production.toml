@@ -2,13 +2,13 @@
 # Strictly isolated from Staging:
 #   - Dedicated Worker: meehoa-order-bot (workers.dev for initial release)
 #   - Dedicated D1: meehoa-order-bot-prod (bot_drafts, bot_processed_updates, bot_audit_logs ONLY)
-#   - Dedicated R2: meehoa-order-bot-media-prod (temporary draft photos/bills ONLY; separate from OPS permanent R2)
+#   - Dedicated R2: meehoa-order-bot-media-prod (temporary draft sample photos ONLY; separate from OPS permanent R2)
 #   - Production OPS API: Supabase Edge Function meehoasg-api-core (verify_jwt: true)
 #   - NO Staging service bindings, NO Staging D1/R2/KV IDs, NO Staging tokens.
 #
 # Required Secrets (configure via Cloudflare Dashboard or `npx wrangler secret put -c wrangler.production.toml`):
-#   - TELEGRAM_BOT_TOKEN      (new Production Telegram bot from @BotFather)
-#   - TELEGRAM_SECRET_TOKEN   (new 64-hex random webhook secret for Production)
+#   - TELEGRAM_BOT_TOKEN      (existing Telegram bot token — webhook switches only at approved release step)
+#   - TELEGRAM_SECRET_TOKEN   (new 64-hex random webhook secret for Production cutover)
 #   - OPS_SUPABASE_ANON_KEY   (Supabase Production Gateway JWT — separate from OPS app session)
 #   - OPS_TOKEN               (dedicated 64-hex OPS app session token for `cmui` on Production)
 #   - GEMINI_API_KEY          (Google Gemini API Paid-tier key for Production)

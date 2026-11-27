@@ -165,11 +165,20 @@ export function normalizeOperationOrder(input,user,current={},rules=ORDER_VALIDA
   if(shipActive&&shipping!=='Shop book ship')throw Error('Phí ship chỉ dùng cho đơn Shop book ship.');
   const flowerTotal=operationMoney(d.flowerTotal);
   const activeRules=rules&&typeof rules==='object'?rules:ORDER_VALIDATION_RULES;
-  if(activeRules.requireFlowerTotal!==false&&!(flowerTotal>=Number(activeRules.minFlowerTotal??1)))throw ruleError('Tiền hoa bắt buộc và phải lớn hơn 0 đ.','FLOWER_TOTAL_REQUIRED');
-  if(activeRules.phoneRequired&&!clean(d.phone))throw ruleError('Số điện thoại khách hàng là bắt buộc theo quy tắc OPS hiện hành.','PHONE_REQUIRED');
+  const isEdit=Boolean(clean(current?.id)||(current&&typeof current==='object'&&Object.keys(current).length>0&&('payment' in current||'flower_total' in current||'order_type' in current)));
+  const minFlowerTotal=Number(activeRules.minFlowerTotal??1);
+  const prevFlowerTotal=isEdit?Number(current.flower_total??0):0;
+  const flowerTotalChanged=!isEdit||flowerTotal!==prevFlowerTotal;
+  if(activeRules.requireFlowerTotal!==false&&!(flowerTotal>=minFlowerTotal)&&(!isEdit||flowerTotalChanged||prevFlowerTotal>=minFlowerTotal))throw ruleError('Tiền hoa bắt buộc và phải lớn hơn 0 đ.','FLOWER_TOTAL_REQUIRED');
+  const nextPhone=clean(d.phone),prevPhone=isEdit?clean(current.phone):'';
+  if(activeRules.phoneRequired&&!nextPhone&&(!isEdit||Boolean(prevPhone)))throw ruleError('Số điện thoại khách hàng là bắt buộc theo quy tắc OPS hiện hành.','PHONE_REQUIRED');
   const payment=clean(d.payment);
-  validateOrderDepositRule(flowerTotal, payment, activeRules);
-  return {customer:clean(d.customer),phone:clean(d.phone),order_date:date,order_time:t[1].padStart(2,'0')+':'+t[2],
+  const prevPayment=isEdit?clean(current.payment):'';
+  const paymentChanged=!isEdit||payment!==prevPayment||extractDepositPaymentAmount(payment)!==extractDepositPaymentAmount(prevPayment);
+  if(!isEdit||paymentChanged||flowerTotalChanged){
+    validateOrderDepositRule(flowerTotal, payment, activeRules);
+  }
+  return {customer:clean(d.customer),phone:nextPhone,order_date:date,order_time:t[1].padStart(2,'0')+':'+t[2],
     flower:clean(d.flower),note:clean(d.note),
     tag_note_free:d.tagNoteFree===undefined&&d.tag_note_free===undefined?clean(current.tag_note_free):clean(d.tagNoteFree??d.tag_note_free),
     order_source:orderSource,order_type:'STANDARD',walk_in_payment_method:'',

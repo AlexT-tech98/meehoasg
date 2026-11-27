@@ -715,12 +715,10 @@ describe('Production Readiness 4: Form + API + Bot Rule Parity on Pre-Migration 
       const fpNoShip = await opService.run('createOrder', { requestId: 'p4-5', order: { ...baseOrder, fullPaidRequested: true, imageFiles: [{ data: 'data:image/jpeg;base64,AA==' }], fullPaidBillFiles: [{ data: 'data:image/jpeg;base64,BB==' }], shipFeeActive: '0' } }, cmuiUser);
       assert.equal(fpNoShip.code, 'FULL_PAID_EVIDENCE_REQUIRED');
 
-      // Production Form HTML checks
+      // Production Form V3.1 (untouched origin/main html) compatibility checks
       const prodHtml = fs.readFileSync(path.join(ROOT, 'html'), 'utf8');
-      assert.ok(prodHtml.includes("gas('getOrderRules')"));
-      assert.ok(prodHtml.includes('Tiền hoa bắt buộc và phải lớn hơn 0 đ.'));
-      assert.ok(prodHtml.includes('bannerQty*35000') && prodHtml.includes('qty*10000'));
-      assert.ok(prodHtml.includes("form.querySelector('[name=\"phone\"]')"));
+      assert.ok(prodHtml.includes('bannerQty*35000') && prodHtml.includes('qty*10000'), 'Untouched Form V3.1 must preserve unit x qty accessory formula');
+      assert.ok(prodHtml.includes('dep<order.flowerTotal*.5'), 'Untouched Form V3.1 must preserve 50% flower deposit check');
     } finally {
       await pg.close();
     }
@@ -846,5 +844,543 @@ describe('Production Readiness 6: wrangler.production.toml Anti-Staging-Leakage 
     assert.ok(!activeLines.includes('meehoasg-media-staging'), 'Must never bind Staging R2 bucket');
     assert.ok(!activeLines.includes('c483e22ad8c546c5bdf4f6711098fd04'), 'Must never bind Staging KV ID');
     assert.ok(!activeLines.includes('OPS_SERVICE'), 'Must never bind Cloudflare Staging OPS_SERVICE');
+  });
+});
+
+describe('Production Readiness 7: OPS V3.1 Backward-Compatibility & Legacy Order Edit Matrix (Pre-Migration PG)', () => {
+  test('allows unrelated edits on legacy orders (<50% deposit, 0 flower, empty phone) while enforcing rules on new orders or payment/flower changes, plus full V3.1 lifecycle', async () => {
+    const { supaOps } = await loadModules();
+    const pg = await createIsolatedProdPg({ includeUnverifiedBillMigrations: false });
+    try {
+      const adminUser = { username: 'admin', display_name: 'Admin', role: 'ADMIN', active: true };
+      const cmuiUser = { username: 'cmui', display_name: 'C Mụi', role: 'THO_OPS', active: true };
+      const saleUser = { username: 'hien', display_name: 'Hiền', role: 'SALE', active: true };
+
+      const makeOpService = (rulesOverride = supaOps.ORDER_VALIDATION_RULES) => supaOps.createOperationService({
+        db: async (endpoint, _q, _m, rpcBody) => {
+          if (endpoint === 'rpc/mee_ops_lookup') {
+            return (await pg.query('select public.mee_ops_lookup($1,$2,$3,$4) as res', [rpcBody.p_actor, rpcBody.p_request_id, rpcBody.p_action, rpcBody.p_fingerprint])).rows[0].res;
+          }
+          if (endpoint === 'rpc/mee_ops_mutate') {
+            return (await pg.query('select public.mee_ops_mutate($1,$2,$3,$4,$5::jsonb) as res', [rpcBody.p_actor, rpcBody.p_request_id, rpcBody.p_action, rpcBody.p_fingerprint, JSON.stringify(rpcBody.p_input)])).rows[0].res;
+          }
+          throw new Error(endpoint);
+        },
+        one: async (table, query) => {
+          if (table === 'orders' && query?.id?.startsWith('eq.')) {
+            const id = query.id.slice(3);
+            return (await pg.query('select * from public.orders where id = $1 limit 1', [id])).rows[0] || null;
+          }
+          return null;
+        },
+        uploadImages: async (files, bucket) => files.map((_, i) => `r2://meehoasg-website-media/${bucket}/v31-${crypto.randomUUID().slice(0, 8)}-${i}.jpg`),
+        sha256: async (s) => hash(s),
+        newId: (prefix) => `${prefix}-${crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase()}`,
+        getRules: async () => rulesOverride
+      });
+
+      const opService = makeOpService();
+
+      // 1. Seed a legacy order with <50% deposit (500k flower, 100k deposit) directly in DB (as existed under live v33)
+      await pg.query(`
+        insert into public.orders (
+          id, customer, phone, order_date, order_time, flower, note, order_source, order_type,
+          shipping, address, flower_total, payment, sale, card, card_qty, banner, banner_qty,
+          ship_fee, ship_confirmed, status, image_urls, full_paid_bill_urls, created_by
+        ) values (
+          'MEE-LEGACY500K100K', 'Khách Cũ Cọc Thấp', '', '2026-12-28', '10:00', 'Bó hồng đỏ', 'Ghi chú ban đầu',
+          'Zalo', 'STANDARD', 'Shop book ship', '10 Nguyễn Huệ', 500000, 'Đã cọc 100.000 đ', 'cmui',
+          false, 0, false, 0, 0, false, 'Chờ bó', '[]'::jsonb, '[]'::jsonb, 'cmui'
+        )
+      `);
+      const legacyRow = (await pg.query("select * from public.orders where id = 'MEE-LEGACY500K100K'")).rows[0];
+
+      // 1a. Unrelated edit (note + address + time + shipFee) on legacy <50% order MUST SUCCEED
+      const unrelatedEdit = await opService.run('updateOrder', {
+        requestId: 'v31-legacy-unrelated-1',
+        orderId: 'MEE-LEGACY500K100K',
+        expectedUpdatedAt: legacyRow.updated_at.toISOString(),
+        order: {
+          customer: 'Khách Cũ Cọc Thấp',
+          phone: '',
+          date: '2026-12-28',
+          time: '11:30',
+          flower: 'Bó hồng đỏ',
+          note: 'Giao cổng sau - đã sửa ghi chú',
+          orderSource: 'Zalo',
+          shipping: 'Shop book ship',
+          address: '20 Lê Lợi, Q1',
+          flowerTotal: 500000,
+          payment: 'Đã cọc 100.000 đ',
+          sale: 'cmui',
+          shipFeeActive: '1',
+          shipFee: 30000
+        }
+      }, cmuiUser);
+      assert.equal(unrelatedEdit.ok, true, `Unrelated edit on legacy <50% order must succeed: ${JSON.stringify(unrelatedEdit)}`);
+      assert.equal(unrelatedEdit.row.note, 'Giao cổng sau - đã sửa ghi chú');
+      assert.equal(unrelatedEdit.row.address, '20 Lê Lợi, Q1');
+      assert.equal(Number(unrelatedEdit.row.ship_fee), 30000);
+
+      // 1b. Changing deposit to another <50% amount MUST BE BLOCKED
+      const badDepositEdit = await opService.run('updateOrder', {
+        requestId: 'v31-legacy-bad-dep-2',
+        orderId: 'MEE-LEGACY500K100K',
+        expectedUpdatedAt: unrelatedEdit.row.updated_at,
+        order: {
+          customer: 'Khách Cũ Cọc Thấp',
+          phone: '',
+          date: '2026-12-28',
+          time: '11:30',
+          flower: 'Bó hồng đỏ',
+          note: 'Sửa cọc vẫn dưới 50%',
+          orderSource: 'Zalo',
+          shipping: 'Shop book ship',
+          address: '20 Lê Lợi, Q1',
+          flowerTotal: 500000,
+          payment: 'Đã cọc 150.000 đ',
+          sale: 'cmui',
+          shipFeeActive: '1',
+          shipFee: 30000
+        }
+      }, cmuiUser);
+      assert.equal(badDepositEdit.ok, false);
+      assert.equal(badDepositEdit.code, 'DEPOSIT_BELOW_MIN_RATIO');
+
+      // 1c. Changing flowerTotal higher while deposit stays <50% MUST BE BLOCKED
+      const badFlowerRaise = await opService.run('updateOrder', {
+        requestId: 'v31-legacy-flower-raise-3',
+        orderId: 'MEE-LEGACY500K100K',
+        expectedUpdatedAt: unrelatedEdit.row.updated_at,
+        order: {
+          customer: 'Khách Cũ Cọc Thấp',
+          phone: '',
+          date: '2026-12-28',
+          time: '11:30',
+          flower: 'Bó hồng đỏ',
+          note: 'Tăng tiền hoa nhưng không tăng cọc',
+          orderSource: 'Zalo',
+          shipping: 'Shop book ship',
+          address: '20 Lê Lợi, Q1',
+          flowerTotal: 700000,
+          payment: 'Đã cọc 100.000 đ',
+          sale: 'cmui',
+          shipFeeActive: '1',
+          shipFee: 30000
+        }
+      }, cmuiUser);
+      assert.equal(badFlowerRaise.ok, false);
+      assert.equal(badFlowerRaise.code, 'DEPOSIT_BELOW_MIN_RATIO');
+
+      // 1d. Legacy order with empty phone edited while phoneRequired=true MUST SUCCEED on unrelated edit,
+      //     while creating a NEW order without phone MUST BE BLOCKED
+      const phoneReqService = makeOpService(supaOps.buildOrderRules({ phoneRequired: true }));
+      const legacyNoPhoneEdit = await phoneReqService.run('updateOrder', {
+        requestId: 'v31-legacy-nophone-edit',
+        orderId: 'MEE-LEGACY500K100K',
+        expectedUpdatedAt: unrelatedEdit.row.updated_at,
+        order: {
+          customer: 'Khách Cũ Cọc Thấp',
+          phone: '',
+          date: '2026-12-28',
+          time: '12:00',
+          flower: 'Bó hồng đỏ',
+          note: 'Đổi giờ giao khi bật phoneRequired',
+          orderSource: 'Zalo',
+          shipping: 'Shop book ship',
+          address: '20 Lê Lợi, Q1',
+          flowerTotal: 500000,
+          payment: 'Đã cọc 100.000 đ',
+          sale: 'cmui',
+          shipFeeActive: '1',
+          shipFee: 30000
+        }
+      }, cmuiUser);
+      assert.equal(legacyNoPhoneEdit.ok, true);
+
+      const newNoPhoneBlocked = await phoneReqService.run('createOrder', {
+        requestId: 'v31-new-nophone-blocked',
+        order: {
+          customer: 'Khách Mới Thiếu SĐT',
+          phone: '',
+          date: '2026-12-29',
+          time: '14:00',
+          flower: 'Bó ly trắng',
+          orderSource: 'Zalo',
+          shipping: 'Ghé lấy',
+          flowerTotal: 400000,
+          payment: 'Chưa thanh toán (0 đ)',
+          sale: 'cmui'
+        }
+      }, cmuiUser);
+      assert.equal(newNoPhoneBlocked.ok, false);
+      assert.equal(newNoPhoneBlocked.code, 'PHONE_REQUIRED');
+
+      // 2. Legacy 0-flower order unrelated edit MUST SUCCEED
+      await pg.query(`
+        insert into public.orders (
+          id, customer, phone, order_date, order_time, flower, note, order_source, order_type,
+          shipping, address, flower_total, payment, sale, card, card_qty, banner, banner_qty,
+          ship_fee, ship_confirmed, status, image_urls, full_paid_bill_urls, created_by
+        ) values (
+          'MEE-LEGACY0FLOWER', 'Đơn Bảo Hành Cũ', '0901234567', '2026-12-28', '09:00', 'Đổi hoa bảo hành', 'Ghi chú cũ',
+          'Zalo', 'STANDARD', 'Ghé lấy', '', 0, 'Chưa thanh toán (0 đ)', 'cmui',
+          false, 0, false, 0, 0, false, 'Chờ bó', '[]'::jsonb, '[]'::jsonb, 'cmui'
+        )
+      `);
+      const zeroRow = (await pg.query("select * from public.orders where id = 'MEE-LEGACY0FLOWER'")).rows[0];
+      const zeroUnrelatedEdit = await opService.run('updateOrder', {
+        requestId: 'v31-legacy-zero-unrelated',
+        orderId: 'MEE-LEGACY0FLOWER',
+        expectedUpdatedAt: zeroRow.updated_at.toISOString(),
+        order: {
+          customer: 'Đơn Bảo Hành Cũ',
+          phone: '0901234567',
+          date: '2026-12-28',
+          time: '09:30',
+          flower: 'Đổi hoa bảo hành',
+          note: 'Cập nhật giờ lấy',
+          orderSource: 'Zalo',
+          shipping: 'Ghé lấy',
+          flowerTotal: 0,
+          payment: 'Chưa thanh toán (0 đ)',
+          sale: 'cmui'
+        }
+      }, cmuiUser);
+      assert.equal(zeroUnrelatedEdit.ok, true);
+
+      // 3. Full V3.1 operational lifecycle: Walk-in (CASH & TRANSFER), Standard + Ship + Status + Settlement + Approve, Full Paid, Soft-Delete + Restore
+      const walkInCash = await opService.run('createOrder', {
+        requestId: 'v31-walkin-cash',
+        order: { orderType: 'WALK_IN', date: '2026-12-29', time: '10:15', flowerTotal: 220000, walkInPaymentMethod: 'CASH', flower: 'Bó nhỏ tại tiệm' }
+      }, cmuiUser);
+      assert.equal(walkInCash.ok, true);
+      assert.equal(walkInCash.row.order_type, 'WALK_IN');
+      assert.equal(walkInCash.row.walk_in_payment_method, 'CASH');
+
+      const walkInTransfer = await opService.run('createOrder', {
+        requestId: 'v31-walkin-transfer',
+        order: { orderType: 'WALK_IN', date: '2026-12-29', time: '10:30', flowerTotal: 300000, walkInPaymentMethod: 'TRANSFER', flower: 'Lẵng hoa tại tiệm' }
+      }, cmuiUser);
+      assert.equal(walkInTransfer.ok, true);
+      assert.equal(walkInTransfer.row.walk_in_payment_method, 'TRANSFER');
+
+      // Standard order by SALE (hien) -> ship fee -> Đã bó -> Đã giao -> submitSettlement -> ADMIN approve -> settled=true, debt=0
+      const saleStd = await opService.run('createOrder', {
+        requestId: 'v31-sale-std',
+        order: {
+          customer: 'Chị Mai V31', phone: '0908777666', date: '2026-12-29', time: '15:00',
+          flower: 'Bó hướng dương', orderSource: 'Threads', requireOrderSource: true,
+          shipping: 'Shop book ship', address: '99 Hai Bà Trưng, Q1', flowerTotal: 400000,
+          payment: 'Đã cọc 200.000 đ', card: true, cardQty: 2, cardText: 'Chúc mừng',
+          banner: true, bannerQty: 1, bannerText: 'Khai trương', shipFeeActive: '0', shipFee: 0
+        }
+      }, saleUser);
+      assert.equal(saleStd.ok, true);
+      assert.equal(saleStd.row.sale, 'hien');
+
+      const shipped = await opService.run('saveShipFee', {
+        requestId: 'v31-sale-ship',
+        orderId: saleStd.orderId,
+        expectedUpdatedAt: saleStd.row.updated_at,
+        shipFee: 45000
+      }, cmuiUser);
+      assert.equal(shipped.ok, true, `saveShipFee failed: ${JSON.stringify(shipped)}`);
+      assert.equal(Number(shipped.row.ship_fee), 45000);
+      assert.equal(shipped.row.ship_confirmed, true);
+
+      const boDone = await opService.run('updateStatus', {
+        requestId: 'v31-sale-st-bo',
+        orderId: saleStd.orderId,
+        expectedUpdatedAt: shipped.row.updated_at,
+        status: 'Đã bó'
+      }, cmuiUser);
+      assert.equal(boDone.ok, true, `updateStatus(Đã bó) failed: ${JSON.stringify(boDone)}`);
+
+      const delivered = await opService.run('updateStatus', {
+        requestId: 'v31-sale-st-giao',
+        orderId: saleStd.orderId,
+        expectedUpdatedAt: boDone.row.updated_at,
+        status: 'Đã giao'
+      }, cmuiUser);
+      assert.equal(delivered.ok, true, `updateStatus(Đã giao) failed: ${JSON.stringify(delivered)}`);
+
+      // Total before settlement: 400k + 2*10k + 1*35k + 45k ship = 500k; paid = 200k; debt = 300k
+      const preSettleFin = (await pg.query('select public.mee_ops_total(o) as total_due, public.mee_ops_paid(o) as paid, public.mee_ops_debt(o) as debt from public.orders o where o.id = $1', [saleStd.orderId])).rows[0];
+      assert.equal(Number(preSettleFin.total_due), 500000);
+      assert.equal(Number(preSettleFin.paid), 200000);
+      assert.equal(Number(preSettleFin.debt), 300000);
+
+      const submittedSettle = await opService.run('submitSettlement', {
+        requestId: 'v31-sale-settle-sub',
+        orderId: saleStd.orderId,
+        expectedUpdatedAt: delivered.row.updated_at,
+        note: 'Khách đã chuyển khoản phần còn lại',
+        billFiles: [{ data: 'data:image/jpeg;base64,BBBB' }]
+      }, saleUser);
+      assert.equal(submittedSettle.ok, true);
+      const settlementId = submittedSettle.requestId || submittedSettle.settlement?.id;
+      assert.ok(settlementId, `Expected settlement requestId, got: ${JSON.stringify(submittedSettle)}`);
+
+      const approvedSettle = await opService.run('reviewSettlement', {
+        requestId: 'v31-admin-settle-approve',
+        orderId: saleStd.orderId,
+        settlementId,
+        decision: 'APPROVED',
+        note: 'Đã đối soát'
+      }, adminUser);
+      assert.equal(approvedSettle.ok, true, `reviewSettlement failed: ${JSON.stringify(approvedSettle)}`);
+      const postSettleFin = (await pg.query('select o.settled, public.mee_ops_debt(o) as debt from public.orders o where o.id = $1', [saleStd.orderId])).rows[0];
+      assert.equal(postSettleFin.settled, true);
+      assert.equal(Number(postSettleFin.debt), 0);
+
+      // Full Paid order directly via Form V3.1 payload
+      const fullPaid = await opService.run('createOrder', {
+        requestId: 'v31-fullpaid-1',
+        order: {
+          customer: 'Anh Dũng FP', phone: '0912345678', date: '2026-12-29', time: '16:30',
+          flower: 'Kệ lan hồ điệp', orderSource: 'Page/IG', requireOrderSource: true,
+          shipping: 'Shop book ship', address: '12 Pasteur, Q1', flowerTotal: 1200000,
+          payment: 'Đã thanh toán toàn bộ đơn', fullPaidRequested: true,
+          shipFeeActive: '1', shipFee: 60000,
+          imageFiles: [{ data: 'data:image/jpeg;base64,AAAA' }],
+          fullPaidBillFiles: [{ data: 'data:image/jpeg;base64,CCCC' }]
+        }
+      }, cmuiUser);
+      assert.equal(fullPaid.ok, true);
+      assert.equal(fullPaid.row.full_paid, true);
+      assert.equal(Number(fullPaid.row.full_paid_total), 1260000);
+
+      // Soft-delete & Restore via ADMIN
+      const deleted = await opService.run('deleteOrder', {
+        requestId: 'v31-delete-1',
+        orderId: fullPaid.orderId,
+        expectedUpdatedAt: fullPaid.row.updated_at,
+        reasonCode: 'CUSTOMER_CANCELLED',
+        reason: 'Khách hủy đơn test'
+      }, adminUser);
+      assert.equal(deleted.ok, true);
+      assert.equal(deleted.row.is_deleted, true);
+
+      const restored = await opService.run('restoreOrder', {
+        requestId: 'v31-restore-1',
+        orderId: fullPaid.orderId,
+        expectedUpdatedAt: deleted.row.updated_at,
+        reason: 'Khôi phục đơn test'
+      }, adminUser);
+      assert.equal(restored.ok, true);
+      assert.equal(restored.row.is_deleted, false);
+    } finally {
+      await pg.close();
+    }
+  });
+});
+
+describe('Production Readiness 8: Bot Production Acceptance — 350k/200k Deposit, Idempotency, Wrong /relink, Session Expiry UX, Probe Block, and Stale Staging Draft Guard', () => {
+  test('verifies 350k flower + 200k deposit = 200k paid / 150k debt, duplicate/interrupt/retry safety, wrong /relink rejection, expired cmui UX, probe 404, and stale Staging draft rejection on empty Prod D1', async () => {
+    const { workerMod, opsClient, supaOps, d1Store } = await loadModules();
+    const pg = await createIsolatedProdPg({ includeUnverifiedBillMigrations: false });
+    const botD1 = createBotOnlyD1();
+    const botR2 = createMockR2();
+    const VALID_JWT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.prod-accept8.sig';
+    const CMUI_SESSION = 'd'.repeat(64);
+    const EXPIRED_SESSION = 'e'.repeat(64);
+    const PROD_OPS_URL = 'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-core';
+
+    try {
+      await pg.query(
+        "insert into public.app_sessions(token_hash, username, expires_at) values ($1, 'cmui', now() + interval '30 days'), ($2, 'cmui', now() - interval '10 minutes')",
+        [hash(CMUI_SESSION), hash(EXPIRED_SESSION)]
+      );
+
+      const baseMock = createProdSupabaseEdgeMock({ db: pg, supaOps, validGatewayJwt: VALID_JWT });
+      let simulateInitialUnpaidReturn = false;
+      let opsCallCount = 0;
+      const interceptedFetcher = async (url, init = {}) => {
+        opsCallCount += 1;
+        const res = await baseMock.fetcher(url, init);
+        const body = init.body ? JSON.parse(init.body) : {};
+        if (simulateInitialUnpaidReturn && body.name === 'createOrder') {
+          const json = await res.json();
+          if (json.ok && json.order) {
+            // Simulate intermittent payment sync gap so Step 2 / /retry_payment must sync without duplicating order
+            json.order.paid = 0;
+            json.order.payment = 'Chưa thanh toán (0 đ)';
+          }
+          return new Response(JSON.stringify(json), { status: res.status, headers: { 'Content-Type': 'application/json' } });
+        }
+        return res;
+      };
+
+      const sentReplies = [];
+      const tgFetcher = async (url, init = {}) => {
+        const u = String(url);
+        if (u.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/sample350.jpg', file_size: 512 } }));
+        if (u.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), { headers: { 'content-type': 'image/jpeg' } });
+        if (u.includes('/sendMessage')) {
+          const b = JSON.parse(init.body || '{}');
+          sentReplies.push(String(b.text || ''));
+          return new Response(JSON.stringify({ ok: true, result: { message_id: sentReplies.length } }));
+        }
+        return new Response('Not found', { status: 404 });
+      };
+
+      const env = {
+        ENVIRONMENT: 'production',
+        SERVICE_NAME: 'meehoa-order-bot',
+        DB: botD1,
+        MEDIA_R2: botR2,
+        BOT_TOKEN: 'fake_existing_bot_token',
+        TELEGRAM_SECRET_TOKEN: 'prod_webhook_secret_64hex',
+        ALLOWED_USER_IDS: '5252724920',
+        OPS_API_URL: PROD_OPS_URL,
+        OPS_TOKEN: CMUI_SESSION,
+        OPS_SUPABASE_ANON_KEY: VALID_JWT,
+        OPS_SERVICE: { fetch: interceptedFetcher },
+        TELEGRAM_FETCHER: tgFetcher,
+        GEMINI_API_KEY: 'fake_paid_key',
+        GEMINI_MODEL: 'gemini-3.5-flash-lite',
+        GEMINI_FETCHER: async (_u, init = {}) => {
+          const bodyStr = String(init.body || '');
+          const extracted = bodyStr.includes('170k')
+            ? { customer: 'Ngọc Hân', phone: '[PHONE_1]', flower: 'bó hồng kem', flowerTotal: 350000, date: '29/12', time: '15:00', shipping: 'Ghé lấy', paymentState: 'deposit', depositAmount: 170000 }
+            : { paymentState: 'deposit', depositAmount: 200000 };
+          const sse = `data: ${JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(extracted) }] } }] })}\n\n`;
+          return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+        },
+        GEMINI_OPTIONS: { maxRetries: 0, baseDelayMs: 0 }
+      };
+
+      // A. Production runtime checks: /health reports production, /ai-probe & /ops-probe return 404
+      const healthRes = await workerMod.default.fetch(new Request('https://meehoa-order-bot.meehoasg.workers.dev/health'), env);
+      const healthJson = await healthRes.json();
+      assert.equal(healthJson.ok, true);
+      assert.equal(healthJson.service, 'meehoa-order-bot');
+      assert.equal(healthJson.environment, 'production');
+
+      const aiProbeRes = await workerMod.default.fetch(new Request('https://meehoa-order-bot.meehoasg.workers.dev/ai-probe', { method: 'POST', body: '{}' }), env);
+      assert.equal(aiProbeRes.status, 404, '/ai-probe must be disabled on Production');
+      const opsProbeRes = await workerMod.default.fetch(new Request('https://meehoa-order-bot.meehoasg.workers.dev/ops-probe', { method: 'POST', body: '{}' }), env);
+      assert.equal(opsProbeRes.status, 404, '/ops-probe must be disabled on Production');
+
+      // B. Stale Staging draft guard on fresh empty Production D1 (after existing bot webhook cutover)
+      const callsBeforeStale = opsCallCount;
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80001,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/select f8f97bb4-3c99-4d53-bad0-56afcb67e6b7' }
+      }), env);
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80002,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+      }), env);
+      assert.equal(opsCallCount, callsBeforeStale, 'Stale Staging draft commands on empty Prod D1 must NOT call OPS');
+      assert.equal(Number((await pg.query('select count(*) as c from public.orders')).rows[0].c), 0);
+
+      // C. Exact 350.000 đ flower + 200.000 đ deposit (no other fees) -> paid 200k, debt 150k, sale cmui
+      //    First test below-50% deposit (170k on 350k) is blocked, then update to 200k and confirm!
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80010,
+        message: {
+          chat: { id: 5252724920, type: 'private' },
+          from: { id: 5252724920 },
+          photo: [{ file_id: 'f_350k', file_unique_id: 'u_350k' }],
+          caption: 'Khách Ngọc Hân 0909333444 đặt bó hồng kem 350k, ngày 29/12 lúc 15:00 ghé lấy, đã cọc 170k'
+        }
+      }), env);
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80011,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+      }), env);
+      assert.equal(Number((await pg.query('select count(*) as c from public.orders')).rows[0].c), 0, 'Deposit 170k < 50% of 350k must be blocked');
+      assert.ok(sentReplies.at(-1).includes('50%'), 'Rejection message must explain 50% flower deposit rule');
+
+      // Update deposit to 200k and test expired cmui session UX BEFORE valid confirm
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80012,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: 'đã cọc 200k' }
+      }), env);
+
+      const expiredEnv = { ...env, OPS_TOKEN: EXPIRED_SESSION };
+      const expStatusRes = await workerMod.default.fetch(new Request('https://meehoa-order-bot.meehoasg.workers.dev/status'), expiredEnv);
+      const expStatusJson = await expStatusRes.json();
+      assert.equal(expStatusJson.opsConnected, false);
+      assert.ok(['AUTH_REQUIRED', 'OPS_SESSION_EXPIRED'].includes(expStatusJson.opsError), `Unexpected opsError: ${expStatusJson.opsError}`);
+      // Also verify live meehoasg-api-core style error (no code field, Vietnamese expiry message) maps to OPS_SESSION_EXPIRED
+      const liveExpiredCheck = await opsClient.checkOpsHealth(PROD_OPS_URL, EXPIRED_SESSION, async () =>
+        new Response(JSON.stringify({ ok: false, message: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.' }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+        { opsApiKey: VALID_JWT }
+      );
+      assert.equal(liveExpiredCheck.ok, false);
+      assert.equal(liveExpiredCheck.error, 'OPS_SESSION_EXPIRED');
+
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80013,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+      }), expiredEnv);
+      const expiredReply = sentReplies.at(-1);
+      assert.ok(expiredReply.includes('MEEHOA OPS') && !expiredReply.includes('Staging'), 'Production reply must not say Staging');
+      assert.ok(expiredReply.includes('OPS_TOKEN') && expiredReply.includes('cmui'), 'Session expiry reply must include cmui OPS_TOKEN recovery guidance');
+      assert.ok(!expiredReply.includes(EXPIRED_SESSION) && !expiredReply.includes(VALID_JWT), 'Must never leak secrets');
+      assert.equal(Number((await pg.query('select count(*) as c from public.orders')).rows[0].c), 0);
+
+      // Now confirm with valid cmui session + simulate payment sync gap so Step 2 runs cleanly
+      simulateInitialUnpaidReturn = true;
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80014,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+      }), env);
+      simulateInitialUnpaidReturn = false;
+
+      const confirmReply = sentReplies.at(-1);
+      assert.ok(confirmReply.includes('TẠO ĐƠN THÀNH CÔNG TRÊN MEEHOA OPS!'), `Expected Production banner, got: ${confirmReply}`);
+      assert.ok(!confirmReply.includes('STAGING'), 'Production success message must not mention STAGING');
+
+      const rows = (await pg.query('select *, public.mee_ops_total(orders) as total_due, public.mee_ops_paid(orders) as paid, public.mee_ops_debt(orders) as debt from public.orders')).rows;
+      assert.equal(rows.length, 1, 'Exactly 1 OPS order must exist');
+      assert.equal(rows[0].sale, 'cmui');
+      assert.equal(Number(rows[0].flower_total), 350000);
+      assert.equal(Number(rows[0].total_due), 350000);
+      assert.equal(Number(rows[0].paid), 200000);
+      assert.equal(Number(rows[0].debt), 150000);
+
+      // D. Duplicate /confirm + duplicate update_id + /retry_payment + wrong /relink MUST NOT duplicate order/deposit or mutate another order
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80014, // exact duplicate Telegram webhook retry
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+      }), env);
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80015, // repeated /confirm command
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+      }), env);
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80016,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/retry_payment' }
+      }), env);
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80017,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/relink MEE-WRONG9999999999' }
+      }), env);
+
+      const rowsAfterRetries = (await pg.query('select *, public.mee_ops_total(orders) as total_due, public.mee_ops_paid(orders) as paid, public.mee_ops_debt(orders) as debt from public.orders')).rows;
+      assert.equal(rowsAfterRetries.length, 1, 'Repeated /confirm, duplicate update_id, /retry_payment, and wrong /relink must NEVER duplicate orders');
+      assert.equal(Number(rowsAfterRetries[0].paid), 200000, 'Deposit must remain exactly 200,000 (never double-recorded)');
+      assert.equal(Number(rowsAfterRetries[0].debt), 150000, 'Debt must remain exactly 150,000');
+
+      // Verify exact 50% boundary (350k flower + 175k deposit) passes via OPS API
+      const exact50 = await opsClient.callCreateOrder(PROD_OPS_URL, CMUI_SESSION, {
+        id: 'draft-exact-50',
+        requestId: 'req-exact-50-350k',
+        fields: {
+          customer: 'Khách Biên 50%', phone: '0909000111', date: '2026-12-29', time: '17:00',
+          flower: 'Bó cúc mẫu đơn', shipping: 'Ghé lấy', address: '', flowerTotal: '350000',
+          paymentState: 'deposit', depositAmount: '175000', sale: 'cmui'
+        }
+      }, [], [], baseMock.fetcher, { opsApiKey: VALID_JWT });
+      assert.equal(exact50.ok, true);
+      assert.equal(exact50.order.paid, 175000);
+      assert.equal(exact50.order.debt, 175000);
+    } finally {
+      await pg.close();
+    }
   });
 });

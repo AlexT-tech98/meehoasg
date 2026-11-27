@@ -91,11 +91,20 @@ export async function checkOpsHealth(opsUrl, opsToken, fetcher = fetch, { opsApi
       }
       const json = await res.json();
       if (!json?.ok) {
+        const msg = String(json?.message || '');
+        const inferredCode = json?.code || (
+          /phiên đăng nhập|hết hạn|invalid jwt|unauthorized/i.test(msg)
+            ? 'OPS_SESSION_EXPIRED'
+            : (/bị khóa/i.test(msg)
+              ? 'OPS_ACCOUNT_LOCKED'
+              : (/không có quyền|forbidden/i.test(msg) ? 'OPS_FORBIDDEN' : 'OPS_APP_ERROR'))
+        );
         return {
           ok: false,
           authMode: 'supabase_gateway_jwt+app_session',
           httpStatus: res.status,
-          error: json?.code || 'OPS_APP_ERROR'
+          error: inferredCode,
+          message: msg || null
         };
       }
       return {
