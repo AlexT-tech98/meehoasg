@@ -1,6 +1,6 @@
 import {createR2ImageReader} from '../_shared/r2-image-reader.js';
 import {createOperationStorage} from '../_shared/storage.js';
-import {createOperationService,ORDER_VALIDATION_RULES} from '../_shared/operations.js';
+import {createOperationService,ORDER_VALIDATION_RULES,loadOrderRules} from '../_shared/operations.js';
 import {createR2Media} from '../_shared/r2-media.js';
 const BUILD='2026.10.08-core6-atomic';
 const UI_BUILD='2026.09.28-supabase-v3';
@@ -225,7 +225,8 @@ function decorate(row,user,settlement,dir){const contact=contactFields(row),acc=
 
 
 async function discardEvidence(urls){const backups=(urls||[]).map(url=>r2Media?.parseReference(url)).filter(Boolean).map(key=>'supabase://'+key);await operationStorage.discard([...(urls||[]),...backups]);if(r2Media)for(const url of urls||[])await r2Media.discard(url)}
-const operations=createOperationService({db,one,uploadImages:uploadEvidenceImages,discardImages:discardEvidence,verifyStagedUploads,sha256,newId:prefix=>prefix+'-'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase()});
+const loadRules=()=>loadOrderRules(one,{OPS_PHONE_REQUIRED:Deno.env.get('OPS_PHONE_REQUIRED')||''});
+const operations=createOperationService({db,one,uploadImages:uploadEvidenceImages,discardImages:discardEvidence,verifyStagedUploads,sha256,getRules:loadRules,newId:prefix=>prefix+'-'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase()});
 async function operationResult(action,payload,user){
   const result=await operations.run(action,payload,user);
   if(!result?.ok)return result;
@@ -442,7 +443,7 @@ Deno.serve(async request=>{
     else if(name==='logOrderSaveFailure')result=await logOrderSaveFailure(payload);
     else if(name==='prepareOrderUploads')result=await prepareOrderUploads(payload);
     else if(name==='getOrder')result=await fastOrder(payload);
-    else if(name==='getOrderRules'){const rulesUser=await requireUser(payload);result={ok:true,rules:ORDER_VALIDATION_RULES,caller:{username:rulesUser.username,role:rulesUser.role,canAssignDefaultSale:rulesUser.role!=='SALE'||saleKey(rulesUser.username)===saleKey(ORDER_VALIDATION_RULES.saleDefault||'cmui')}};}
+    else if(name==='getOrderRules'){const rulesUser=await requireUser(payload);const rules=await loadRules();result={ok:true,rules,caller:{username:rulesUser.username,role:rulesUser.role,canAssignDefaultSale:rulesUser.role!=='SALE'||saleKey(rulesUser.username)===saleKey(rules.saleDefault||'cmui')}};}
     else if(name==='getDebtReview')result=await fastDebt(payload);
     else if(name==='getFullPaidReport')result=await fullPaidReport(payload);
     else if(name==='getSettlementQueue')result=await fastSettlementQueue(payload);

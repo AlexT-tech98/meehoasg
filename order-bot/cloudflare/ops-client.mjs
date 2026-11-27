@@ -1,7 +1,12 @@
 /**
- * MEEHOA Order Bot V1 — OPS Staging API Client (Cloudflare Worker)
+ * MEEHOA Order Bot V1 — OPS API Client (Cloudflare Worker)
  *
- * Communicates with MEEHOA OPS Staging backend (meehoasg-ops-staging).
+ * Communicates with MEEHOA OPS backend:
+ *   - Staging: Cloudflare Worker (`meehoasg-ops-staging`) using app session token
+ *   - Production: Supabase Edge Function (`meehoasg-api-core`, `verify_jwt: true`)
+ *     using strict separation between Supabase Gateway Auth (`apikey` + `Authorization: Bearer <OPS_SUPABASE_ANON_KEY>`)
+ *     and OPS Application Session (`payload.token = OPS_TOKEN` of `cmui`).
+ *
  * Enforces owner-verified payment recording and strict invariants:
  *   - unpaid, deposit ("Đã cọc X đ"), and bankfull ("Đã thanh toán đủ tiền hoa (Full)")
  *     are recorded through OPS createOrder / updateOrder RPCs
@@ -19,6 +24,115 @@ import {
 } from '../core.mjs';
 
 export { mapPaymentToOps, formatPaymentClaimNote, stripPaymentClaimTags };
+
+export function isSupabaseOpsUrl(opsUrl) {
+  const raw = String(opsUrl || '').trim();
+  return /supabase\.co\/functions\/v1\//i.test(raw) || /\/functions\/v1\/meehoasg-api/i.test(raw);
+}
+
+/**
+ * Build HTTP headers for OPS API requests.
+ * Strictly separates Supabase Edge Gateway JWT (`opsApiKey`) from the opaque OPS app session (`opsToken`).
+ * - When `opsApiKey` is set (Supabase Production with `verify_jwt: true`):
+ *     `apikey: <opsApiKey>` and `Authorization: Bearer <opsApiKey>` satisfy the gateway,
+ *     while `payload.token` carries the opaque 64-hex OPS session (`opsToken`).
+ * - When `opsApiKey` is empty (Cloudflare OPS Staging):
+ *     `Authorization: Bearer <opsToken>` preserves existing Staging compatibility.
+ */
+export function buildOpsHeaders(opsToken, opsApiKey = '') {
+  const gatewayKey = String(opsApiKey || '').trim();
+  if (gatewayKey) {
+    return {
+      'Content-Type': 'application/json',
+      'apikey': gatewayKey,
+      'Authorization': `Bearer ${gatewayKey}`
+    };
+  }
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${opsToken}`
+  };
+}
+
+/**
+ * Check OPS backend reachability & session validity for `/status`.
+ * - Supabase Production: probes `POST getOrderRules` with Gateway Auth + App Session token.
+ * - Cloudflare Staging: probes `GET <opsBase>/health`.
+ */
+export async function checkOpsHealth(opsUrl, opsToken, fetcher = fetch, { opsApiKey = '' } = {}) {
+  const url = String(opsUrl || '').trim();
+  const gatewayKey = String(opsApiKey || '').trim();
+  const useSupabaseMode = Boolean(gatewayKey) || isSupabaseOpsUrl(url);
+
+  if (useSupabaseMode) {
+    if (!opsToken) {
+      return { ok: false, authMode: 'supabase_gateway_jwt+app_session', httpStatus: null, error: 'OPS_TOKEN_MISSING' };
+    }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetcher(url, {
+        method: 'POST',
+        headers: buildOpsHeaders(opsToken, gatewayKey),
+        body: JSON.stringify({
+          name: 'getOrderRules',
+          payload: { token: opsToken }
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) {
+        return {
+          ok: false,
+          authMode: 'supabase_gateway_jwt+app_session',
+          httpStatus: res.status,
+          error: res.status === 401 ? 'GATEWAY_UNAUTHORIZED' : `HTTP_${res.status}`
+        };
+      }
+      const json = await res.json();
+      if (!json?.ok) {
+        return {
+          ok: false,
+          authMode: 'supabase_gateway_jwt+app_session',
+          httpStatus: res.status,
+          error: json?.code || 'OPS_APP_ERROR'
+        };
+      }
+      return {
+        ok: true,
+        authMode: 'supabase_gateway_jwt+app_session',
+        httpStatus: res.status,
+        error: null,
+        schemaVersion: json.rules?.schemaVersion || null,
+        callerRole: json.caller?.role || null
+      };
+    } catch {
+      clearTimeout(timeoutId);
+      return { ok: false, authMode: 'supabase_gateway_jwt+app_session', httpStatus: null, error: 'OPS_HEALTH_UNAVAILABLE' };
+    }
+  }
+
+  const opsBase = url.replace(/\/api-core\/?$/, '');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetcher(`${opsBase}/health`, { method: 'GET', signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      return { ok: false, authMode: 'cloudflare_worker', httpStatus: res.status, error: `HTTP_${res.status}` };
+    }
+    const data = await res.json();
+    return {
+      ok: Boolean(data?.ok),
+      authMode: 'cloudflare_worker',
+      httpStatus: res.status,
+      error: data?.ok ? null : 'OPS_HEALTH_FALSE'
+    };
+  } catch {
+    clearTimeout(timeoutId);
+    return { ok: false, authMode: 'cloudflare_worker', httpStatus: null, error: 'OPS_HEALTH_UNAVAILABLE' };
+  }
+}
 
 const OPS_RULES_CACHE = new Map();
 const OPS_RULES_TTL_MS = 60 * 1000;
@@ -41,7 +155,7 @@ export function getCachedOpsOrderRules(opsUrl, opsToken) {
  * Fetch order validation rules from OPS shared source (`getOrderRules`), with short cache
  * and graceful fallback to DEFAULT_OPS_ORDER_RULES when OPS hasn't exposed the route yet.
  */
-export async function fetchOpsOrderRules(opsUrl, opsToken, fetcher = fetch, { forceRefresh = false } = {}) {
+export async function fetchOpsOrderRules(opsUrl, opsToken, fetcher = fetch, { forceRefresh = false, opsApiKey = '' } = {}) {
   if (!opsUrl || !opsToken) {
     return { ok: true, source: 'default', rules: DEFAULT_OPS_ORDER_RULES };
   }
@@ -56,10 +170,7 @@ export async function fetchOpsOrderRules(opsUrl, opsToken, fetcher = fetch, { fo
   try {
     const res = await fetcher(opsUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${opsToken}`
-      },
+      headers: buildOpsHeaders(opsToken, opsApiKey),
       body: JSON.stringify({
         name: 'getOrderRules',
         payload: { token: opsToken }
@@ -170,10 +281,7 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
   try {
     const res = await fetcher(opsUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${opsToken}`
-      },
+      headers: buildOpsHeaders(opsToken, options?.opsApiKey || ''),
       body: JSON.stringify(payload),
       signal: controller.signal
     });
@@ -184,7 +292,7 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
       return {
         ok: false,
         code: `HTTP_${res.status}`,
-        message: `Hệ thống OPS Staging phản hồi mã lỗi HTTP ${res.status}.`
+        message: `Hệ thống OPS phản hồi mã lỗi HTTP ${res.status}.`
       };
     }
 
@@ -205,8 +313,8 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
       ok: false,
       code: isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR',
       message: isTimeout
-        ? 'Kết nối tới OPS Staging bị quá thời gian (timeout). Vui lòng kiểm tra lại trạng thái đơn trước khi thử lại.'
-        : 'Không thể kết nối đến OPS Staging do lỗi mạng.'
+        ? 'Kết nối tới OPS bị quá thời gian (timeout). Vui lòng kiểm tra lại trạng thái đơn trước khi thử lại.'
+        : 'Không thể kết nối đến OPS do lỗi mạng.'
     };
   }
 }
@@ -214,17 +322,14 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
 /**
  * Fetch current decorated order state from OPS API.
  */
-export async function callGetOrder(opsUrl, opsToken, orderId, fetcher = fetch) {
+export async function callGetOrder(opsUrl, opsToken, orderId, fetcher = fetch, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
   try {
     const res = await fetcher(opsUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${opsToken}`
-      },
+      headers: buildOpsHeaders(opsToken, options?.opsApiKey || ''),
       body: JSON.stringify({
         name: 'getOrder',
         payload: {
@@ -264,7 +369,7 @@ export async function callGetOrder(opsUrl, opsToken, orderId, fetcher = fetch) {
  * using OCC (`expectedUpdatedAt`) and idempotency key (`requestId`).
  * Omits `imageUrls` so OPS retains existing `current.image_urls` without re-uploading.
  */
-export async function callUpdateOrderPayment(opsUrl, opsToken, orderId, currentOrder, paymentStr, requestId, cleanNote, fetcher = fetch) {
+export async function callUpdateOrderPayment(opsUrl, opsToken, orderId, currentOrder, paymentStr, requestId, cleanNote, fetcher = fetch, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 20000);
 
@@ -315,10 +420,7 @@ export async function callUpdateOrderPayment(opsUrl, opsToken, orderId, currentO
   try {
     const res = await fetcher(opsUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${opsToken}`
-      },
+      headers: buildOpsHeaders(opsToken, options?.opsApiKey || ''),
       body: JSON.stringify(payload),
       signal: controller.signal
     });
@@ -356,6 +458,7 @@ export async function callUpdateOrderPayment(opsUrl, opsToken, orderId, currentO
 export async function syncOrderPaymentToOps({
   opsUrl,
   opsToken,
+  opsApiKey = '',
   orderId,
   expectedPayment,
   expectedPaid = 0,
@@ -363,7 +466,7 @@ export async function syncOrderPaymentToOps({
   cleanNote,
   fetcher = fetch
 }) {
-  const getRes = await callGetOrder(opsUrl, opsToken, orderId, fetcher);
+  const getRes = await callGetOrder(opsUrl, opsToken, orderId, fetcher, { opsApiKey });
   if (!getRes.ok || !getRes.order) {
     return {
       ok: false,
@@ -412,6 +515,7 @@ export async function syncOrderPaymentToOps({
     expectedPayment,
     requestId,
     cleanNote !== undefined ? cleanNote : stripPaymentClaimTags(current.note),
-    fetcher
+    fetcher,
+    { opsApiKey }
   );
 }

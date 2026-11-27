@@ -62,7 +62,7 @@ import {
   bytesToBase64
 } from './telegram.mjs';
 
-import { callCreateOrder, syncOrderPaymentToOps, fetchOpsOrderRules, getCachedOpsOrderRules, clearOpsOrderRulesCache } from './ops-client.mjs';
+import { callCreateOrder, syncOrderPaymentToOps, fetchOpsOrderRules, getCachedOpsOrderRules, clearOpsOrderRulesCache, buildOpsHeaders, checkOpsHealth, isSupabaseOpsUrl } from './ops-client.mjs';
 import {
   extractFieldsWithGeminiDetailed,
   sanitizeAiFields,
@@ -349,22 +349,13 @@ export default {
           d1Test = row?.alive === 1;
         }
 
-        let opsHealth = false;
-        let opsError = null;
-        try {
-          const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
-          const opsBase = (env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core').replace(/\/api-core\/?$/, '');
-          const opsRes = await fetcher(`${opsBase}/health`, { method: 'GET' });
-          if (opsRes.ok) {
-            const data = await opsRes.json();
-            opsHealth = Boolean(data?.ok);
-          } else {
-            opsError = `HTTP_${opsRes.status}`;
-          }
-        } catch {
-          opsHealth = false;
-          opsError = 'OPS_HEALTH_UNAVAILABLE';
-        }
+        const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+        const opsToken = env.OPS_TOKEN || env.OPS_SERVICE_ROLE_TOKEN || '';
+        const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
+        const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
+        const opsCheck = await checkOpsHealth(opsUrl, opsToken, fetcher, { opsApiKey });
+        const opsHealth = Boolean(opsCheck.ok);
+        const opsError = opsCheck.error || null;
 
         const stale = env.DB ? await findStaleConfirming(env.DB) : [];
         let lastGeminiCall = null;
@@ -416,14 +407,21 @@ export default {
           }
         }
 
+        const environment = env.ENVIRONMENT || (isSupabaseOpsUrl(opsUrl) ? 'production' : 'staging');
+        const serviceName = env.SERVICE_NAME || (environment === 'production' ? 'meehoa-order-bot' : 'meehoa-order-bot-staging');
+
         return new Response(JSON.stringify({
           ok: true,
-          service: 'meehoa-order-bot-staging',
-          environment: 'staging',
+          service: serviceName,
+          environment,
           d1Connected: d1Test,
           r2Connected: Boolean(env.MEDIA_R2),
           opsConnected: opsHealth,
           opsError: opsError,
+          opsAuthMode: opsCheck.authMode,
+          opsGatewayKeyConfigured: Boolean(opsApiKey),
+          opsRuleSchemaVersion: opsCheck.schemaVersion || null,
+          opsCallerRole: opsCheck.callerRole || null,
           staleConfirmingDrafts: stale.length,
           telegramConfigured: Boolean(botToken),
           webhookSecretConfigured: Boolean(env.TELEGRAM_SECRET_TOKEN),
@@ -1313,12 +1311,10 @@ async function handleOpsProbe(request, env) {
     }
     const rpcPayload = probeBody?.rpcPayload && typeof probeBody.rpcPayload === 'object' ? probeBody.rpcPayload : {};
     const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
+    const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
     const res = await fetcher(opsUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${opsToken}`
-      },
+      headers: buildOpsHeaders(opsToken, opsApiKey),
       body: JSON.stringify({
         name: rpcName,
         payload: { ...rpcPayload, token: opsToken }
@@ -2221,7 +2217,8 @@ async function loadCurrentOpsRules(env, { forceRefresh = false } = {}) {
   if (!env?.OPS_TOKEN) return { rules: DEFAULT_OPS_ORDER_RULES, caller: null };
   const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
   const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
-  const res = await fetchOpsOrderRules(opsUrl, env.OPS_TOKEN, fetcher, { forceRefresh });
+  const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
+  const res = await fetchOpsOrderRules(opsUrl, env.OPS_TOKEN, fetcher, { forceRefresh, opsApiKey });
   return { rules: res.rules || DEFAULT_OPS_ORDER_RULES, caller: res.caller || null };
 }
 
@@ -2379,7 +2376,12 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     return;
   }
 
+  const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+  const opsToken = env.OPS_TOKEN || '';
+  const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
+
   const allBillsInR2 = expectedBillCount > 0 && Boolean(env.DB && env.MEDIA_R2) &&
+    !isSupabaseOpsUrl(opsUrl) &&
     (draft.draftBillRefs || []).every(ref => Boolean(ref.r2_key));
   const billsForCreateOrder = (samplePayloadBytes + billPayloadBytes > MAX_OPS_PAYLOAD_BYTES && allBillsInR2)
     ? []
@@ -2392,21 +2394,19 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     return;
   }
 
-  // 4. Call OPS Staging API
+  // 4. Call OPS API
   const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
   const opsRes = await callCreateOrder(
-    env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core',
-    env.OPS_TOKEN || '',
+    opsUrl,
+    opsToken,
     drafts[draft.id],
     sampleFiles,
     billsForCreateOrder,
     fetcher,
-    { expectedBillCount }
+    { expectedBillCount, opsApiKey }
   );
 
   if (opsRes.ok && opsRes.orderId) {
-    const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
-    const opsToken = env.OPS_TOKEN || '';
     const { expectedPayment, expectedPaid } = expectedPaymentDetails(draft.fields);
     const paymentSyncRequestId = draft.paymentSyncRequestId || `${confirmedDraft.requestId}:pay:${draft.fields?.paymentState || 'unpaid'}:${expectedPaid}`;
 
@@ -2450,6 +2450,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       const syncRes = await syncOrderPaymentToOps({
         opsUrl,
         opsToken,
+        opsApiKey,
         orderId: opsRes.orderId,
         expectedPayment,
         expectedPaid,
@@ -2867,10 +2868,12 @@ async function handleRetryPaymentCommand(drafts, arg, env, userId, chatId) {
   const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
   const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
   const opsToken = env.OPS_TOKEN || '';
+  const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
 
   const syncRes = await syncOrderPaymentToOps({
     opsUrl,
     opsToken,
+    opsApiKey,
     orderId: targetDraft.opsOrderId,
     expectedPayment,
     expectedPaid,
