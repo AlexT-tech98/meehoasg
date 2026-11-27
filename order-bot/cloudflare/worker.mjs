@@ -1996,6 +1996,15 @@ const isShippingLikeName = val => {
   return /\b(shop\s*(?:book|ship|giao)|khach\s*tu\s*book|tu\s*book|ghe\s*lay|tai\s*tiem|tu\s*lay|grab|aha)\b/.test(norm);
 };
 
+function mergePendingAiText(existingText, nextText) {
+  const prev = String(existingText || '').trim();
+  const next = String(nextText || '').trim();
+  if (!prev) return next;
+  if (!next || prev === next || prev.includes(next)) return prev;
+  if (next.includes(prev)) return next;
+  return `${prev}\n${next}`.slice(-4000);
+}
+
 /**
  * Run Gemini AI fallback on top of the deterministic parser for photo captions, text, and /reparse.
  * - Preserves all previously confirmed fields unless explicit edit intent is active (and not disabled via preserveExisting).
@@ -2084,10 +2093,13 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
   }
 
   if (!aiRes?.ok) {
+    const preservedPending = preserveExisting
+      ? String(text)
+      : mergePendingAiText(after?.pendingAiText, text);
     const failedDraft = after
       ? {
           ...after,
-          pendingAiText: String(text),
+          pendingAiText: preservedPending,
           lastAiError: {
             status: aiRes?.status ?? null,
             endpoint: aiRes?.endpoint || null,
@@ -2097,7 +2109,7 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
           }
         }
       : after;
-    const shouldNotify = stillMissing.length > 0 || !(result.changes?.length);
+    const shouldNotify = Boolean(options?.forceNotifyOnAiError) || stillMissing.length > 0 || !(result.changes?.length);
     return {
       draft: failedDraft,
       changes: result.changes || [],
@@ -2227,7 +2239,7 @@ async function handleReparseCommand(drafts, arg, env, userId, chatId) {
     env,
     opsRules,
     userId,
-    { preserveExisting: true }
+    { preserveExisting: true, forceNotifyOnAiError: true }
   );
 
   const updated = merged.draft || target;

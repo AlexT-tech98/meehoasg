@@ -11,7 +11,7 @@
 #   - TELEGRAM_SECRET_TOKEN   (new 64-hex random webhook secret for Production cutover)
 #   - OPS_SUPABASE_ANON_KEY   (Supabase Production Gateway JWT — separate from OPS app session)
 #   - OPS_TOKEN               (dedicated 64-hex OPS app session token for `cmui` on Production)
-#   - GEMINI_API_KEY          (Google Gemini API Paid-tier key for Production)
+#   - GEMINI_API_KEY          (Google Gemini API Free-tier key; keep billing disabled)
 
 name = "meehoa-order-bot"
 main = "worker.mjs"

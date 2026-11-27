@@ -1308,3 +1308,185 @@ describe('Production Readiness 8: Bot Production Acceptance — 350k/200k Deposi
     }
   });
 });
+
+describe('Production Readiness 9: Gemini API Free Quota/Overload (429/503) — Keep Draft, Allow Manual Supplement, and Recover via /reparse', () => {
+  test('never switches away from gemini-3.5-flash-lite Free endpoint on 429/503, preserves draft & R2 sample & pendingAiText across manual supplement, and supports both manual /confirm and /reparse recovery', async () => {
+    const { workerMod, d1Store, supaOps } = await loadModules();
+    const pg = await createIsolatedProdPg({ includeUnverifiedBillMigrations: false });
+    const botD1 = createBotOnlyD1();
+    const botR2 = createMockR2();
+    const VALID_JWT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.free429.sig';
+    const CMUI_SESSION = 'c'.repeat(64);
+    const PROD_OPS_URL = 'https://zxnfhshnavbmvdthrmrd.supabase.co/functions/v1/meehoasg-api-core';
+
+    try {
+      await pg.query(
+        "insert into public.app_sessions(token_hash, username, expires_at) values ($1, 'cmui', now() + interval '30 days')",
+        [hash(CMUI_SESSION)]
+      );
+      const { fetcher: opsFetcher } = createProdSupabaseEdgeMock({ db: pg, supaOps, validGatewayJwt: VALID_JWT, mode: 'live_v33' });
+
+      const geminiUrls = [];
+      let aiMode = 'quota429';
+      const sentReplies = [];
+      const tgFetcher = async (url, init = {}) => {
+        const u = String(url);
+        if (u.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/free429.jpg', file_size: 400 } }));
+        if (u.includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2]), { headers: { 'content-type': 'image/jpeg' } });
+        if (u.includes('/sendMessage')) {
+          sentReplies.push(String(JSON.parse(init.body || '{}').text || ''));
+          return new Response(JSON.stringify({ ok: true }));
+        }
+        return new Response('404', { status: 404 });
+      };
+
+      const geminiFetcher = async (url) => {
+        geminiUrls.push(String(url));
+        if (aiMode === 'quota429') {
+          return new Response(JSON.stringify({ error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Quota exceeded for quota metric' } }), { status: 429 });
+        }
+        if (aiMode === 'overload503') {
+          return new Response(JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'High demand' } }), { status: 503 });
+        }
+        const sse = `data: ${JSON.stringify({
+          candidates: [{
+            finishReason: 'STOP',
+            content: {
+              parts: [{
+                text: JSON.stringify({
+                  customer: 'Chị Hương AI',
+                  flower: 'bó tulip hồng',
+                  flowerTotal: 450000,
+                  date: '29/12',
+                  time: '16:30',
+                  shipping: 'Shop book ship',
+                  address: '15 Lý Tự Trọng Q1'
+                })
+              }]
+            }
+          }]
+        })}\n\n`;
+        return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      };
+
+      const env = {
+        ENVIRONMENT: 'production',
+        SERVICE_NAME: 'meehoa-order-bot',
+        DB: botD1,
+        MEDIA_R2: botR2,
+        BOT_TOKEN: 'fake_existing_bot_token',
+        TELEGRAM_SECRET_TOKEN: 'prod_webhook_secret_64hex',
+        ALLOWED_USER_IDS: '5252724920',
+        OPS_API_URL: PROD_OPS_URL,
+        OPS_TOKEN: CMUI_SESSION,
+        OPS_SUPABASE_ANON_KEY: VALID_JWT,
+        OPS_SERVICE: { fetch: opsFetcher },
+        TELEGRAM_FETCHER: tgFetcher,
+        GEMINI_API_KEY: 'AIzaFakeFreeTierKeyOnly',
+        GEMINI_MODEL: 'gemini-3.5-flash-lite',
+        GEMINI_FETCHER: geminiFetcher,
+        GEMINI_OPTIONS: { maxRetries: 0, baseDelayMs: 0 }
+      };
+
+      // Case A: Free-tier 429 hits on initial photo+caption -> draft & R2 sample preserved -> manual completion -> /confirm succeeds
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 90001,
+        message: {
+          chat: { id: 5252724920, type: 'private' },
+          from: { id: 5252724920 },
+          photo: [{ file_id: 'f_free_1', file_unique_id: 'u_free_1' }],
+          caption: 'Đặt giúp chị Lan nha SĐT 0909555666 bó hoa xinh 450k chiều 29/12 tầm 15h'
+        }
+      }), env);
+
+      assert.ok(geminiUrls.length === 1);
+      assert.ok(geminiUrls.every(u => u.includes('generativelanguage.googleapis.com') && u.includes('gemini-3.5-flash-lite')), 'Must call only gemini-3.5-flash-lite Free endpoint');
+      assert.ok(geminiUrls.every(u => !u.includes('aiplatform.googleapis.com')), 'Free AIza key must NEVER switch to paid aiplatform');
+      assert.ok(sentReplies.at(-1).includes('HTTP 429') && sentReplies.at(-1).includes('/reparse') && sentReplies.at(-1).includes('bổ sung thủ công'));
+
+      let drafts = await d1Store.loadDrafts(botD1, 5252724920);
+      let d1 = drafts[drafts.__active];
+      assert.equal(d1.sampleRefs.length, 1);
+      assert.equal(botR2.objects.size, 1);
+      assert.ok(d1.pendingAiText.includes('Đặt giúp chị Lan'));
+
+      // Owner manually supplements during ongoing 429 -> must NOT lose original pendingAiText and completes draft for /confirm
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 90002,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: 'ship: Ghé lấy\ntên khách: Chị Lan Thủ Công\nhoa: Bó hoa mẫu 450k' }
+      }), env);
+      drafts = await d1Store.loadDrafts(botD1, 5252724920);
+      d1 = drafts[drafts.__active];
+      assert.ok(d1.pendingAiText.includes('Đặt giúp chị Lan'), 'Original pendingAiText must remain preserved on manual supplement');
+      assert.equal(d1.fields.customer, 'Chị Lan Thủ Công');
+      assert.equal(d1.fields.shipping, 'Ghé lấy');
+
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 90003,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+      }), env);
+      const pgOrders1 = (await pg.query("select * from public.orders where customer = 'Chị Lan Thủ Công'")).rows;
+      assert.equal(pgOrders1.length, 1);
+      assert.equal(pgOrders1[0].sale, 'cmui');
+      assert.equal(pgOrders1[0].image_urls.length, 1);
+
+      // Case B: Second draft hits 503 overload -> manual phone/customer edit -> /reparse while 429 -> notice shown, manual fields preserved -> quota recovers -> /reparse succeeds & /confirm saves
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 90010,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/new' }
+      }), env);
+      aiMode = 'overload503';
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 90011,
+        message: {
+          chat: { id: 5252724920, type: 'private' },
+          from: { id: 5252724920 },
+          photo: [{ file_id: 'f_free_2', file_unique_id: 'u_free_2' }],
+          caption: 'nhờ tiệm chuẩn bị mẫu giống hình tầm 450k chiều 29/12 khoảng 16h30 giao 15 Lý Tự Trọng Q1'
+        }
+      }), env);
+      assert.ok(sentReplies.at(-1).includes('HTTP 503') && sentReplies.at(-1).includes('/reparse'));
+
+      // Owner manually corrects customer name first before retrying /reparse
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 90012,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: 'tên khách: Chị Hương Đã Sửa Tay' }
+      }), env);
+
+      // Retry /reparse while Free tier still 429 -> MUST still notify & preserve draft
+      aiMode = 'quota429';
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 90013,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/reparse' }
+      }), env);
+      assert.ok(sentReplies.at(-1).includes('HTTP 429'), '/reparse failure must always notify user while keeping draft');
+
+      // Quota recovers -> /reparse fills flower/shipping/address while preserving manually confirmed customer
+      aiMode = 'ok';
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 90014,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/reparse' }
+      }), env);
+
+      drafts = await d1Store.loadDrafts(botD1, 5252724920);
+      const d2 = drafts[drafts.__active];
+      assert.equal(d2.fields.customer, 'Chị Hương Đã Sửa Tay', '/reparse must NOT overwrite manually confirmed customer');
+      assert.equal(d2.fields.shipping, 'Shop book ship');
+      assert.equal(d2.fields.flowerTotal, '450000');
+      assert.equal(d2.fields.address, '15 Lý Tự Trọng Q1');
+      assert.equal(d2.pendingAiText, undefined);
+
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 90015,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/confirm' }
+      }), env);
+      const pgOrders2 = (await pg.query("select * from public.orders where customer = 'Chị Hương Đã Sửa Tay'")).rows;
+      assert.equal(pgOrders2.length, 1);
+      assert.equal(pgOrders2[0].sale, 'cmui');
+      assert.equal(Number(pgOrders2[0].flower_total), 450000);
+      assert.ok(geminiUrls.every(u => u.includes('gemini-3.5-flash-lite') && !u.includes('aiplatform')));
+    } finally {
+      await pg.close();
+    }
+  });
+});
