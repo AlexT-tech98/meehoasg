@@ -26,6 +26,7 @@ import {
   addSampleRef,
   addBillRef,
   activeDraft,
+  getDraftVersion,
   isDraftEmpty,
   classifyIncomingPhotoDraft,
   computeDraftTotal,
@@ -56,6 +57,8 @@ import {
   verifySecretHeader,
   verifyWebhookSecret,
   sendTelegramMessage,
+  answerTelegramCallbackQuery,
+  editTelegramMessageReplyMarkup,
   downloadTelegramPhoto,
   savePhotoToR2,
   deletePhotoFromR2,
@@ -75,8 +78,129 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_OPS_PAYLOAD_BYTES = Math.floor(11.5 * 1024 * 1024);
 const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
-const replyTg = (env, chatId, text, parseMode = null) =>
-  sendTelegramMessage(env.BOT_TOKEN, chatId, text, parseMode, env.TELEGRAM_FETCHER || fetch);
+const replyTg = (env, chatId, text, parseMode = null, options = {}) =>
+  sendTelegramMessage(env.BOT_TOKEN, chatId, text, parseMode, env.TELEGRAM_FETCHER || fetch, options);
+
+const answerCb = (env, callbackQueryId, text = '', showAlert = false) =>
+  answerTelegramCallbackQuery(env.BOT_TOKEN, callbackQueryId, text, showAlert, env.TELEGRAM_FETCHER || fetch);
+
+const clearMsgButtons = (env, chatId, messageId) =>
+  editTelegramMessageReplyMarkup(env.BOT_TOKEN, chatId, messageId, { inline_keyboard: [] }, env.TELEGRAM_FETCHER || fetch);
+
+export const SHIPPING_CALLBACK_MAP = {
+  s: 'Shop book ship',
+  k: 'Khách tự book',
+  g: 'Ghé lấy'
+};
+
+/**
+ * Encode compact callback_data strictly within Telegram's 64-byte UTF-8 limit,
+ * binding every button to its exact draftId and monotonic draft version.
+ */
+export function encodeCallbackData(action, draftId, version, extra = null) {
+  const safeId = String(draftId || '0').trim() || '0';
+  const safeVer = Math.max(0, Math.floor(Number(version) || 0));
+  if (action === 'sh') {
+    return `ob:sh:${String(extra || '')}:${safeId}:${safeVer}`;
+  }
+  return `ob:${String(action || '')}:${safeId}:${safeVer}`;
+}
+
+/**
+ * Parse and strictly validate callback_data produced by encodeCallbackData.
+ */
+export function parseCallbackData(raw) {
+  const text = String(raw || '').trim();
+  if (!text || !text.startsWith('ob:')) return null;
+  const parts = text.split(':');
+  if (parts[1] === 'sh') {
+    if (parts.length !== 5) return null;
+    const shippingCode = parts[2];
+    const shippingValue = SHIPPING_CALLBACK_MAP[shippingCode];
+    const draftId = parts[3];
+    const version = Number(parts[4]);
+    if (!shippingValue || !draftId || !Number.isInteger(version) || version < 1) return null;
+    return { action: 'sh', shippingCode, shippingValue, draftId, version };
+  }
+  if (parts.length !== 4) return null;
+  const action = parts[1];
+  if (!['cf', 'ed', 'cx', 'nw'].includes(action)) return null;
+  const draftId = parts[2];
+  const version = Number(parts[3]);
+  if (!draftId || !Number.isInteger(version) || version < 0) return null;
+  if (action !== 'nw' && version < 1) return null;
+  return { action, draftId, version };
+}
+
+/**
+ * Inline button shown after a draft is submitted (or cancelled) so Owner can start a new order in 1 tap.
+ */
+export function buildPostSubmitReplyMarkup(draft = null) {
+  const draftId = draft?.id || '0';
+  const version = draft ? getDraftVersion(draft) : 0;
+  return {
+    inline_keyboard: [
+      [{ text: 'Tạo đơn khác', callback_data: encodeCallbackData('nw', draftId, version) }]
+    ]
+  };
+}
+
+/**
+ * Build context-aware inline buttons bound to the exact draft ID and current version:
+ * - Ready (validation.ok): Tạo đơn / Sửa thông tin / Hủy nháp
+ * - Missing shipping method: Shop book ship / Khách tự book / Ghé lấy
+ * - Has shipping but still missing other fields or rule errors: Sửa thông tin / Hủy nháp (no Tạo đơn)
+ * - Submitted: Tạo đơn khác
+ * - Confirming: null (locked while submitting)
+ */
+export function buildDraftReplyMarkup(draft, rules = DEFAULT_OPS_ORDER_RULES) {
+  if (!draft || !draft.id) return null;
+  if (draft.status === 'submitted') {
+    return buildPostSubmitReplyMarkup(draft);
+  }
+  if (draft.status !== 'pending' && draft.status !== 'confirmed') {
+    return null;
+  }
+
+  const version = getDraftVersion(draft);
+  const validation = validateOrderAgainstRules(draft, rules);
+
+  if (validation.ok) {
+    return {
+      inline_keyboard: [
+        [{ text: 'Tạo đơn', callback_data: encodeCallbackData('cf', draft.id, version) }],
+        [
+          { text: 'Sửa thông tin', callback_data: encodeCallbackData('ed', draft.id, version) },
+          { text: 'Hủy nháp', callback_data: encodeCallbackData('cx', draft.id, version) }
+        ]
+      ]
+    };
+  }
+
+  const hasShipping = Boolean(String(draft.fields?.shipping || '').trim());
+  if (!hasShipping) {
+    return {
+      inline_keyboard: [
+        [
+          { text: 'Shop book ship', callback_data: encodeCallbackData('sh', draft.id, version, 's') },
+          { text: 'Khách tự book', callback_data: encodeCallbackData('sh', draft.id, version, 'k') }
+        ],
+        [
+          { text: 'Ghé lấy', callback_data: encodeCallbackData('sh', draft.id, version, 'g') }
+        ]
+      ]
+    };
+  }
+
+  return {
+    inline_keyboard: [
+      [
+        { text: 'Sửa thông tin', callback_data: encodeCallbackData('ed', draft.id, version) },
+        { text: 'Hủy nháp', callback_data: encodeCallbackData('cx', draft.id, version) }
+      ]
+    ]
+  };
+}
 
 const downloadTgPhoto = (env, fileId, maxBytes = MAX_IMAGE_BYTES) =>
   downloadTelegramPhoto(env.BOT_TOKEN, fileId, maxBytes, env.TELEGRAM_FETCHER || fetch);
@@ -318,6 +442,7 @@ export function transitionDraftStatus(drafts, draftId, status, extra = {}) {
       ...draft,
       status,
       ...extra,
+      version: getDraftVersion(draft) + 1,
       updatedAt: new Date().toISOString()
     }
   };
@@ -412,7 +537,8 @@ export default {
         const botToken = env.BOT_TOKEN || env.TELEGRAM_BOT_TOKEN;
         if (botToken) {
           try {
-            const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
+            const tgFetcher = env.TELEGRAM_FETCHER || fetch;
+            const tgRes = await tgFetcher(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
             if (tgRes.ok) {
               const tgData = await tgRes.json();
               if (tgData.ok) {
@@ -422,7 +548,8 @@ export default {
                   pending_update_count: Number(tgData.result?.pending_update_count) || 0,
                   last_error_date: tgData.result?.last_error_date || null,
                   has_last_error: Boolean(tgData.result?.last_error_message),
-                  max_connections: Number(tgData.result?.max_connections) || 40
+                  max_connections: Number(tgData.result?.max_connections) || 40,
+                  allowed_updates: Array.isArray(tgData.result?.allowed_updates) ? tgData.result.allowed_updates : null
                 };
               }
             }
@@ -791,9 +918,16 @@ function createIsolatedProbeEnv(realEnv, userId, initialDraftState = null, probe
       telegramReplies.push({
         chatId: body.chat_id,
         parseMode: body.parse_mode || null,
-        text: String(body.text || '')
+        text: String(body.text || ''),
+        replyMarkup: body.reply_markup || null
       });
       return new Response(JSON.stringify({ ok: true, result: { message_id: telegramReplies.length } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    if (u.includes('/answerCallbackQuery') || u.includes('/editMessageReplyMarkup')) {
+      return new Response(JSON.stringify({ ok: true, result: true }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -1485,15 +1619,19 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
   const updateId = update?.update_id;
   const message = update?.message;
+  const callbackQuery = update?.callback_query;
 
-  // If no message or update_id, acknowledge and ignore
-  if (!updateId || !message) {
+  // If no message/callback_query or update_id, acknowledge and ignore
+  if (!updateId || (!message && !callbackQuery)) {
     return new Response('OK', { status: 200 });
   }
 
   // C. Deduplication check: Has this update already been processed?
   try {
     if (await isUpdateProcessed(env.DB, updateId)) {
+      if (callbackQuery?.id) {
+        await answerCb(env, callbackQuery.id, 'Yêu cầu này đã được xử lý trước đó.');
+      }
       return new Response('OK: Already Processed', { status: 200 });
     }
   } catch {
@@ -1504,14 +1642,19 @@ export async function handleTelegramWebhook(request, rawEnv) {
     });
   }
 
-  const chatId = message.chat?.id;
-  const fromUser = message.from;
+  const isCallback = Boolean(callbackQuery);
+  const chatObj = isCallback ? callbackQuery.message?.chat : message.chat;
+  const chatId = chatObj?.id;
+  const fromUser = isCallback ? callbackQuery.from : message.from;
   const userId = fromUser?.id;
 
   // D. Security Check 2: Private Chat Only
-  if (message.chat?.type !== 'private') {
+  if (chatObj?.type !== 'private') {
+    if (isCallback && callbackQuery.id) {
+      await answerCb(env, callbackQuery.id, 'Chỉ hỗ trợ thao tác trong chat riêng với bot.', true);
+    }
     if (env.DB) await markUpdateProcessed(env.DB, updateId, userId);
-    return new Response('OK: Ignored Group Chat', { status: 200 });
+    return new Response(isCallback ? 'OK: Ignored Group Callback' : 'OK: Ignored Group Chat', { status: 200 });
   }
 
   // E. Security Check 3: Allowed Telegram User ID whitelist
@@ -1521,7 +1664,9 @@ export async function handleTelegramWebhook(request, rawEnv) {
     .filter(Boolean);
 
   if (!userId || !allowedUserIds.includes(userId)) {
-    if (chatId) {
+    if (isCallback && callbackQuery.id) {
+      await answerCb(env, callbackQuery.id, '⛔ Bạn không có quyền thao tác bot này.', true);
+    } else if (chatId) {
       await replyTg(
         env,
         chatId,
@@ -1529,12 +1674,18 @@ export async function handleTelegramWebhook(request, rawEnv) {
       );
     }
     if (env.DB) await markUpdateProcessed(env.DB, updateId, userId);
-    return new Response('OK: Unauthorized User Handled', { status: 200 });
+    return new Response(isCallback ? 'OK: Unauthorized Callback Handled' : 'OK: Unauthorized User Handled', { status: 200 });
   }
 
   // F. Concurrency Lock & Draft Processing
   const executeProcess = async () => {
     let drafts = env.DB ? await loadDrafts(env.DB, userId) : {};
+
+    // 0. Inline button callback_query handler (serialized under the exact same per-user D1 lock)
+    if (isCallback) {
+      await handleCallbackQuery(callbackQuery, drafts, env, userId, chatId, updateId);
+      return;
+    }
 
     // 1. Photo message handler
     if (Array.isArray(message.photo) && message.photo.length > 0) {
@@ -1750,7 +1901,8 @@ export async function handleTelegramWebhook(request, rawEnv) {
             env,
             chatId,
             `${html(header)}${noticeBlock}\n\n${html(draftSummary(newDraft, opsRules))}`,
-            'HTML'
+            'HTML',
+            { replyMarkup: buildDraftReplyMarkup(newDraft, opsRules) }
           );
         } else if (captionApplied || aiNotice) {
           const updatedNow = drafts[drafts.__active];
@@ -1758,10 +1910,18 @@ export async function handleTelegramWebhook(request, rawEnv) {
             env,
             chatId,
             `${html(result.reply)}${html(extraReply)}\n\n${html(draftSummary(updatedNow, opsRules))}`,
-            'HTML'
+            'HTML',
+            { replyMarkup: buildDraftReplyMarkup(updatedNow, opsRules) }
           );
         } else {
-          await replyTg(env, chatId, `${html(result.reply)}${html(extraReply)}`, 'HTML');
+          const updatedNow = drafts[drafts.__active];
+          await replyTg(
+            env,
+            chatId,
+            `${html(result.reply)}${html(extraReply)}`,
+            'HTML',
+            { replyMarkup: buildDraftReplyMarkup(updatedNow, opsRules) }
+          );
         }
       } else {
         await deletePhotoFromR2(env.MEDIA_R2, r2Key);
@@ -1824,30 +1984,16 @@ export async function handleTelegramWebhook(request, rawEnv) {
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
         const selected = activeDraft(drafts);
         const reply = selected ? `Đang xem đơn #${selected.id.slice(-6)}.\n\n${draftSummary(selected, opsRules)}` : res.reply;
-        await replyTg(env, chatId, reply);
+        await replyTg(env, chatId, reply, null, { replyMarkup: selected ? buildDraftReplyMarkup(selected, opsRules) : null });
       } else if (cmd === '/show') {
         const { rules: opsRules } = await loadCurrentOpsRules(env, { forceRefresh: false });
         const res = cmdShow(drafts, arg, opsRules);
-        await replyTg(env, chatId, res.reply);
+        const shownDraft = activeDraft(drafts);
+        await replyTg(env, chatId, res.reply, null, { replyMarkup: shownDraft ? buildDraftReplyMarkup(shownDraft, opsRules) : null });
       } else if (cmd === '/reparse' || cmd === '/retry_ai') {
         await handleReparseCommand(drafts, arg, env, userId, chatId);
       } else if (cmd === '/cancel') {
-        const draftToCancel = activeDraft(drafts);
-        const res = cmdCancel(drafts, arg);
-        if (res.drafts) drafts = res.drafts;
-        let orphanPendingKey = null;
-        if (draftToCancel && !drafts[draftToCancel.id] && drafts.__pendingPhoto?.activeDraftId === draftToCancel.id) {
-          orphanPendingKey = drafts.__pendingPhoto.r2_key || null;
-          delete drafts.__pendingPhoto;
-        }
-        if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        if (draftToCancel && !drafts[draftToCancel.id]) {
-          await cleanupCancelledDraftMedia(draftToCancel, drafts, env);
-        }
-        if (orphanPendingKey && env.MEDIA_R2) {
-          await deletePhotoFromR2(env.MEDIA_R2, orphanPendingKey);
-        }
-        await replyTg(env, chatId, res.reply);
+        await cancelActiveDraft(drafts, arg, env, userId, chatId);
       } else if (cmd === '/confirm') {
         await handleConfirmCommand(drafts, env, userId, chatId);
       } else if (cmd === '/retry_payment' || cmd === '/sync_payment') {
@@ -1939,7 +2085,14 @@ export async function handleTelegramWebhook(request, rawEnv) {
       const aiMsg = aiNotice ? `\n\n${aiNotice}` : '';
 
       const prefix = changedText ? `✏️ Đã cập nhật:\n${changedText}` : '';
-      await replyTg(env, chatId, `${prefix}${extra}${warnMsg}${aiMsg}`.trim());
+      const headerBody = `${prefix}${extra}${warnMsg}${aiMsg}`.trim();
+      await replyTg(
+        env,
+        chatId,
+        `${headerBody}\n\n${draftSummary(updated, opsRules)}`,
+        null,
+        { replyMarkup: buildDraftReplyMarkup(updated, opsRules) }
+      );
     } else if (aiNotice) {
       if (!isOutOfOrder) {
         updated.lastUpdateId = Math.max(lastUpdateId, updateId || 0);
@@ -1948,7 +2101,9 @@ export async function handleTelegramWebhook(request, rawEnv) {
       }
       drafts = { ...drafts, [draft.id]: updated };
       if (env.DB) await saveDrafts(env.DB, userId, drafts);
-      await replyTg(env, chatId, `${aiNotice}\n\n${draftSummary(updated, opsRules)}`);
+      await replyTg(env, chatId, `${aiNotice}\n\n${draftSummary(updated, opsRules)}`, null, {
+        replyMarkup: buildDraftReplyMarkup(updated, opsRules)
+      });
     } else {
       await replyTg(
         env,
@@ -1962,7 +2117,12 @@ export async function handleTelegramWebhook(request, rawEnv) {
   try {
     const lockResult = await withLock(env.DB, userId, executeProcess);
     if (lockResult.busy) {
-      await replyTg(env, chatId, '⏳ Hệ thống đang xử lý yêu cầu trước của bạn hoặc đang xác nhận đơn. Vui lòng thử lại sau giây lát.');
+      if (isCallback && callbackQuery.id) {
+        await answerCb(env, callbackQuery.id, '⏳ Hệ thống đang xử lý yêu cầu trước, vui lòng thử lại sau giây lát.', true);
+      }
+      if (chatId) {
+        await replyTg(env, chatId, '⏳ Hệ thống đang xử lý yêu cầu trước của bạn hoặc đang xác nhận đơn. Vui lòng thử lại sau giây lát.');
+      }
       return new Response('Busy: Update Queued or System Confirming', {
         status: 503,
         headers: { 'Retry-After': '3' }
@@ -1971,11 +2131,16 @@ export async function handleTelegramWebhook(request, rawEnv) {
     await markUpdateProcessed(env.DB, updateId, userId);
   } catch {
     console.error('[worker] Storage failure during webhook execution');
-    await replyTg(
-      env,
-      chatId,
-      '⚠️ Hệ thống lưu trữ đang tạm gián đoạn. Dữ liệu đơn nháp của bạn vẫn được bảo toàn; vui lòng thử lại sau giây lát.'
-    );
+    if (isCallback && callbackQuery.id) {
+      await answerCb(env, callbackQuery.id, '⚠️ Hệ thống lưu trữ tạm gián đoạn. Vui lòng thử lại sau.', true);
+    }
+    if (chatId) {
+      await replyTg(
+        env,
+        chatId,
+        '⚠️ Hệ thống lưu trữ đang tạm gián đoạn. Dữ liệu đơn nháp của bạn vẫn được bảo toàn; vui lòng thử lại sau giây lát.'
+      );
+    }
     return new Response('Service unavailable', {
       status: 503,
       headers: { 'Retry-After': '5' }
@@ -2249,14 +2414,18 @@ async function handleReparseCommand(drafts, arg, env, userId, chatId) {
   const changes = merged.changes || [];
   const shortId = target.id.slice(-6);
   if (merged.aiNotice) {
-    await replyTg(env, chatId, `🔄 Đã giữ nguyên nháp #${shortId}.\n${merged.aiNotice}\n\n${draftSummary(updated, opsRules)}`);
+    await replyTg(env, chatId, `🔄 Đã giữ nguyên nháp #${shortId}.\n${merged.aiNotice}\n\n${draftSummary(updated, opsRules)}`, null, {
+      replyMarkup: buildDraftReplyMarkup(updated, opsRules)
+    });
     return;
   }
   const changedText = changes.length
     ? `✏️ Đã đọc lại chú thích cho nháp #${shortId} và cập nhật:\n` +
       changes.map(c => c.uncertain ? `  ⚠️ ${c.field}: ${c.reason}` : `  ${c.field}: ${c.value}`).join('\n')
     : `ℹ️ Đã kiểm tra lại nháp #${shortId} (giữ nguyên các trường đã xác nhận).`;
-  await replyTg(env, chatId, `${changedText}\n\n${draftSummary(updated, opsRules)}`);
+  await replyTg(env, chatId, `${changedText}\n\n${draftSummary(updated, opsRules)}`, null, {
+    replyMarkup: buildDraftReplyMarkup(updated, opsRules)
+  });
 }
 
 async function loadCurrentOpsRules(env, { forceRefresh = false } = {}) {
@@ -2304,7 +2473,9 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
 
   // Already submitted and payment already synced -> reject immediately with zero OPS read/write calls
   if (draft.status === 'submitted') {
-    await replyTg(env, chatId, '⚠️ Đơn này đã được tạo trong OPS rồi.');
+    await replyTg(env, chatId, '⚠️ Đơn này đã được tạo trong OPS rồi.', null, {
+      replyMarkup: buildPostSubmitReplyMarkup(draft)
+    });
     return;
   }
 
@@ -2326,7 +2497,9 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
 
   const confirmResult = cmdConfirm(drafts, '', opsRules);
   if (confirmResult.reply !== '__CONFIRM__') {
-    await replyTg(env, chatId, confirmResult.reply);
+    await replyTg(env, chatId, confirmResult.reply, null, {
+      replyMarkup: buildDraftReplyMarkup(draft, opsRules)
+    });
     return;
   }
 
@@ -2647,8 +2820,10 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       }
     }
 
-    successMsg += `\nGõ /new để bắt đầu đơn hàng mới.`;
-    await replyTg(env, chatId, successMsg, 'HTML');
+    successMsg += `\nBấm "Tạo đơn khác", gửi thẳng ảnh mẫu + nội dung đơn mới, hoặc gõ /new để bắt đầu đơn hàng mới.`;
+    await replyTg(env, chatId, successMsg, 'HTML', {
+      replyMarkup: buildPostSubmitReplyMarkup(drafts[draft.id])
+    });
   } else {
     // Failure or network issue: rollback confirming -> confirmed so user can retry safely
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
@@ -2661,7 +2836,231 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     await replyTg(
       env,
       chatId,
-      `❌ Không thể tạo đơn trên ${runtime.opsShortLabel}:\n${opsRes.message}${authRecoveryHint}\n\nĐơn nháp vẫn được giữ nguyên. Bạn có thể kiểm tra lại và gõ /confirm để thử lại.`
+      `❌ Không thể tạo đơn trên ${runtime.opsShortLabel}:\n${opsRes.message}${authRecoveryHint}\n\nĐơn nháp vẫn được giữ nguyên (dùng chung mã yêu cầu để chống tạo trùng). Bạn có thể kiểm tra lại rồi bấm "Tạo đơn" hoặc gõ /confirm để thử lại.`,
+      null,
+      { replyMarkup: buildDraftReplyMarkup(drafts[draft.id], opsRules) }
+    );
+  }
+}
+
+/**
+ * Shared cancellation helper used by both `/cancel` and the inline "Hủy nháp" button.
+ */
+async function cancelActiveDraft(drafts, arg, env, userId, chatId, { showCreateNewButton = false } = {}) {
+  const draftToCancel = activeDraft(drafts);
+  const res = cmdCancel(drafts, arg);
+  if (res.drafts) drafts = res.drafts;
+  const actuallyRemoved = Boolean(draftToCancel && !drafts[draftToCancel.id]);
+  let orphanPendingKey = null;
+  if (actuallyRemoved && drafts.__pendingPhoto?.activeDraftId === draftToCancel.id) {
+    orphanPendingKey = drafts.__pendingPhoto.r2_key || null;
+    delete drafts.__pendingPhoto;
+  }
+  if (env.DB) await saveDrafts(env.DB, userId, drafts);
+  if (actuallyRemoved) {
+    await cleanupCancelledDraftMedia(draftToCancel, drafts, env);
+  }
+  if (orphanPendingKey && env.MEDIA_R2) {
+    await deletePhotoFromR2(env.MEDIA_R2, orphanPendingKey);
+  }
+  const suffix = actuallyRemoved
+    ? '\nBạn có thể gửi thẳng ảnh mẫu kèm nội dung đơn mới hoặc bấm "Tạo đơn khác".'
+    : '';
+  const replyMarkup = (actuallyRemoved && showCreateNewButton) ? buildPostSubmitReplyMarkup(null) : null;
+  await replyTg(env, chatId, `${res.reply}${suffix}`, null, { replyMarkup });
+  return { drafts, removed: actuallyRemoved };
+}
+
+/**
+ * Handle an authenticated Owner Telegram inline button click (`callback_query`)
+ * strictly inside the per-user D1 lock with exact draftId + version staleness checks.
+ */
+async function handleCallbackQuery(callbackQuery, drafts, env, userId, chatId, updateId) {
+  const cbId = callbackQuery.id;
+  const cbMsgId = callbackQuery.message?.message_id || null;
+  const parsed = parseCallbackData(callbackQuery.data);
+  const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
+
+  if (!parsed) {
+    await answerCb(env, cbId, 'Nút thao tác không hợp lệ hoặc đã cũ.', true);
+    if (cbMsgId) await clearMsgButtons(env, chatId, cbMsgId);
+    return;
+  }
+
+  // Action: "Tạo đơn khác"
+  if (parsed.action === 'nw') {
+    const current = activeDraft(drafts);
+    if (
+      current &&
+      current.id !== parsed.draftId &&
+      current.status !== 'submitted' &&
+      !isDraftEmpty(current)
+    ) {
+      await answerCb(env, cbId, 'Nút cũ đã hết hiệu lực — đang có nháp khác hoạt động.');
+      if (cbMsgId) await clearMsgButtons(env, chatId, cbMsgId);
+      await replyTg(
+        env,
+        chatId,
+        `⚠️ Nút "Tạo đơn khác" trước đó đã hết hiệu lực vì bạn đang có đơn nháp hiện tại #${current.id.slice(-6)}.\n\n${draftSummary(current, opsRules)}`,
+        null,
+        { replyMarkup: buildDraftReplyMarkup(current, opsRules) }
+      );
+      return;
+    }
+
+    await answerCb(env, cbId, 'Đã sẵn sàng tạo đơn mới');
+    if (cbMsgId) await clearMsgButtons(env, chatId, cbMsgId);
+    const res = cmdNew(drafts, '');
+    drafts = res.drafts;
+    if (env.DB && !res.reused) await saveDrafts(env.DB, userId, drafts);
+    await replyTg(
+      env,
+      chatId,
+      `${res.reply}\n\n💡 Bạn cũng có thể gửi thẳng ảnh mẫu kèm nội dung đơn mới bất kỳ lúc nào.`
+    );
+    return;
+  }
+
+  // Draft-bound actions: cf (Tạo đơn), ed (Sửa thông tin), cx (Hủy nháp), sh (Shipping selection)
+  const target = drafts[parsed.draftId] || null;
+  const current = activeDraft(drafts);
+  const shortTarget = parsed.draftId.slice(-6);
+
+  const isSubmitted = target?.status === 'submitted';
+  const isConfirming = target?.status === 'confirming';
+  const isDeleted = !target;
+  const isReplacedByAnother = Boolean(target && (!current || current.id !== target.id));
+  const isVersionMismatch = Boolean(target && !isSubmitted && !isConfirming && getDraftVersion(target) !== parsed.version);
+
+  if (isDeleted || isSubmitted || isConfirming || isReplacedByAnother || isVersionMismatch) {
+    if (cbMsgId) await clearMsgButtons(env, chatId, cbMsgId);
+
+    if (isSubmitted) {
+      await answerCb(env, cbId, 'Đơn này đã được tạo trên OPS rồi.');
+      const orderNote = target.opsOrderId ? ` (${target.opsOrderId})` : '';
+      if (current && current.id !== target.id && current.status !== 'submitted') {
+        await replyTg(
+          env,
+          chatId,
+          `⚠️ Nút cũ trên nháp #${shortTarget} đã hết hiệu lực vì đơn này đã được tạo trên OPS${orderNote}.\n\nNháp hiện tại của bạn là #${current.id.slice(-6)}:\n\n${draftSummary(current, opsRules)}`,
+          null,
+          { replyMarkup: buildDraftReplyMarkup(current, opsRules) }
+        );
+      } else {
+        await replyTg(
+          env,
+          chatId,
+          `⚠️ Nút cũ trên nháp #${shortTarget} đã hết hiệu lực vì đơn này đã được tạo trên OPS${orderNote}.\nBạn có thể bấm "Tạo đơn khác" hoặc gửi thẳng ảnh mẫu kèm nội dung đơn mới.`,
+          null,
+          { replyMarkup: buildPostSubmitReplyMarkup(target) }
+        );
+      }
+      return;
+    }
+
+    if (isConfirming) {
+      await answerCb(env, cbId, 'Đơn đang trong tiến trình tạo trên OPS, vui lòng chờ.', true);
+      await replyTg(env, chatId, `⏳ Đơn #${shortTarget} đang được gửi sang OPS. Nút bấm trước đó tạm khóa để tránh tạo trùng.`);
+      return;
+    }
+
+    if (isDeleted || isReplacedByAnother) {
+      await answerCb(env, cbId, 'Nút cũ đã hết hiệu lực.');
+      if (current && current.status !== 'submitted') {
+        await replyTg(
+          env,
+          chatId,
+          `⚠️ Nút cũ của nháp #${shortTarget} đã hết hiệu lực (${isDeleted ? 'nháp đã bị hủy' : 'đã chuyển sang nháp mới #' + current.id.slice(-6)}).\n\nNháp hiện tại của bạn:\n\n${draftSummary(current, opsRules)}`,
+          null,
+          { replyMarkup: buildDraftReplyMarkup(current, opsRules) }
+        );
+      } else {
+        await replyTg(
+          env,
+          chatId,
+          `⚠️ Nút cũ của nháp #${shortTarget} đã hết hiệu lực vì nháp đã bị hủy hoặc không còn hoạt động.\nBạn có thể gửi thẳng ảnh mẫu kèm nội dung đơn mới hoặc bấm "Tạo đơn khác".`,
+          null,
+          { replyMarkup: buildPostSubmitReplyMarkup(null) }
+        );
+      }
+      return;
+    }
+
+    // Version mismatch: same active draft was edited after that old summary was sent
+    await answerCb(env, cbId, 'Nút cũ đã hết hiệu lực vì nháp vừa được cập nhật.');
+    await replyTg(
+      env,
+      chatId,
+      `⚠️ Nút cũ của nháp #${shortTarget} đã hết hiệu lực vì nháp đã được sửa thông tin mới.\n\nVui lòng duyệt trên bản tóm tắt mới nhất:\n\n${draftSummary(target, opsRules)}`,
+      null,
+      { replyMarkup: buildDraftReplyMarkup(target, opsRules) }
+    );
+    return;
+  }
+
+  // Exact draft + exact version verified! Execute action cleanly.
+  if (parsed.action === 'cf') {
+    await answerCb(env, cbId, 'Đang kiểm tra và tạo đơn...');
+    if (cbMsgId) await clearMsgButtons(env, chatId, cbMsgId);
+    await handleConfirmCommand(drafts, env, userId, chatId);
+    return;
+  }
+
+  if (parsed.action === 'ed') {
+    await answerCb(env, cbId, 'Hãy nhắn nội dung cần sửa bằng tin nhắn thường');
+    await replyTg(
+      env,
+      chatId,
+      `✏️ Bạn đang sửa nháp #${shortTarget}.\n` +
+      `Hãy gửi nội dung cần sửa bằng tin nhắn thường (ví dụ: đổi giờ thành 16h, giá 450k, địa chỉ 88 Lê Lợi Q1, cọc 250k, ghi chú giao trước 17h...).\n` +
+      `Bot sẽ tự cập nhật vào đúng nháp #${shortTarget} và hiển thị lại bản tóm tắt kèm nút bấm để bạn duyệt.`
+    );
+    return;
+  }
+
+  if (parsed.action === 'cx') {
+    await answerCb(env, cbId, 'Đã hủy nháp');
+    if (cbMsgId) await clearMsgButtons(env, chatId, cbMsgId);
+    await cancelActiveDraft(drafts, '', env, userId, chatId, { showCreateNewButton: true });
+    return;
+  }
+
+  if (parsed.action === 'sh') {
+    const shippingValue = parsed.shippingValue;
+    await answerCb(env, cbId, `Đã chọn: ${shippingValue}`);
+    if (cbMsgId) await clearMsgButtons(env, chatId, cbMsgId);
+
+    const applied = applyFields(target, `shipping: ${shippingValue}`, { rules: opsRules });
+    const updated = applied.draft || {
+      ...target,
+      fields: { ...(target.fields || {}), shipping: shippingValue },
+      version: getDraftVersion(target) + 1
+    };
+    updated.lastUpdateId = Math.max(Number(target.lastUpdateId) || 0, updateId || 0);
+    drafts = { ...drafts, [target.id]: updated, __active: target.id };
+    if (env.DB) await saveDrafts(env.DB, userId, drafts);
+
+    const validation = validateOrderAgainstRules(updated, opsRules);
+    const lines = [`🚚 Đã cập nhật hình thức giao nhận: ${shippingValue}`];
+    if (shippingValue === 'Shop book ship' && validation.reminders?.length) {
+      lines.push('💡 Bạn chọn Shop book ship nhưng chưa có địa chỉ giao hàng — vui lòng nhắn bổ sung địa chỉ (hoặc bấm Tạo đơn nếu đủ mục bắt buộc).');
+    }
+    if (validation.missing.length) {
+      lines.push(`👉 Vui lòng nhắn bổ sung: ${validation.missing.join(', ')}`);
+    }
+    if (validation.ruleErrors.length) {
+      lines.push(`⛔ ${validation.ruleErrors.join(' | ')}`);
+    }
+    if (Object.keys(updated.uncertainFields || {}).length) {
+      lines.push('❓ Có thông tin cần làm rõ trước khi tạo đơn (xem chi tiết bên dưới).');
+    }
+
+    await replyTg(
+      env,
+      chatId,
+      `${lines.join('\n')}\n\n${draftSummary(updated, opsRules)}`,
+      null,
+      { replyMarkup: buildDraftReplyMarkup(updated, opsRules) }
     );
   }
 }
@@ -2797,7 +3196,9 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
     ? `🆕 Đã tạo đơn nháp mới #${finalDraft.id.slice(-6)} (giữ nguyên nháp cũ #${prevDraft?.id?.slice(-6) || ''}):`
     : `📎 Đã gộp ảnh và cập nhật vào nháp #${finalDraft.id.slice(-6)}:`;
   const noticeBlock = aiNotice ? `\n\n${html(aiNotice)}` : '';
-  await replyTg(env, chatId, `${html(header)}${noticeBlock}\n\n${html(draftSummary(finalDraft, opsRules))}`, 'HTML');
+  await replyTg(env, chatId, `${html(header)}${noticeBlock}\n\n${html(draftSummary(finalDraft, opsRules))}`, 'HTML', {
+    replyMarkup: buildDraftReplyMarkup(finalDraft, opsRules)
+  });
 }
 
 /**
