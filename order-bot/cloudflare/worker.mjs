@@ -364,6 +364,24 @@ export async function evidenceDataUrl(ref, env) {
 }
 
 /**
+ * Select the smallest distinct Telegram PhotoSize variant suitable for OPS `.preview.jpg` thumbnails
+ * (longest edge >= 320px, matching OPS web preview dimensions), returning null if none exists.
+ */
+export function selectPreviewPhotoVariant(photos, highestPhoto) {
+  if (!Array.isArray(photos) || photos.length < 2 || !highestPhoto?.file_id) return null;
+  const candidates = photos
+    .filter(p => p && p.file_id && p.file_id !== highestPhoto.file_id)
+    .map(p => ({
+      photo: p,
+      longestEdge: Math.max(Number(p.width) || 0, Number(p.height) || 0),
+      fileSize: Number(p.file_size) || 0
+    }))
+    .filter(item => item.longestEdge >= 320)
+    .sort((a, b) => (a.longestEdge - b.longestEdge) || (a.fileSize - b.fileSize));
+  return candidates.length ? candidates[0].photo : null;
+}
+
+/**
  * Safely delete R2 images belonging to a cancelled draft.
  * NEVER deletes images from submitted drafts, other active drafts, or any OPS order in D1.
  */
@@ -374,7 +392,7 @@ export async function cleanupCancelledDraftMedia(draftToCancel, remainingDrafts,
   }
 
   const candidateKeys = [
-    ...(draftToCancel.sampleRefs || []).map(r => r?.r2_key),
+    ...(draftToCancel.sampleRefs || []).flatMap(r => [r?.r2_key, r?.preview_r2_key]),
     ...(draftToCancel.draftBillRefs || []).map(r => r?.r2_key)
   ].filter(Boolean);
 
@@ -389,6 +407,7 @@ export async function cleanupCancelledDraftMedia(draftToCancel, remainingDrafts,
     if (k.startsWith('__') || !d || d.id === draftToCancel.id) continue;
     for (const ref of [...(d.sampleRefs || []), ...(d.draftBillRefs || [])]) {
       if (ref?.r2_key) referencedByOtherDrafts.add(ref.r2_key);
+      if (ref?.preview_r2_key) referencedByOtherDrafts.add(ref.preview_r2_key);
     }
   }
 
@@ -1743,6 +1762,16 @@ export async function handleTelegramWebhook(request, rawEnv) {
         return;
       }
 
+      // Best-effort download Telegram's ~320px JPEG variant for fast OPS `.preview.jpg` thumbnails.
+      let previewDownload = null;
+      const previewPhoto = !isBill ? selectPreviewPhotoVariant(message.photo, highestPhoto) : null;
+      if (previewPhoto) {
+        const dlPrev = await downloadTgPhoto(env, previewPhoto.file_id, MAX_IMAGE_BYTES);
+        if (dlPrev.ok && dlPrev.mimeType === 'image/jpeg') {
+          previewDownload = dlPrev;
+        }
+      }
+
       const ext = downloadResult.mimeType === 'image/png'
         ? 'png'
         : downloadResult.mimeType === 'image/webp'
@@ -1761,15 +1790,25 @@ export async function handleTelegramWebhook(request, rawEnv) {
           return;
         }
 
+        let pendingPreviewKey = null;
+        if (previewDownload) {
+          const candidatePreviewKey = `order-images/pending-${pendingId}-${fileHash}.preview.jpg`;
+          const storedPreview = await savePhotoToR2(env.MEDIA_R2, candidatePreviewKey, previewDownload.buffer, 'image/jpeg');
+          if (storedPreview) pendingPreviewKey = candidatePreviewKey;
+        }
+
         const previousPendingKey = drafts.__pendingPhoto?.r2_key || null;
+        const previousPendingPreviewKey = drafts.__pendingPhoto?.preview_r2_key || null;
         drafts = {
           ...drafts,
           __pendingPhoto: {
             id: pendingId,
             fileId: highestPhoto.file_id,
+            ...(previewPhoto ? { previewFileId: previewPhoto.file_id } : {}),
             fileHash,
             ext,
             r2_key: pendingKey,
+            ...(pendingPreviewKey ? { preview_r2_key: pendingPreviewKey } : {}),
             uri: `supabase://${pendingKey}`,
             mimeType: downloadResult.mimeType,
             byteSize: downloadResult.byteSize,
@@ -1786,10 +1825,14 @@ export async function handleTelegramWebhook(request, rawEnv) {
           await saveDrafts(env.DB, userId, drafts);
         } catch (saveErr) {
           await deletePhotoFromR2(env.MEDIA_R2, pendingKey);
+          if (pendingPreviewKey) await deletePhotoFromR2(env.MEDIA_R2, pendingPreviewKey);
           throw saveErr;
         }
         if (previousPendingKey && previousPendingKey !== pendingKey) {
           await deletePhotoFromR2(env.MEDIA_R2, previousPendingKey);
+        }
+        if (previousPendingPreviewKey && previousPendingPreviewKey !== pendingPreviewKey) {
+          await deletePhotoFromR2(env.MEDIA_R2, previousPendingPreviewKey);
         }
 
         const oldShort = currentActive.id.slice(-6);
@@ -1829,6 +1872,13 @@ export async function handleTelegramWebhook(request, rawEnv) {
         return;
       }
 
+      let previewR2Key = null;
+      if (!isBill && previewDownload) {
+        const candidatePreviewKey = `order-images/sample-${targetDraft.id}-${fileHash}.preview.jpg`;
+        const storedPreview = await savePhotoToR2(env.MEDIA_R2, candidatePreviewKey, previewDownload.buffer, 'image/jpeg');
+        if (storedPreview) previewR2Key = candidatePreviewKey;
+      }
+
       const result = isBill
         ? addBillRef(drafts, highestPhoto.file_id, caption)
         : addSampleRef(drafts, highestPhoto.file_id, caption);
@@ -1840,6 +1890,8 @@ export async function handleTelegramWebhook(request, rawEnv) {
         if (list && list.length > 0) {
           const ref = list[list.length - 1];
           ref.r2_key = r2Key;
+          if (previewR2Key) ref.preview_r2_key = previewR2Key;
+          if (previewPhoto) ref.previewFileId = previewPhoto.file_id;
           ref.uri = `supabase://${r2Key}`;
           ref.mimeType = downloadResult.mimeType;
           ref.byteSize = downloadResult.byteSize;
@@ -1887,6 +1939,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
         } catch (saveErr) {
           // Avoid leaking orphaned R2 object if D1 save fails
           await deletePhotoFromR2(env.MEDIA_R2, r2Key);
+          if (previewR2Key) await deletePhotoFromR2(env.MEDIA_R2, previewR2Key);
           throw saveErr;
         }
 
@@ -1925,6 +1978,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
         }
       } else {
         await deletePhotoFromR2(env.MEDIA_R2, r2Key);
+        if (previewR2Key) await deletePhotoFromR2(env.MEDIA_R2, previewR2Key);
         await replyTg(env, chatId, `⚠️ ${result.reply}`);
       }
       return;
@@ -2545,7 +2599,11 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       await replyTg(env, chatId, '❌ Xác nhận bị hủy: Thiếu tham chiếu ảnh mẫu hợp lệ. Vui lòng gửi lại ảnh.');
       return;
     }
-    sampleFiles.push({ data: dataUrl });
+    let previewDataUrl = null;
+    if (ref.preview_r2_key && env.MEDIA_R2) {
+      previewDataUrl = await evidenceDataUrl({ r2_key: ref.preview_r2_key }, env);
+    }
+    sampleFiles.push(previewDataUrl ? { data: dataUrl, previewData: previewDataUrl } : { data: dataUrl });
   }
 
   const legacyBillsEnabled = isLegacyDraftBillsAllowed(env);
@@ -2588,35 +2646,40 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     return;
   }
 
-  // Respect OPS HTTP body size limit (12 MB) before calling createOrder
-  const samplePayloadBytes = sampleFiles.reduce((sum, f) => sum + (f.data?.length || 0), 0);
+  const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+  const opsToken = env.OPS_TOKEN || '';
+  const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
+  const directUploadMode = isSupabaseOpsUrl(opsUrl) || Boolean(String(opsApiKey).trim());
+
+  // Respect OPS HTTP body size limit (12 MB) for base64-in-JSON payloads.
+  // Direct R2-staged JPEG samples upload outside the createOrder JSON body (each already <= 5 MB).
+  const inlineSamplePayloadBytes = sampleFiles.reduce(
+    (sum, f) => sum + ((directUploadMode && /^data:image\/jpeg;base64,/i.test(String(f.data || ''))) ? 0 : (f.data?.length || 0)),
+    0
+  );
   const billPayloadBytes = unverifiedBillFiles.reduce((sum, f) => sum + (f.data?.length || 0), 0);
-  if (samplePayloadBytes > MAX_OPS_PAYLOAD_BYTES) {
+  if (inlineSamplePayloadBytes > MAX_OPS_PAYLOAD_BYTES) {
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
     await replyTg(env, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh mẫu vượt quá giới hạn một lần gửi của OPS (tối đa ~8.5 MB tổng ảnh). Vui lòng gửi ảnh nhỏ hơn hoặc giảm số lượng ảnh.');
     return;
   }
 
-  const opsUrl = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
-  const opsToken = env.OPS_TOKEN || '';
-  const opsApiKey = env.OPS_SUPABASE_ANON_KEY || '';
-
   const allBillsInR2 = expectedBillCount > 0 && Boolean(env.DB && env.MEDIA_R2) &&
     !isSupabaseOpsUrl(opsUrl) &&
     (draft.draftBillRefs || []).every(ref => Boolean(ref.r2_key));
-  const billsForCreateOrder = (samplePayloadBytes + billPayloadBytes > MAX_OPS_PAYLOAD_BYTES && allBillsInR2)
+  const billsForCreateOrder = (inlineSamplePayloadBytes + billPayloadBytes > MAX_OPS_PAYLOAD_BYTES && allBillsInR2)
     ? []
     : unverifiedBillFiles;
 
-  if (samplePayloadBytes + billsForCreateOrder.reduce((sum, f) => sum + (f.data?.length || 0), 0) > MAX_OPS_PAYLOAD_BYTES) {
+  if (inlineSamplePayloadBytes + billsForCreateOrder.reduce((sum, f) => sum + (f.data?.length || 0), 0) > MAX_OPS_PAYLOAD_BYTES) {
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
     await replyTg(env, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh vượt quá giới hạn một lần gửi của OPS. Vui lòng giảm dung lượng ảnh và thử lại.');
     return;
   }
 
-  // 4. Call OPS API
+  // 4. Call OPS API (for Supabase Production, stages JPEG originals + `.preview.jpg` via prepareOrderUploads)
   const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
   const opsRes = await callCreateOrder(
     opsUrl,
@@ -2625,7 +2688,21 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     sampleFiles,
     billsForCreateOrder,
     fetcher,
-    { expectedBillCount, opsApiKey }
+    {
+      expectedBillCount,
+      opsApiKey,
+      cachedStagedUpload: drafts[draft.id]?.stagedOpsUpload || null,
+      onStagedUpload: async (stagedUpload) => {
+        drafts = {
+          ...drafts,
+          [draft.id]: {
+            ...drafts[draft.id],
+            stagedOpsUpload: stagedUpload
+          }
+        };
+        if (env.DB) await saveDrafts(env.DB, userId, drafts);
+      }
+    }
   );
 
   if (opsRes.ok && opsRes.orderId) {
@@ -2654,7 +2731,8 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       paymentSynced,
       paymentSyncRequestId,
       paymentRecordedAmount,
-      paymentSyncError: null
+      paymentSyncError: null,
+      stagedOpsUpload: null
     });
 
     if (env.DB) {
@@ -2825,8 +2903,14 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
       replyMarkup: buildPostSubmitReplyMarkup(drafts[draft.id])
     });
   } else {
-    // Failure or network issue: rollback confirming -> confirmed so user can retry safely
-    drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+    // Failure or network issue: rollback confirming -> confirmed so user can retry safely.
+    // Keep stagedOpsUpload ONLY on unknown network/timeout outcomes so retry keeps exact p_fingerprint;
+    // clear on definitive OPS rejections where OPS already discarded staged objects.
+    const keepStaged = opsRes.code === 'TIMEOUT' || opsRes.code === 'NETWORK_ERROR';
+    drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', {
+      failedAt: new Date().toISOString(),
+      ...(keepStaged ? {} : { stagedOpsUpload: null })
+    });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
     const authRecoveryHint = isOpsAuthOrSessionFailure(opsRes)
@@ -2852,8 +2936,10 @@ async function cancelActiveDraft(drafts, arg, env, userId, chatId, { showCreateN
   if (res.drafts) drafts = res.drafts;
   const actuallyRemoved = Boolean(draftToCancel && !drafts[draftToCancel.id]);
   let orphanPendingKey = null;
+  let orphanPendingPreviewKey = null;
   if (actuallyRemoved && drafts.__pendingPhoto?.activeDraftId === draftToCancel.id) {
     orphanPendingKey = drafts.__pendingPhoto.r2_key || null;
+    orphanPendingPreviewKey = drafts.__pendingPhoto.preview_r2_key || null;
     delete drafts.__pendingPhoto;
   }
   if (env.DB) await saveDrafts(env.DB, userId, drafts);
@@ -2862,6 +2948,9 @@ async function cancelActiveDraft(drafts, arg, env, userId, chatId, { showCreateN
   }
   if (orphanPendingKey && env.MEDIA_R2) {
     await deletePhotoFromR2(env.MEDIA_R2, orphanPendingKey);
+  }
+  if (orphanPendingPreviewKey && env.MEDIA_R2) {
+    await deletePhotoFromR2(env.MEDIA_R2, orphanPendingPreviewKey);
   }
   const suffix = actuallyRemoved
     ? '\nBạn có thể gửi thẳng ảnh mẫu kèm nội dung đơn mới hoặc bấm "Tạo đơn khác".'
@@ -3082,6 +3171,9 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
     if (pending.r2_key && env.MEDIA_R2) {
       await deletePhotoFromR2(env.MEDIA_R2, pending.r2_key);
     }
+    if (pending.preview_r2_key && env.MEDIA_R2) {
+      await deletePhotoFromR2(env.MEDIA_R2, pending.preview_r2_key);
+    }
     await replyTg(env, chatId, '🗑 Đã hủy ảnh đang chờ xử lý. Đơn nháp hiện tại vẫn được giữ nguyên.');
     return;
   }
@@ -3106,8 +3198,23 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
     const nextDrafts = { ...drafts };
     delete nextDrafts.__pendingPhoto;
     if (env.DB) await saveDrafts(env.DB, userId, nextDrafts);
+    if (pending.preview_r2_key) await deletePhotoFromR2(env.MEDIA_R2, pending.preview_r2_key);
     await replyTg(env, chatId, '❌ Không đọc được ảnh đang chờ trong kho R2. Vui lòng gửi lại ảnh.');
     return;
+  }
+
+  let sourcePreviewBytes = null;
+  if (pending.preview_r2_key) {
+    try {
+      const prevObj = await env.MEDIA_R2.get(pending.preview_r2_key);
+      if (prevObj) {
+        sourcePreviewBytes = typeof prevObj.arrayBuffer === 'function'
+          ? await prevObj.arrayBuffer()
+          : (prevObj.buffer || prevObj.body);
+      }
+    } catch {
+      sourcePreviewBytes = null;
+    }
   }
 
   let workingDrafts = { ...drafts };
@@ -3144,9 +3251,17 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
     return;
   }
 
+  let newPreviewKey = null;
+  if (sourcePreviewBytes) {
+    const candidatePreviewKey = `order-images/sample-${targetDraft.id}-${pending.fileHash || 'img'}.preview.jpg`;
+    const storedPreview = await savePhotoToR2(env.MEDIA_R2, candidatePreviewKey, sourcePreviewBytes, 'image/jpeg');
+    if (storedPreview) newPreviewKey = candidatePreviewKey;
+  }
+
   const added = addSampleRef(workingDrafts, pending.fileId, pending.caption || '');
   if (!added.ok) {
     await deletePhotoFromR2(env.MEDIA_R2, newKey);
+    if (newPreviewKey) await deletePhotoFromR2(env.MEDIA_R2, newPreviewKey);
     await replyTg(env, chatId, `⚠️ ${added.reply}`);
     return;
   }
@@ -3155,6 +3270,8 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
   const refs = workingDrafts[targetDraft.id].sampleRefs;
   const lastRef = refs[refs.length - 1];
   lastRef.r2_key = newKey;
+  if (newPreviewKey) lastRef.preview_r2_key = newPreviewKey;
+  if (pending.previewFileId) lastRef.previewFileId = pending.previewFileId;
   lastRef.uri = `supabase://${newKey}`;
   lastRef.mimeType = pending.mimeType || 'image/jpeg';
   lastRef.byteSize = pending.byteSize || 0;
@@ -3185,11 +3302,15 @@ async function resolvePendingPhotoChoice(drafts, choice, env, userId, chatId) {
     await saveDrafts(env.DB, userId, workingDrafts);
   } catch (saveErr) {
     await deletePhotoFromR2(env.MEDIA_R2, newKey);
+    if (newPreviewKey) await deletePhotoFromR2(env.MEDIA_R2, newPreviewKey);
     throw saveErr;
   }
 
   if (pending.r2_key !== newKey) {
     await deletePhotoFromR2(env.MEDIA_R2, pending.r2_key);
+  }
+  if (pending.preview_r2_key && pending.preview_r2_key !== newPreviewKey) {
+    await deletePhotoFromR2(env.MEDIA_R2, pending.preview_r2_key);
   }
 
   const header = choice === 'new'

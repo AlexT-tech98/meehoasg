@@ -254,15 +254,273 @@ export async function fetchOpsOrderRules(opsUrl, opsToken, fetcher = fetch, { fo
   return { ok: true, source: 'fallback', rules: cached?.rules || DEFAULT_OPS_ORDER_RULES };
 }
 
+const MAX_DIRECT_UPLOAD_IMAGE_BYTES = 5 * 1024 * 1024;
+const DIRECT_UPLOAD_EXPIRY_BUFFER_MS = 15 * 1000;
+
+function parseImageDataUrl(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:(image\/(?:jpeg|png|webp));base64,([\s\S]+)$/i);
+  if (!match) return null;
+  const mimeType = match[1].toLowerCase();
+  try {
+    const raw = atob(match[2].replace(/\s+/g, ''));
+    if (!raw.length || raw.length > MAX_DIRECT_UPLOAD_IMAGE_BYTES) return null;
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    return { mimeType, bytes };
+  } catch {
+    return null;
+  }
+}
+
+function makeUploadClaim(part) {
+  return {
+    path: part.path,
+    storage: part.storage || 'supabase',
+    expiresAt: part.expiresAt,
+    proof: part.proof,
+    ...(part.backup ? {
+      backup: {
+        path: part.backup.path,
+        storage: 'supabase',
+        expiresAt: part.backup.expiresAt,
+        proof: part.backup.proof
+      }
+    } : {})
+  };
+}
+
+async function putStagedImage(bytes, uploadUrl, storage, uploadFetcher) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  try {
+    const headers = storage === 'r2'
+      ? { 'Content-Type': 'image/jpeg' }
+      : { 'Content-Type': 'image/jpeg', 'x-upsert': 'false' };
+    const res = await uploadFetcher(uploadUrl, {
+      method: 'PUT',
+      headers,
+      body: bytes,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => '');
+      if (storage !== 'supabase' || res.status !== 400 || !/already exists/i.test(errorText)) {
+        return { ok: false, code: `UPLOAD_HTTP_${res.status}` };
+      }
+    }
+    return { ok: true };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    return { ok: false, code: err?.name === 'AbortError' ? 'UPLOAD_TIMEOUT' : 'UPLOAD_NETWORK_ERROR' };
+  }
+}
+
+async function putStagedUploadPart(bytes, part, uploadFetcher) {
+  if (!part?.uploadUrl || !part?.proof || !part?.path) {
+    return { ok: false, code: 'UPLOAD_TICKET_INVALID' };
+  }
+  const primary = await putStagedImage(bytes, part.uploadUrl, part.storage || 'supabase', uploadFetcher);
+  if (!primary.ok) return primary;
+  if (part.backup) {
+    if (part.backup.path !== part.path || !part.backup.uploadUrl || !part.backup.proof) {
+      return { ok: false, code: 'UPLOAD_BACKUP_TICKET_INVALID' };
+    }
+    const backup = await putStagedImage(bytes, part.backup.uploadUrl, 'supabase', uploadFetcher);
+    if (!backup.ok) return backup;
+  }
+  return { ok: true };
+}
+
+/**
+ * Upload JPEG sample images through OPS `prepareOrderUploads` -> direct R2/Storage PUT
+ * (uploading BOTH `<uuid>.jpg` and `<uuid>.preview.jpg`) so OPS thumbnails render immediately
+ * without modifying OPS v33 API or web code.
+ */
+export async function prepareAndUploadOrderSamples({
+  opsUrl,
+  opsToken,
+  opsApiKey = '',
+  requestId,
+  sampleFiles = [],
+  cachedStagedUpload = null,
+  fetcher = fetch,
+  uploadFetcher = null
+}) {
+  const jpegSamples = [];
+  const nonJpegSamples = [];
+  for (const item of sampleFiles || []) {
+    if (/^data:image\/jpeg;base64,/i.test(String(item?.data || ''))) {
+      jpegSamples.push(item);
+    } else {
+      nonJpegSamples.push(item);
+    }
+  }
+
+  if (!jpegSamples.length) {
+    return { ok: true, mode: 'legacy', reused: false, imageFiles: sampleFiles, preuploadedSamples: [], stagedOpsUpload: null };
+  }
+
+  // Reuse already-uploaded claims for idempotent retries with the same requestId
+  if (
+    cachedStagedUpload &&
+    cachedStagedUpload.requestId === requestId &&
+    Number(cachedStagedUpload.sampleCount) === jpegSamples.length &&
+    Array.isArray(cachedStagedUpload.preuploadedSamples) &&
+    cachedStagedUpload.preuploadedSamples.length === jpegSamples.length &&
+    Number(cachedStagedUpload.expiresAt) > Date.now() + DIRECT_UPLOAD_EXPIRY_BUFFER_MS
+  ) {
+    return {
+      ok: true,
+      mode: 'preuploaded',
+      reused: true,
+      imageFiles: nonJpegSamples,
+      preuploadedSamples: cachedStagedUpload.preuploadedSamples,
+      stagedOpsUpload: cachedStagedUpload
+    };
+  }
+
+  const parsedJpegs = jpegSamples.map(item => {
+    const original = parseImageDataUrl(item?.data);
+    const parsedPreview = item?.previewData ? parseImageDataUrl(item.previewData) : null;
+    const previewBytes = (parsedPreview && parsedPreview.mimeType === 'image/jpeg')
+      ? parsedPreview.bytes
+      : original?.bytes || null;
+    return { originalBytes: original?.bytes || null, previewBytes };
+  });
+  if (parsedJpegs.some(p => !p.originalBytes || !p.previewBytes)) {
+    return { ok: false, code: 'IMAGE_INVALID', message: 'File ảnh mẫu không hợp lệ hoặc vượt quá 5 MB.' };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  let res;
+  try {
+    res = await fetcher(opsUrl, {
+      method: 'POST',
+      headers: buildOpsHeaders(opsToken, opsApiKey),
+      body: JSON.stringify({
+        name: 'prepareOrderUploads',
+        payload: {
+          token: opsToken,
+          requestId,
+          samples: jpegSamples.length,
+          bills: 0
+        }
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const isTimeout = err?.name === 'AbortError';
+    return {
+      ok: false,
+      code: isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR',
+      message: isTimeout
+        ? 'Quá thời gian khi xin quyền tải ảnh mẫu lên OPS. Vui lòng thử lại.'
+        : 'Không thể kết nối đến OPS để tải ảnh mẫu do lỗi mạng.'
+    };
+  }
+
+  let json = null;
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
+  }
+
+  const msg = String(json?.message || '');
+  if (res.status === 401) {
+    return { ok: false, code: 'HTTP_401', message: 'Hệ thống OPS phản hồi mã lỗi HTTP 401.' };
+  }
+  if (json?.code === 'AUTH_REQUIRED' || /phiên đăng nhập|hết hạn|bị khóa|không có quyền/i.test(msg)) {
+    return { ok: false, code: json?.code || 'AUTH_REQUIRED', message: msg || 'Phiên đăng nhập OPS không hợp lệ hoặc đã hết hạn.' };
+  }
+
+  // Only fall back to legacy `imageFiles` when the upstream explicitly does not implement `prepareOrderUploads`
+  // (e.g., isolated test mocks or non-R2 staging endpoints). Live Production meehoasg-api-core v33 implements it.
+  if (
+    (!res.ok && (json?.code === 'UNSUPPORTED' || /không được hỗ trợ|\bunsupported\b/i.test(msg))) ||
+    (json && json.ok === false && (json.code === 'UNSUPPORTED' || /không được hỗ trợ|\bunsupported\b/i.test(msg)))
+  ) {
+    return { ok: true, mode: 'legacy', reused: false, imageFiles: sampleFiles, preuploadedSamples: [], stagedOpsUpload: null };
+  }
+
+  if (!res.ok) {
+    return {
+      ok: false,
+      code: `HTTP_${res.status}`,
+      message: `Hệ thống OPS phản hồi mã lỗi HTTP ${res.status} khi chuẩn bị tải ảnh.`
+    };
+  }
+
+  const tickets = json?.ok && Array.isArray(json.tickets) ? json.tickets : null;
+  if (!tickets || tickets.length !== jpegSamples.length) {
+    return {
+      ok: false,
+      code: json?.code || 'UPLOAD_TICKETS_INVALID',
+      message: msg || 'Không cấp được quyền tải ảnh mẫu lên OPS.'
+    };
+  }
+
+  const doPutFetch = uploadFetcher || fetcher;
+  for (let offset = 0; offset < tickets.length; offset += 3) {
+    const batch = tickets.slice(offset, offset + 3).map(async (ticket, idx) => {
+      const sample = parsedJpegs[offset + idx];
+      if (!ticket || ticket.kind !== 'sample' || !ticket.uploadUrl || !ticket.proof || !ticket.preview?.uploadUrl || !ticket.preview?.proof) {
+        return { ok: false, code: 'UPLOAD_TICKET_INVALID' };
+      }
+      const previewPut = await putStagedUploadPart(sample.previewBytes, ticket.preview, doPutFetch);
+      if (!previewPut.ok) return previewPut;
+      const originalPut = await putStagedUploadPart(sample.originalBytes, ticket, doPutFetch);
+      if (!originalPut.ok) return originalPut;
+      return { ok: true };
+    });
+    const results = await Promise.all(batch);
+    const failed = results.find(r => !r.ok);
+    if (failed) {
+      return {
+        ok: false,
+        code: failed.code || 'UPLOAD_FAILED',
+        message: 'Không thể tải ảnh mẫu (kèm ảnh thu nhỏ) lên kho ảnh OPS. Vui lòng thử lại.'
+      };
+    }
+  }
+
+  const preuploadedSamples = tickets.map(ticket => ({
+    ...makeUploadClaim(ticket),
+    preview: makeUploadClaim(ticket.preview)
+  }));
+  const expiryCandidates = tickets
+    .flatMap(t => [Number(t.expiresAt) || 0, Number(t.preview?.expiresAt) || 0])
+    .filter(n => n > 0);
+  const expiresAt = expiryCandidates.length ? Math.min(...expiryCandidates) : Date.now() + 10 * 60 * 1000;
+
+  return {
+    ok: true,
+    mode: 'preuploaded',
+    reused: false,
+    imageFiles: nonJpegSamples,
+    preuploadedSamples,
+    stagedOpsUpload: {
+      requestId,
+      sampleCount: jpegSamples.length,
+      preuploadedSamples,
+      expiresAt
+    }
+  };
+}
+
 /**
  * Call OPS createOrder endpoint.
  * @param {string} opsUrl - Base URL of OPS Staging (e.g. https://meehoasg-ops-staging.meehoasg.workers.dev/api-core)
  * @param {string} opsToken - Authentication token for OPS
  * @param {object} draft - Draft order object
- * @param {Array<{data: string}>} sampleFiles - Sample flower image files (base64 Data URLs)
+ * @param {Array<{data: string, previewData?: string}>} sampleFiles - Sample flower image files (base64 Data URLs)
  * @param {Array<{data: string}>} unverifiedBillFiles - Bill image files (base64 Data URLs)
  * @param {Function} [fetcher=fetch] - Fetch implementation (injectable for testing)
- * @param {object} [options] - Optional overrides (e.g. expectedBillCount when bills are linked via R2)
+ * @param {object} [options] - Optional overrides (e.g. expectedBillCount, opsApiKey, cachedStagedUpload, onStagedUpload)
  * @returns {Promise<{ok: boolean, orderId?: string, order?: object, message?: string, code?: string, unverifiedBillCount?: number}>}
  */
 export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [], unverifiedBillFiles = [], fetcher = fetch, options = {}) {
@@ -280,6 +538,42 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
   }
 
   const note = noteParts.join(' ');
+  const opsApiKey = String(options?.opsApiKey || '').trim();
+  const shouldUseDirectUpload = sampleFiles.length > 0 &&
+    options?.disableDirectUpload !== true &&
+    (isSupabaseOpsUrl(opsUrl) || Boolean(opsApiKey));
+
+  let imageFilesToSend = sampleFiles.map(item => ({ data: item.data }));
+  let preuploadedSamples = null;
+  let stagedOpsUpload = null;
+
+  if (shouldUseDirectUpload) {
+    const prepared = await prepareAndUploadOrderSamples({
+      opsUrl,
+      opsToken,
+      opsApiKey,
+      requestId: draft.requestId,
+      sampleFiles,
+      cachedStagedUpload: options?.cachedStagedUpload || draft?.stagedOpsUpload || null,
+      fetcher,
+      uploadFetcher: options?.uploadFetcher || null
+    });
+    if (!prepared.ok) {
+      return {
+        ok: false,
+        code: prepared.code || 'UPLOAD_FAILED',
+        message: prepared.message || 'Không thể tải ảnh mẫu lên OPS.'
+      };
+    }
+    if (prepared.mode === 'preuploaded') {
+      imageFilesToSend = prepared.imageFiles.map(item => ({ data: item.data }));
+      preuploadedSamples = prepared.preuploadedSamples;
+      stagedOpsUpload = prepared.stagedOpsUpload;
+      if (!prepared.reused && typeof options?.onStagedUpload === 'function') {
+        await options.onStagedUpload(stagedOpsUpload);
+      }
+    }
+  }
 
   // Construct payload adhering strictly to OPS createOrder schema (providing both camelCase & snake_case)
   const payload = {
@@ -329,7 +623,8 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
         ship_confirmed: f.shipping === 'Shop book ship' && Number(f.shipFee) > 0,
         // STRICT INVARIANT: No auto-full-paid without OPS bill verification
         fullPaidRequested: false,
-        imageFiles: sampleFiles,
+        imageFiles: imageFilesToSend,
+        ...(preuploadedSamples ? { preuploadedSamples } : {}),
         unverifiedBillFiles: unverifiedBillFiles
       }
     }
@@ -341,7 +636,7 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
   try {
     const res = await fetcher(opsUrl, {
       method: 'POST',
-      headers: buildOpsHeaders(opsToken, options?.opsApiKey || ''),
+      headers: buildOpsHeaders(opsToken, opsApiKey),
       body: JSON.stringify(payload),
       signal: controller.signal
     });
@@ -364,7 +659,9 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
       code: json.code || null,
       message: json.message || (json.ok ? 'Đã tạo đơn thành công.' : 'Tạo đơn thất bại.'),
       unverifiedBillCount: effectiveBillCount,
-      sampleCount: sampleFiles.length
+      sampleCount: sampleFiles.length,
+      usedPreuploadedSamples: Boolean(preuploadedSamples),
+      stagedOpsUpload
     };
   } catch (err) {
     clearTimeout(timeoutId);
