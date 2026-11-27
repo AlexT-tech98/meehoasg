@@ -315,7 +315,7 @@ describe('Production Readiness 1: Core Bot V1 Flow on Live-Equivalent PostgreSQL
               parts: [{
                 text: JSON.stringify({
                   customer: 'Lan Anh',
-                  phone: '[PHONE_1]',
+                  phone: '0909888123',
                   flower: 'kệ chúc mừng tông vàng',
                   flowerTotal: 500000,
                   paymentState: 'deposit',
@@ -347,7 +347,7 @@ describe('Production Readiness 1: Core Bot V1 Flow on Live-Equivalent PostgreSQL
         OPS_SUPABASE_ANON_KEY: VALID_JWT,
         OPS_SERVICE: { fetch: opsFetcher },
         TELEGRAM_FETCHER: tgFetcher,
-        GEMINI_API_KEY: 'fake_paid_gemini_key',
+        GEMINI_API_KEY: 'AIzaFakeFreeTierKey_suite1',
         GEMINI_MODEL: 'gemini-3.5-flash-lite',
         GEMINI_FETCHER: geminiFetcher
       };
@@ -363,15 +363,15 @@ describe('Production Readiness 1: Core Bot V1 Flow on Live-Equivalent PostgreSQL
         }
       }), env);
 
-      assert.ok(!capturedGeminiBody.includes('0909'), 'Raw phone must be masked before Gemini');
-      assert.ok(capturedGeminiBody.includes('[PHONE_1]'), 'Placeholder [PHONE_1] must be sent to Gemini');
+      assert.ok(capturedGeminiBody.includes('0909.888.123'), 'Raw verbatim caption (including phone) must be sent to Gemini');
+      assert.ok(!capturedGeminiBody.includes('[PHONE_'), 'Must NOT mask phone into [PHONE_*]');
       assert.ok(!capturedGeminiBody.includes('inlineData'), 'Sample photo bytes must never be sent to Gemini');
 
       const drafts1 = await d1Store.loadDrafts(botD1, 5252724920);
       const d1 = drafts1[drafts1.__active];
       assert.equal(d1.status, 'pending');
       assert.equal(d1.fields.customer, 'Lan Anh');
-      assert.equal(d1.fields.phone, '0909888123', 'Masked phone must be restored into draft');
+      assert.equal(d1.fields.phone, '0909888123', 'Raw phone extracted cleanly into draft');
       assert.equal(d1.fields.sale, 'cmui');
       assert.equal(d1.sampleRefs.length, 1);
       assert.equal(d1.draftBillRefs.length, 0);
@@ -757,101 +757,129 @@ describe('Production Readiness 4: Bot Pre-Submit Rule Enforcement + Live OPS v33
   });
 });
 
-describe('Production Readiness 5: AI Local Phone PII Masking Across Success, AI Error Fallback, and /reparse', () => {
-  test('never sends raw phone to Gemini on failure or /reparse, preserves exact phone in draft on 503 fallback, and restores cleanly on /reparse', async () => {
+describe('Production Readiness 5: Verbatim Caption (With Phone, Name, Address, Note) to Gemini Free on Initial + /reparse & No Full Caption in Technical Logs', () => {
+  test('sends raw verbatim caption including phone on both initial read and /reparse, excludes photos/bills, preserves phone on 503/429 fallback, and never writes full caption to audit/console logs', async () => {
     const { workerMod, d1Store } = await loadModules();
     const botD1 = createBotOnlyD1();
     const botR2 = createMockR2();
     const outboundGeminiBodies = [];
+    const capturedConsoleLogs = [];
+    const origWarn = console.warn;
+    const origError = console.error;
+    const origLog = console.log;
+    console.warn = (...a) => capturedConsoleLogs.push(a.map(String).join(' '));
+    console.error = (...a) => capturedConsoleLogs.push(a.map(String).join(' '));
+    console.log = (...a) => capturedConsoleLogs.push(a.map(String).join(' '));
     let aiMode = 'fail503';
 
-    const tgFetcher = async (url) => {
-      if (String(url).includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/flower.jpg', file_size: 512 } }));
-      if (String(url).includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), { headers: { 'content-type': 'image/jpeg' } });
-      if (String(url).includes('/sendMessage')) return new Response(JSON.stringify({ ok: true }));
-      return new Response('Not found', { status: 404 });
-    };
+    try {
+      const tgFetcher = async (url) => {
+        if (String(url).includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/flower.jpg', file_size: 512 } }));
+        if (String(url).includes('/file/bot')) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), { headers: { 'content-type': 'image/jpeg' } });
+        if (String(url).includes('/sendMessage')) return new Response(JSON.stringify({ ok: true }));
+        return new Response('Not found', { status: 404 });
+      };
 
-    const geminiFetcher = async (_url, init = {}) => {
-      outboundGeminiBodies.push(String(init.body || ''));
-      if (aiMode === 'fail503') {
-        return new Response(JSON.stringify({ error: { code: 503, message: 'High demand' } }), { status: 503 });
+      const geminiFetcher = async (_url, init = {}) => {
+        outboundGeminiBodies.push(String(init.body || ''));
+        if (aiMode === 'fail503') {
+          return new Response(JSON.stringify({ error: { code: 503, message: 'High demand' } }), { status: 503 });
+        }
+        const sse = `data: ${JSON.stringify({
+          candidates: [{
+            finishReason: 'STOP',
+            content: {
+              parts: [{
+                text: JSON.stringify({
+                  customer: 'Thảo My',
+                  phone: '+84 909.888.123',
+                  flower: 'kệ chúc mừng tông vàng',
+                  flowerTotal: 650000,
+                  date: '29/12',
+                  time: '16:00',
+                  shipping: 'Shop book ship',
+                  address: '88 Võ Văn Tần quận 3',
+                  note: 'Giao giờ hành chính giúp chị'
+                })
+              }]
+            }
+          }]
+        })}\n\n`;
+        return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      };
+
+      const env = {
+        DB: botD1,
+        MEDIA_R2: botR2,
+        BOT_TOKEN: 'fake_tok',
+        TELEGRAM_SECRET_TOKEN: 'prod_webhook_secret_64hex',
+        ALLOWED_USER_IDS: '5252724920',
+        TELEGRAM_FETCHER: tgFetcher,
+        GEMINI_API_KEY: 'AIzaFakeFreeTierKey_suite5',
+        GEMINI_MODEL: 'gemini-3.5-flash-lite',
+        GEMINI_FETCHER: geminiFetcher,
+        GEMINI_OPTIONS: { maxRetries: 0, baseDelayMs: 0 }
+      };
+
+      const fullCaption = 'Khách Thảo My SĐT +84 909.888.123 đặt kệ chúc mừng tông vàng 650k, chiều 29/12 lúc 16h shop giao qua 88 Võ Văn Tần quận 3\nghi chú: Giao giờ hành chính giúp chị';
+
+      // 1. Send photo + caption with formatted phone while Gemini is returning 503
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 70001,
+        message: {
+          chat: { id: 5252724920, type: 'private' },
+          from: { id: 5252724920 },
+          photo: [{ file_id: 'f_ai_err', file_unique_id: 'u_ai_err' }],
+          caption: fullCaption
+        }
+      }), env);
+
+      assert.equal(outboundGeminiBodies.length, 1);
+      assert.ok(outboundGeminiBodies[0].includes('+84 909.888.123'), 'Raw phone must be included verbatim in initial Gemini call');
+      assert.ok(outboundGeminiBodies[0].includes('Thảo My') && outboundGeminiBodies[0].includes('88 Võ Văn Tần') && outboundGeminiBodies[0].includes('Giao giờ hành chính'), 'Name, address, and note must be sent verbatim to Gemini');
+      assert.ok(!outboundGeminiBodies[0].includes('[PHONE_'), 'Phone must NOT be masked');
+      assert.ok(!outboundGeminiBodies[0].includes('inlineData'), 'Photos/bills must never be sent to Gemini');
+
+      // Local fallback on AI failure MUST still capture normalized phone into draft & keep pendingAiText
+      const draftsAfterFail = await d1Store.loadDrafts(botD1, 5252724920);
+      const failedDraft = draftsAfterFail[draftsAfterFail.__active];
+      assert.equal(failedDraft.fields.phone, '0909888123', 'Local fallback must preserve exact phone into draft when AI returns 503');
+      assert.ok(failedDraft.pendingAiText && failedDraft.pendingAiText.includes('+84 909.888.123'), 'pendingAiText kept locally in D1 for /reparse');
+
+      // 2. Gemini recovers -> user runs /reparse -> raw caption including phone STILL sent verbatim on /reparse
+      aiMode = 'ok';
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 70002,
+        message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/reparse' }
+      }), env);
+
+      assert.equal(outboundGeminiBodies.length, 2);
+      assert.ok(outboundGeminiBodies[1].includes('+84 909.888.123'), 'Raw phone must be included verbatim during /reparse');
+      assert.ok(!outboundGeminiBodies[1].includes('[PHONE_'), 'Phone must NOT be masked during /reparse');
+      assert.ok(!outboundGeminiBodies[1].includes('inlineData'), 'Photos must never be sent to Gemini during /reparse');
+
+      const draftsAfterReparse = await d1Store.loadDrafts(botD1, 5252724920);
+      const reparsedDraft = draftsAfterReparse[draftsAfterReparse.__active];
+      assert.equal(reparsedDraft.fields.phone, '0909888123');
+      assert.equal(reparsedDraft.fields.customer, 'Thảo My');
+      assert.equal(reparsedDraft.fields.flower, 'kệ chúc mừng tông vàng');
+      assert.equal(reparsedDraft.fields.flowerTotal, '650000');
+      assert.equal(reparsedDraft.fields.address, '88 Võ Văn Tần quận 3');
+
+      // 3. Technical logs (console.* and bot_audit_logs) must NEVER contain the full caption or customer PII
+      const auditRows = (await botD1.prepare('SELECT action, payload_json FROM bot_audit_logs').all()).results || [];
+      const auditDump = JSON.stringify(auditRows);
+      const consoleDump = capturedConsoleLogs.join('\n');
+      for (const dump of [auditDump, consoleDump]) {
+        assert.ok(!dump.includes(fullCaption), 'Technical logs must NEVER contain full caption');
+        assert.ok(!dump.includes('909.888.123') && !dump.includes('0909888123'), 'Technical logs must NEVER log customer phone');
+        assert.ok(!dump.includes('88 Võ Văn Tần') && !dump.includes('Giao giờ hành chính'), 'Technical logs must NEVER log customer address/note');
       }
-      const sse = `data: ${JSON.stringify({
-        candidates: [{
-          finishReason: 'STOP',
-          content: {
-            parts: [{
-              text: JSON.stringify({
-                customer: 'Thảo My',
-                phone: '[PHONE_1]',
-                flower: 'kệ chúc mừng tông vàng',
-                flowerTotal: 650000,
-                date: '29/12',
-                time: '16:00',
-                shipping: 'Shop book ship',
-                address: '88 Võ Văn Tần quận 3'
-              })
-            }]
-          }
-        }]
-      })}\n\n`;
-      return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
-    };
-
-    const env = {
-      DB: botD1,
-      MEDIA_R2: botR2,
-      BOT_TOKEN: 'fake_tok',
-      TELEGRAM_SECRET_TOKEN: 'prod_webhook_secret_64hex',
-      ALLOWED_USER_IDS: '5252724920',
-      TELEGRAM_FETCHER: tgFetcher,
-      GEMINI_API_KEY: 'fake_paid_key',
-      GEMINI_MODEL: 'gemini-3.5-flash-lite',
-      GEMINI_FETCHER: geminiFetcher,
-      GEMINI_OPTIONS: { maxRetries: 0, baseDelayMs: 0 }
-    };
-
-    // 1. Send photo + caption with formatted phone while Gemini is returning 503
-    await workerMod.handleTelegramWebhook(makeWebhookReq({
-      update_id: 70001,
-      message: {
-        chat: { id: 5252724920, type: 'private' },
-        from: { id: 5252724920 },
-        photo: [{ file_id: 'f_ai_err', file_unique_id: 'u_ai_err' }],
-        caption: 'Khách Thảo My SĐT +84 909.888.123 đặt kệ chúc mừng tông vàng 650k, chiều 29/12 lúc 16h shop giao qua 88 Võ Văn Tần quận 3'
-      }
-    }), env);
-
-    assert.equal(outboundGeminiBodies.length, 1);
-    assert.ok(!outboundGeminiBodies[0].includes('909'), 'Raw phone must NOT leak to Gemini even on failed 503 request');
-    assert.ok(outboundGeminiBodies[0].includes('[PHONE_1]'));
-
-    // Local fallback on AI failure MUST still capture normalized phone into draft & keep pendingAiText
-    const draftsAfterFail = await d1Store.loadDrafts(botD1, 5252724920);
-    const failedDraft = draftsAfterFail[draftsAfterFail.__active];
-    assert.equal(failedDraft.fields.phone, '0909888123', 'Local fallback must preserve exact phone into draft when AI returns 503');
-    assert.ok(failedDraft.pendingAiText && failedDraft.pendingAiText.includes('909'), 'pendingAiText kept locally in D1 for /reparse');
-
-    // 2. Gemini recovers -> user runs /reparse -> raw phone STILL masked on /reparse, restored cleanly along with all AI fields
-    aiMode = 'ok';
-    await workerMod.handleTelegramWebhook(makeWebhookReq({
-      update_id: 70002,
-      message: { chat: { id: 5252724920, type: 'private' }, from: { id: 5252724920 }, text: '/reparse' }
-    }), env);
-
-    assert.equal(outboundGeminiBodies.length, 2);
-    assert.ok(!outboundGeminiBodies[1].includes('909'), 'Raw phone must NOT leak to Gemini during /reparse');
-    assert.ok(outboundGeminiBodies[1].includes('[PHONE_1]'));
-    assert.ok(!outboundGeminiBodies[1].includes('inlineData'), 'Photos must never be sent to Gemini during /reparse');
-
-    const draftsAfterReparse = await d1Store.loadDrafts(botD1, 5252724920);
-    const reparsedDraft = draftsAfterReparse[draftsAfterReparse.__active];
-    assert.equal(reparsedDraft.fields.phone, '0909888123');
-    assert.equal(reparsedDraft.fields.customer, 'Thảo My');
-    assert.equal(reparsedDraft.fields.flower, 'kệ chúc mừng tông vàng');
-    assert.equal(reparsedDraft.fields.flowerTotal, '650000');
-    assert.equal(reparsedDraft.fields.address, '88 Võ Văn Tần quận 3');
+    } finally {
+      console.warn = origWarn;
+      console.error = origError;
+      console.log = origLog;
+    }
   });
 });
 
@@ -1099,12 +1127,12 @@ describe('Production Readiness 8: Bot Production Acceptance — 350k/200k Deposi
         OPS_SUPABASE_ANON_KEY: VALID_JWT,
         OPS_SERVICE: { fetch: interceptedFetcher },
         TELEGRAM_FETCHER: tgFetcher,
-        GEMINI_API_KEY: 'fake_paid_key',
+        GEMINI_API_KEY: 'AIzaFakeFreeTierKey_suite8',
         GEMINI_MODEL: 'gemini-3.5-flash-lite',
         GEMINI_FETCHER: async (_u, init = {}) => {
           const bodyStr = String(init.body || '');
           const extracted = bodyStr.includes('170k')
-            ? { customer: 'Ngọc Hân', phone: '[PHONE_1]', flower: 'bó hồng kem', flowerTotal: 350000, date: '29/12', time: '15:00', shipping: 'Ghé lấy', paymentState: 'deposit', depositAmount: 170000 }
+            ? { customer: 'Ngọc Hân', phone: '0909333444', flower: 'bó hồng kem', flowerTotal: 350000, date: '29/12', time: '15:00', shipping: 'Ghé lấy', paymentState: 'deposit', depositAmount: 170000 }
             : { paymentState: 'deposit', depositAmount: 200000 };
           const sse = `data: ${JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(extracted) }] } }] })}\n\n`;
           return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
@@ -1239,7 +1267,7 @@ describe('Production Readiness 8: Bot Production Acceptance — 350k/200k Deposi
                 parts: [{
                   text: JSON.stringify({
                     customer: 'Chị Thảo Phụ Kiện',
-                    phone: '[PHONE_1]',
+                    phone: '0909444555',
                     flower: 'kệ lan vàng',
                     flowerTotal: 400000,
                     date: '29/12',

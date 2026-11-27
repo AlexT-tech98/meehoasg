@@ -188,58 +188,6 @@ export const ORDER_EXTRACTION_RESPONSE_SCHEMA = {
   }
 };
 
-const VN_PHONE_MASK_REGEX = /(?<!\d)(?:\+84[\s.\-]*|0)[2-9](?:[\s.\-]*\d){8,9}(?!\d)/g;
-
-/**
- * Mask deterministic local PII (Vietnamese phone numbers) before sending text to Gemini API.
- * Photos and bills are never sent to Gemini; masking phone numbers locally prevents raw
- * phone PII from leaving the Worker while preserving full extraction accuracy.
- */
-export function maskLocalPiiForAi(text) {
-  const raw = String(text || '');
-  const phones = [];
-  const tokenToPhone = new Map();
-  const maskedText = raw.replace(VN_PHONE_MASK_REGEX, (match) => {
-    const normalized = match.replace(/[\s.\-]+/g, '').replace(/^\+84/, '0');
-    const existing = phones.find((p) => p.normalized === normalized);
-    if (existing) return existing.token;
-    const token = `[PHONE_${phones.length + 1}]`;
-    const entry = { token, raw: match, normalized };
-    phones.push(entry);
-    tokenToPhone.set(token, entry);
-    return token;
-  });
-  return { maskedText, phones, tokenToPhone };
-}
-
-/**
- * Restore masked local PII back into Gemini-extracted fields after sanitization.
- */
-export function restoreLocalPiiFromAi(fields, maskState) {
-  if (!fields || typeof fields !== 'object') return fields;
-  const phones = maskState?.phones || [];
-  if (!phones.length) return fields;
-  const out = { ...fields };
-  const restoreString = (val) => {
-    if (typeof val !== 'string') return val;
-    let s = val;
-    for (const p of phones) {
-      s = s.split(p.token).join(p.normalized);
-    }
-    return s;
-  };
-  for (const key of Object.keys(out)) {
-    if (typeof out[key] === 'string') {
-      out[key] = restoreString(out[key]);
-    }
-  }
-  const currentPhone = String(out.phone || '').trim();
-  if (!currentPhone || /^\[PHONE_\d+\]$/.test(currentPhone)) {
-    out.phone = phones[0].normalized;
-  }
-  return out;
-}
-
 /**
  * Build the Gemini generateContent/streamGenerateContent request body.
  * - Gemini 4 models (e.g. gemini-4-hydrogen) deprecate `temperature` and default to `thinkingLevel="HIGH"`,
@@ -528,8 +476,8 @@ export async function extractFieldsWithGeminiDetailed(
   if (!apiKey) return { ok: false, fields: null, model: activeModel, latencyMs: 0, stage: 'connect', error: 'NO_API_KEY', retries: 0, attempts: [] };
   if (!text || text.trim().length < 5) return { ok: false, fields: null, model: activeModel, latencyMs: 0, stage: 'connect', error: 'TEXT_TOO_SHORT', retries: 0, attempts: [] };
 
-  const maskState = maskLocalPiiForAi(text);
-  const body = buildGeminiRequestBody(maskState.maskedText, activeModel);
+  // Send raw verbatim caption text (photos & bills stay strictly outside AI); never log full caption.
+  const body = buildGeminiRequestBody(String(text), activeModel);
   const opts = (typeof timeoutMs === 'object' && timeoutMs !== null) ? timeoutMs : (options || {});
   const rawTimeout = typeof timeoutMs === 'object' ? DEFAULT_GEMINI_TIMEOUT_MS : timeoutMs;
   const effectiveTimeout = Number.isFinite(Number(rawTimeout)) && Number(rawTimeout) > 0 ? Number(rawTimeout) : DEFAULT_GEMINI_TIMEOUT_MS;
@@ -607,8 +555,7 @@ export async function extractFieldsWithGeminiDetailed(
     if (res.ok && (!res.corruptedFields || res.corruptedFields.length === 0)) {
       return {
         ...res,
-        fields: restoreLocalPiiFromAi(res.fields, maskState),
-        piiMaskedCount: maskState.phones.length,
+        fields: res.fields,
         latencyMs: Date.now() - budgetStart,
         retries,
         budgetExhausted: false,
@@ -620,8 +567,7 @@ export async function extractFieldsWithGeminiDetailed(
       if (retries >= effectiveMaxRetries) {
         return {
           ...res,
-          fields: restoreLocalPiiFromAi(res.fields, maskState),
-          piiMaskedCount: maskState.phones.length,
+          fields: res.fields,
           latencyMs: Date.now() - budgetStart,
           retries,
           budgetExhausted: false,
@@ -633,8 +579,7 @@ export async function extractFieldsWithGeminiDetailed(
       if (delay + minReserve > budgetLeft) {
         return {
           ...res,
-          fields: restoreLocalPiiFromAi(res.fields, maskState),
-          piiMaskedCount: maskState.phones.length,
+          fields: res.fields,
           latencyMs: Date.now() - budgetStart,
           retries,
           budgetExhausted: true,
