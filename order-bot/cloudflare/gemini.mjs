@@ -18,12 +18,13 @@ Quy tắc trích xuất:
 6. shipping: Chỉ được chọn 1 trong 3 giá trị chính xác: "Shop book ship", "Khách tự book", "Ghé lấy". Nếu không nói rõ thì để null.
 7. address: Địa chỉ giao hàng chi tiết (chuỗi). Nếu không nói rõ thì để null.
 8. flowerTotal: Tổng tiền hoa (số nguyên, ví dụ: 850k -> 850000, 1tr5 -> 1500000). Bỏ các phụ kiện. Nếu không rõ giá thì để null.
-9. note: Ghi chú lời dặn của khách (chuỗi).
-10. cardText: Nội dung viết thiệp chúc mừng (chuỗi).
-11. bannerText: Nội dung in banner/dải ruy băng (chuỗi).
-12. cardQty: Số lượng thiệp chúc mừng (số nguyên từ 1-99, CHỈ trả khi có đề cập thiệp; mặc định null nếu không có thiệp).
-13. bannerQty: Số lượng banner (số nguyên từ 1-99, CHỈ trả khi có đề cập banner; mặc định null nếu không có banner).
-14. shipFee: Phí ship theo VNĐ (số nguyên > 0, ví dụ 45k -> 45000) CHỈ KHI tin nhắn/ghi chú nêu rõ phí ship/tiền ship; nếu không nêu rõ phí ship thì BẮT BUỘC để null, tuyệt đối không tự đoán.
+9. note: Lưu ý của khách / ghi chú đơn hàng / lời dặn gói hoa hoặc giao hàng (chuỗi, 0 đ). MỌI dòng ghi "Lưu ý khách", "Lưu ý", "Lưu ý đơn", "Khách dặn", "Note", "Ghi chú" PHẢI đưa vào note, TUYỆT ĐỐI KHÔNG đưa vào cardText.
+10. tagNoteFree: Nội dung in Tag note / Tag note free / tag miễn phí (chuỗi, 0 đ). MỌI dòng ghi "Tag note", "Tag note free", "tag miễn phí", "tag" PHẢI đưa vào tagNoteFree, TUYỆT ĐỐI KHÔNG đưa vào cardText hay cardQty.
+11. cardText: Nội dung viết THIỆP TRẢ PHÍ (+10.000 đ/cái). CHỈ trích xuất khi tin nhắn ghi rõ khách mua/lấy thiệp trả phí (có chữ "thiệp" hoặc "card" ngoài dòng Note/Tag note). Nếu không nói rõ lấy thiệp trả phí thì BẮT BUỘC để null.
+12. bannerText: Nội dung in banner/dải ruy băng (chuỗi).
+13. cardQty: Số lượng thiệp trả phí (số nguyên từ 1-99, CHỈ trả khi có đề cập mua/lấy thiệp trả phí; mặc định null nếu không có).
+14. bannerQty: Số lượng banner (số nguyên từ 1-99, CHỈ trả khi có đề cập banner; mặc định null nếu không có banner).
+15. shipFee: Phí ship theo VNĐ (số nguyên > 0, ví dụ 45k -> 45000) CHỈ KHI tin nhắn/ghi chú nêu rõ phí ship/tiền ship; nếu không nêu rõ phí ship thì BẮT BUỘC để null, tuyệt đối không tự đoán.
 
 QUY TẮC BẢO MẬT & CHÍNH XÁC:
 - TUYỆT ĐỐI KHÔNG tự bịa hoặc suy đoán bất kỳ trường quan trọng nào (tên khách, SĐT, ngày, giờ, địa chỉ, hình thức ship, giá tiền, phí ship). Trường nào không có trong tin nhắn thì để null.
@@ -45,6 +46,7 @@ export const ALLOWED_AI_FIELDS = new Set([
   'address',
   'flowerTotal',
   'note',
+  'tagNoteFree',
   'cardText',
   'bannerText',
   'cardQty',
@@ -180,6 +182,7 @@ export const ORDER_EXTRACTION_RESPONSE_SCHEMA = {
     address: { type: 'STRING', nullable: true },
     flowerTotal: { type: 'INTEGER', nullable: true },
     note: { type: 'STRING', nullable: true },
+    tagNoteFree: { type: 'STRING', nullable: true },
     cardText: { type: 'STRING', nullable: true },
     bannerText: { type: 'STRING', nullable: true },
     cardQty: { type: 'INTEGER', nullable: true },

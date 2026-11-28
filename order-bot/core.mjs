@@ -146,6 +146,21 @@ const FIELD_ALIASES = {
   dc: 'address', 'd/c': 'address',
   sdt: 'phone', 'số điện thoại': 'phone', phone: 'phone', 'điện thoại': 'phone', 'dien thoai': 'phone',
   'ghi chú': 'note', 'ghi chu': 'note', note: 'note',
+  'note đơn': 'note', 'note don': 'note', 'note khách': 'note', 'note khach': 'note',
+  'lưu ý': 'note', 'luu y': 'note',
+  'lưu ý khách': 'note', 'luu y khach': 'note',
+  'lưu ý của khách': 'note', 'luu y cua khach': 'note',
+  'lưu ý khách hàng': 'note', 'luu y khach hang': 'note',
+  'lưu ý đơn': 'note', 'luu y don': 'note',
+  'lưu ý đơn hàng': 'note', 'luu y don hang': 'note',
+  'lưu ý giao': 'note', 'luu y giao': 'note',
+  'lưu ý bó hoa': 'note', 'luu y bo hoa': 'note',
+  'khách dặn': 'note', 'khach dan': 'note',
+  'dặn dò': 'note', 'dan do': 'note', 'lời dặn': 'note', 'loi dan': 'note',
+  'yêu cầu': 'note', 'yeu cau': 'note', 'yêu cầu khách': 'note', 'yeu cau khach': 'note',
+  'tag note free': 'tagNoteFree', 'tag note': 'tagNoteFree', tagnotefree: 'tagNoteFree', tagnote: 'tagNoteFree',
+  'tag free': 'tagNoteFree', 'tag miễn phí': 'tagNoteFree', 'tag mien phi': 'tagNoteFree',
+  'nội dung tag': 'tagNoteFree', 'noi dung tag': 'tagNoteFree', tag: 'tagNoteFree',
   'tổng hoa': 'flowerTotal', 'tong hoa': 'flowerTotal', 'flower total': 'flowerTotal', flowertotal: 'flowerTotal',
   tong: 'flowerTotal', 'tổng': 'flowerTotal', 'tong don': 'flowerTotal', 'tong tien hoa': 'flowerTotal',
   gia: 'flowerTotal', 'giá': 'flowerTotal', 'tiền': 'flowerTotal', 'tien': 'flowerTotal', 'tiền hoa': 'flowerTotal', 'tien hoa': 'flowerTotal', 'tổng tiền': 'flowerTotal', 'tong tien': 'flowerTotal',
@@ -185,9 +200,10 @@ const SHIPPING_VALUES = ['Shop book ship', 'Khách tự book', 'Ghé lấy'];
 
 function normalizeShipping(raw) {
   const r = raw.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
-  if (/shop|book ship|giao tan noi|ship tan nha|cho nguoi giao/.test(r)) return 'Shop book ship';
+  if (/shop\s*(?:book|ship|giao)|book\s*ship|giao\s*tan\s*noi|ship\s*tan\s*nha|cho\s*nguoi\s*giao/.test(r)) return 'Shop book ship';
   if (/khach.*book|tu.*book|aha|grab/.test(r)) return 'Khách tự book';
-  if (/ghe.*lay|lay|tai tiem|tu lay/.test(r)) return 'Ghé lấy';
+  if (/ghe.*lay|tai\s*shop|nhan\s*tai\s*shop|tai\s*tiem|nhan\s*tai\s*tiem|tu\s*(?:qua\s*)?lay|lay/.test(r)) return 'Ghé lấy';
+  if (/shop/.test(r)) return 'Shop book ship';
   return raw.trim();
 }
 
@@ -491,9 +507,10 @@ const FIELD_LABELS_VI = {
   shipping: 'hình thức ship',
   address: 'địa chỉ giao hàng',
   note: 'ghi chú',
+  tagNoteFree: 'tag note free',
   sale: 'sale phụ trách',
   sampleRefs: 'ảnh mẫu hoa',
-  draftBillRefs: 'ảnh bill chuyển khoản'
+  draftBillRefs: 'ảnh bill thanh toán'
 };
 
 export const SUPPORTED_BOT_FIELDS = new Set(Object.keys(FIELD_LABELS_VI));
@@ -538,10 +555,13 @@ export function formatPaymentClaimNote(_fields = {}) {
  *   - unpaid   -> 'Chưa thanh toán'
  *   - deposit  -> 'Đã cọc <amount> đ' (verified deposit; OPS computes paid = deposit, debt = total - deposit)
  *   - bankfull -> 'Đã thanh toán đủ tiền hoa (Full)' (verified flower paid; debt = accessories + vat + ship)
- *   - fullpaid -> 'Chưa thanh toán' (STRICT: OPS Full Paid / AUTO_FULL_PAID requires bill + sample + confirmed shipFee;
- *                 never auto-set full_paid from bot text or sample photos without OPS Full Paid bill evidence)
+ *   - fullpaid -> 'Đã thanh toán toàn bộ đơn' ONLY when `options.fullPaidRequested === true` (verified sample + bill
+ *                 + confirmed shipFee if Shop book ship); otherwise fail-closed 'Chưa thanh toán'.
  */
-export function mapPaymentToOps(paymentState, depositAmount, _flowerTotal) {
+export function mapPaymentToOps(paymentState, depositAmount, _flowerTotal, options = {}) {
+  if (paymentState === 'fullpaid' && options?.fullPaidRequested === true) {
+    return 'Đã thanh toán toàn bộ đơn';
+  }
   if (paymentState === 'deposit' && Number(depositAmount) > 0) {
     const depStr = Number(depositAmount).toLocaleString('vi-VN');
     return `Đã cọc ${depStr} đ`;
@@ -556,108 +576,142 @@ export function mapPaymentToOps(paymentState, depositAmount, _flowerTotal) {
 // Draft display
 // ---------------------------------------------------------------------------
 
+export function formatDateVNDisplay(raw) {
+  const s = String(raw || '').trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (s || '—');
+}
+
 export function draftSummary(draft, rules = DEFAULT_OPS_ORDER_RULES) {
   const f = draft.fields || {};
   const statusBadge = {
     pending: '',
-    confirmed: '✔ Sẵn sàng tạo đơn',
-    confirming: '⏳ Đang tạo đơn...',
-    submitted: '✅ Đã tạo OPS',
+    confirmed: 'Sẵn sàng',
+    confirming: 'Đang tạo đơn...',
+    submitted: 'Đã tạo OPS',
   }[draft.status] || '';
 
   const shortId = (draft.id || '').slice(-6);
   const saleDisplay = formatSaleDisplay(f.sale, rules);
-  const lines = [
-    `📋 *ĐƠN NHÁP #${shortId}*${statusBadge ? '  ' + statusBadge : ''}`,
-    `━━━━━━━━━━━━━━━━━━━━`,
-    `🧑‍💼 Sale phụ trách: ${saleDisplay}`,
-    `👤 Khách hàng: ${f.customer || '—'}`,
-    f.phone ? `📞 Số điện thoại: ${f.phone}` : null,
-    `🌸 Mẫu hoa: ${f.flower || '—'}`,
-    f.flowerTotal ? `💰 Tiền hoa: ${Number(f.flowerTotal).toLocaleString('vi')} đ` : `💰 Tiền hoa: — (bắt buộc)`,
+  const headerParts = [`ĐƠN NHÁP #${shortId}`, saleDisplay];
+  if (statusBadge) headerParts.push(statusBadge);
+
+  const customerLine = f.phone
+    ? `${f.customer || '—'} · ${f.phone}`
+    : (f.customer || '—');
+
+  const deliveryParts = [
+    f.time || '—',
+    formatDateVNDisplay(f.date),
+    f.shipping || '—'
   ];
 
+  const lines = [
+    headerParts.join(' · '),
+    `Khách: ${customerLine}`,
+    `Mẫu hoa: ${f.flower || '—'}`,
+    `Nhận: ${deliveryParts.join(' · ')}`,
+  ];
+
+  if (f.address) {
+    const pendingTag = isPendingAddress(f.address) ? ' (chờ bổ sung)' : '';
+    lines.push(`Địa chỉ: ${f.address}${pendingTag}`);
+  } else if (f.shipping === 'Shop book ship') {
+    lines.push(`Địa chỉ: chưa có địa chỉ`);
+  }
+
+  lines.push(
+    f.flowerTotal
+      ? `Tiền hoa: ${Number(f.flowerTotal).toLocaleString('vi')} đ`
+      : `Tiền hoa: — (bắt buộc)`
+  );
+
   const pState = f.paymentState || 'unpaid';
+  const billCount = (draft.draftBillRefs || []).length;
   if (pState === 'deposit') {
     const depStr = f.depositAmount ? `${Number(f.depositAmount).toLocaleString('vi')} đ` : '(chưa có số tiền)';
     const totalDue = computeDraftTotal(f);
-    const remStr = (totalDue > 0 && f.depositAmount) ? ` — còn lại: ${(Math.max(0, totalDue - Number(f.depositAmount))).toLocaleString('vi')} đ` : '';
-    lines.push(`💳 Thanh toán: Đã cọc ${depStr}${remStr}`);
+    const remStr = (totalDue > 0 && f.depositAmount)
+      ? ` · còn lại: ${(Math.max(0, totalDue - Number(f.depositAmount))).toLocaleString('vi')} đ`
+      : '';
+    lines.push(`Thanh toán: Đã cọc ${depStr}${remStr}`);
   } else if (pState === 'bankfull') {
     const bfAmount = f.reportedPaidAmount || f.flowerTotal;
-    const bfStr = bfAmount ? ` (đã thu ${Number(bfAmount).toLocaleString('vi')} đ tiền hoa)` : '';
-    lines.push(`💳 Thanh toán: Đã thanh toán đủ tiền hoa (Full)${bfStr}`);
+    const bfStr = bfAmount ? ` (${Number(bfAmount).toLocaleString('vi')} đ)` : '';
+    lines.push(`Thanh toán: Đã thanh toán đủ tiền hoa (Full)${bfStr}`);
   } else if (pState === 'fullpaid') {
-    lines.push(`💳 Thanh toán: Fullpaid (cần bill & đối soát tại OPS — không tự tất toán)`);
+    const totalDue = computeDraftTotal(f);
+    const fpAmt = totalDue > 0 ? ` (${totalDue.toLocaleString('vi')} đ)` : '';
+    lines.push(
+      billCount > 0
+        ? `Thanh toán: Full Paid${fpAmt}`
+        : `Thanh toán: Full Paid${fpAmt} — cần gửi ảnh bill`
+    );
   } else {
-    lines.push(`💳 Thanh toán: Chưa thanh toán`);
+    lines.push(`Thanh toán: Chưa thanh toán`);
   }
 
-  lines.push(`📅 Ngày nhận: ${f.date || '—'}`);
-  lines.push(`⏰ Giờ nhận: ${f.time || '—'}`);
-  lines.push(`🚚 Hình thức nhận: ${f.shipping || '—'}`);
-  if (f.address) {
-    const pendingTag = isPendingAddress(f.address) ? ' (chờ bổ sung)' : '';
-    lines.push(`📍 Địa chỉ: ${f.address}${pendingTag}`);
-  } else if (f.shipping === 'Shop book ship') {
-    lines.push(`📍 Địa chỉ: — (chưa có — nhớ bổ sung)`);
-  }
-  if (f.note) lines.push(`📝 Ghi chú: ${f.note}`);
+  if (f.tagNoteFree) lines.push(`Tag note free: ${f.tagNoteFree}`);
+  if (f.note) lines.push(`Ghi chú: ${f.note}`);
 
   const cQty = Math.max(1, Number(f.cardQty) || 1);
   const bQty = Math.max(1, Number(f.bannerQty) || 1);
-  if (f.card || f.cardText) lines.push(`💌 Thiệp (${cQty}): ${f.cardText || '(chưa ghi nội dung)'} (+${(cQty * 10000).toLocaleString('vi')} đ)`);
-  if (f.banner || f.bannerText) lines.push(`🎀 Banner (${bQty}): ${f.bannerText || '(chưa ghi nội dung)'} (+${(bQty * 35000).toLocaleString('vi')} đ)`);
-  if (f.charmFee) lines.push(`✨ Phí charm: ${Number(f.charmFee).toLocaleString('vi')} đ${f.charmText ? ' (' + f.charmText + ')' : ''}`);
-  if (f.paperFee) lines.push(`📜 Phí giấy: ${Number(f.paperFee).toLocaleString('vi')} đ${f.paperText ? ' (' + f.paperText + ')' : ''}`);
-  if (f.vat) lines.push(`🧾 VAT: ${Number(f.vat).toLocaleString('vi')} đ`);
-  if (Number(f.shipFee) > 0) lines.push(`🛵 Phí ship: ${Number(f.shipFee).toLocaleString('vi')} đ`);
+  if (f.card || f.cardText) lines.push(`Thiệp (${cQty}): ${f.cardText || '(chưa ghi nội dung)'} (+${(cQty * 10000).toLocaleString('vi')} đ)`);
+  if (f.banner || f.bannerText) lines.push(`Banner (${bQty}): ${f.bannerText || '(chưa ghi nội dung)'} (+${(bQty * 35000).toLocaleString('vi')} đ)`);
+  if (f.charmFee) lines.push(`Phí charm: ${Number(f.charmFee).toLocaleString('vi')} đ${f.charmText ? ' (' + f.charmText + ')' : ''}`);
+  if (f.paperFee) lines.push(`Phí giấy: ${Number(f.paperFee).toLocaleString('vi')} đ${f.paperText ? ' (' + f.paperText + ')' : ''}`);
+  if (f.vat) lines.push(`VAT: ${Number(f.vat).toLocaleString('vi')} đ`);
+  if (Number(f.shipFee) > 0) lines.push(`Phí ship: ${Number(f.shipFee).toLocaleString('vi')} đ`);
+
   const totalDuePreview = computeDraftTotal(f);
   if (f.flowerTotal && totalDuePreview > Number(f.flowerTotal)) {
-    lines.push(`🧮 Tổng đơn (gồm phụ kiện/ship/VAT): ${totalDuePreview.toLocaleString('vi')} đ`);
+    lines.push(`Tổng đơn: ${totalDuePreview.toLocaleString('vi')} đ`);
   }
 
   const sampleCount = (draft.sampleRefs || []).length;
-  const billCount = (draft.draftBillRefs || []).length;
-  if (sampleCount) lines.push(`📷 Ảnh mẫu hoa: ${sampleCount} ảnh đã lưu trên R2`);
+  const mediaParts = [];
+  if (sampleCount) mediaParts.push(`Ảnh mẫu: ${sampleCount} ảnh`);
   if (billCount) {
-    lines.push(`🧾 Ảnh bill (nháp, chưa xác nhận TT): ${billCount} ảnh — sẽ KHÔNG tự động tạo đơn thanh toán`);
+    mediaParts.push(
+      pState === 'fullpaid'
+        ? `Ảnh bill: ${billCount} ảnh`
+        : `Ảnh bill: ${billCount} ảnh (chỉ lưu nháp, KHÔNG tự xác nhận thanh toán)`
+    );
   } else if (pState === 'fullpaid') {
-    lines.push(`🧾 Chứng từ bill: ⚠️ CHƯA CÓ (Bắt buộc với đơn Fullpaid)`);
+    mediaParts.push(`Ảnh bill: chưa có`);
   }
-
-  lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+  if (mediaParts.length) lines.push(mediaParts.join(' · '));
 
   const validation = validateOrderAgainstRules(draft, rules);
+  const footers = [];
   if (validation.unsupportedRules.length) {
-    lines.push(`\n🚧 OPS vừa cập nhật quy tắc mới bot chưa hỗ trợ (${validation.unsupportedRules.join(', ')}). Nháp vẫn được giữ nguyên; vui lòng hoàn tất trực tiếp trên OPS hoặc chờ cập nhật bot.`);
+    footers.push(`⚠️ OPS có quy tắc mới bot chưa hỗ trợ (${validation.unsupportedRules.join(', ')}). Nháp vẫn được giữ nguyên.`);
   }
   if (validation.missing.length) {
-    lines.push(`\n⚠️ Còn thiếu: ${validation.missing.join(', ')}`);
+    footers.push(`⚠️ Còn thiếu: ${validation.missing.join(', ')}`);
   }
   if (validation.reminders?.length) {
-    lines.push(`\n💡 Nhắc bổ sung: ${validation.reminders.join(', ')}`);
+    footers.push(`Nhắc bổ sung: ${validation.reminders.join(', ')}`);
   }
   if (validation.ruleErrors.length) {
-    lines.push(`\n⛔ Quy tắc OPS chưa đạt:`);
-    for (const msg of validation.ruleErrors) {
-      lines.push(`  • ${msg}`);
-    }
+    footers.push(`⚠️ Quy tắc OPS: ${validation.ruleErrors.join(' | ')}`);
   }
 
   const uncertain = Object.entries(draft.uncertainFields || {});
   if (uncertain.length) {
-    lines.push(`\n❓ Cần làm rõ:`);
-    for (const [k, reason] of uncertain) {
-      lines.push(`  • ${k}: ${reason}`);
-    }
+    footers.push(`Cần làm rõ: ${uncertain.map(([k, reason]) => `${k}: ${reason}`).join('; ')}`);
   }
 
   if (draft.status === 'submitted' && draft.opsOrderId) {
-    lines.push(`\n🎉 Đơn đã tạo thành công trên OPS: Mã đơn *${draft.opsOrderId}*`);
+    footers.push(`✅ Đã tạo OPS: ${draft.opsOrderId}`);
   }
 
-  return lines.filter(Boolean).join('\n');
+  if (footers.length) {
+    lines.push('');
+    lines.push(...footers);
+  }
+
+  return lines.filter(l => l !== null && l !== undefined).join('\n');
 }
 
 function isPendingAddress(addr) {
@@ -772,8 +826,16 @@ export function validateOrderAgainstRules(draft, rules = DEFAULT_OPS_ORDER_RULES
     }
   }
 
-  if (f.paymentState === 'fullpaid' && (!draft?.draftBillRefs || draft.draftBillRefs.length === 0)) {
-    pushMissing(FIELD_LABELS_VI.draftBillRefs + ' (bắt buộc với đơn Fullpaid)');
+  if (f.paymentState === 'fullpaid') {
+    if (effectiveRules.requireSampleForFullPaid !== false && (!draft?.sampleRefs || draft.sampleRefs.length === 0)) {
+      pushMissing(`${FIELD_LABELS_VI.sampleRefs} (bắt buộc với Full Paid)`);
+    }
+    if (!draft?.draftBillRefs || draft.draftBillRefs.length === 0) {
+      pushMissing(`${FIELD_LABELS_VI.draftBillRefs} (bắt buộc với Full Paid)`);
+    }
+    if (f.shipping === 'Shop book ship' && !(Number(f.shipFee) > 0)) {
+      pushMissing('phí ship (bắt buộc với Full Paid Shop book ship)');
+    }
   }
 
   const hasUncertain = Boolean(draft?.uncertainFields && Object.keys(draft.uncertainFields).length > 0);
@@ -845,7 +907,7 @@ function cmdNew(drafts, _args) {
   const current = activeDraft(drafts);
   if (isDraftEmpty(current)) {
     return {
-      reply: `ℹ️ Đơn nháp trống #${current.id.slice(-6)} đang mở sẵn (không tạo thêm nháp trùng).\n\nBạn có thể gửi ảnh mẫu kèm chú thích đơn hàng hoặc nhập thông tin theo dạng:\n  tên khách: Nguyễn A\n  mẫu hoa: Hoa hồng đỏ\n  giá: 500k\n  ngày nhận: 2026-12-01\n  giờ nhận: 10:00\n  hình thức: Shop book ship`,
+      reply: `Đơn nháp #${current.id.slice(-6)} đang mở sẵn.\nGửi ảnh mẫu kèm nội dung đơn hàng để bắt đầu.`,
       drafts,
       reused: true,
     };
@@ -853,7 +915,7 @@ function cmdNew(drafts, _args) {
   const id = newDraftId();
   const draft = { id, fields: { sale: DEFAULT_BOT_SALE }, sampleRefs: [], draftBillRefs: [], status: 'pending', version: 1, createdAt: new Date().toISOString() };
   const next = { ...drafts, [id]: draft, __active: id };
-  return { reply: `✅ Đã tạo đơn nháp mới #${id.slice(-6)} (Sale: ${DEFAULT_BOT_SALE_NAME}).\n\nGửi ảnh mẫu kèm thông tin đơn hoặc nhập theo dạng:\n  tên khách: Nguyễn A\n  mẫu hoa: Hoa hồng đỏ\n  giá: 500k\n  ngày nhận: 2026-12-01\n  giờ nhận: 10:00\n  hình thức: Shop book ship`, drafts: next };
+  return { reply: `Đã tạo đơn nháp mới #${id.slice(-6)} (Sale: ${DEFAULT_BOT_SALE_NAME}).\nGửi ảnh mẫu kèm nội dung đơn hàng để bắt đầu.`, drafts: next };
 }
 
 function cmdList(drafts) {
@@ -861,12 +923,12 @@ function cmdList(drafts) {
   if (!all.length) return { reply: 'Không có đơn nháp nào. Dùng /new để tạo mới.', drafts };
   const active = drafts.__active;
   const lines = all.map(d => {
-    const mark = d.id === active ? '▶ ' : '  ';
+    const mark = d.id === active ? '› ' : '  ';
     const missing = requiredMissing(d);
-    const status = d.status === 'submitted' ? '✅ đã tạo' : d.status === 'confirming' ? '⏳ đang tạo' : missing.length ? `⚠️ thiếu ${missing.length} trường` : '✔ đủ dữ liệu';
-    return `${mark}#${d.id.slice(-6)} — ${d.fields.customer || '(chưa có tên)'} — ${status}`;
+    const status = d.status === 'submitted' ? 'đã tạo OPS' : d.status === 'confirming' ? '⏳ đang tạo' : missing.length ? `thiếu ${missing.length} mục` : 'đủ dữ liệu';
+    return `${mark}#${d.id.slice(-6)} · ${d.fields.customer || '(chưa có tên)'} · ${status}`;
   });
-  return { reply: `📋 Danh sách đơn nháp:\n${lines.join('\n')}\n\nDùng /select <id> để chuyển.`, drafts };
+  return { reply: `Danh sách nháp:\n${lines.join('\n')}\n\nDùng /select <id> để chuyển.`, drafts };
 }
 
 function cmdSelect(drafts, args) {
@@ -887,12 +949,12 @@ function cmdCancel(drafts, _args) {
   const draft = activeDraft(drafts);
   if (!draft) return { reply: 'Chưa có đơn nháp đang chọn.', drafts };
   if (draft.status === 'submitted') return { reply: 'Đơn đã được tạo trong OPS, không thể xóa nháp.', drafts };
-  if (draft.status === 'confirming') return { reply: '⏳ Đang tạo đơn trong OPS, không thể xóa. Vui lòng chờ.', drafts };
+  if (draft.status === 'confirming') return { reply: 'Đang tạo đơn trong OPS, không thể xóa. Vui lòng chờ.', drafts };
   const id = draft.id;
   const next = { ...drafts };
   delete next[id];
   if (next.__active === id) delete next.__active;
-  return { reply: `🗑 Đã xóa đơn nháp #${id.slice(-6)}.`, drafts: next };
+  return { reply: `Đã hủy đơn nháp #${id.slice(-6)}.`, drafts: next };
 }
 
 function cmdConfirm(drafts, _args, rules = DEFAULT_OPS_ORDER_RULES) {
@@ -903,19 +965,19 @@ function cmdConfirm(drafts, _args, rules = DEFAULT_OPS_ORDER_RULES) {
   const f = draft.fields || {};
   if (f.paymentState === 'fullpaid' && (!draft.draftBillRefs || draft.draftBillRefs.length === 0)) {
     return {
-      reply: '⚠️ Đơn ở trạng thái Đã thanh toán toàn bộ (Fullpaid) nhưng chưa có ảnh bill. Vui lòng gửi ảnh bill trước khi xác nhận tạo đơn.\n\n' + draftSummary(draft, rules),
+      reply: '⚠️ Đơn ở trạng thái Đã thanh toán toàn bộ (Fullpaid) nhưng chưa có ảnh bill. Gửi ảnh kèm chữ "bill" trước khi xác nhận tạo đơn.\n\n' + draftSummary(draft, rules),
       drafts
     };
   }
   const validation = validateOrderAgainstRules(draft, rules);
   if (validation.unsupportedRules.length > 0) {
     return {
-      reply: `🚧 OPS vừa thay đổi quy tắc bắt buộc mà bot chưa hỗ trợ (${validation.unsupportedRules.join(', ')}).\nĐơn nháp vẫn được giữ nguyên trong hệ thống để không mất dữ liệu.\n\n${draftSummary(draft, rules)}`,
+      reply: `⚠️ OPS có quy tắc mới bot chưa hỗ trợ (${validation.unsupportedRules.join(', ')}). Đơn nháp vẫn được giữ nguyên.\n\n${draftSummary(draft, rules)}`,
       drafts
     };
   }
   if (!validation.ok) {
-    return { reply: `❌ Chưa đủ dữ liệu hoặc còn thông tin chưa rõ ràng (chưa đạt quy tắc OPS) để xác nhận:\n\n${draftSummary(draft, rules)}`, drafts };
+    return { reply: `⚠️ Chưa đủ dữ liệu hoặc còn thông tin chưa rõ ràng:\n\n${draftSummary(draft, rules)}`, drafts };
   }
   // requestId is set once and kept fixed across all retries — idempotency key for mee_ops_lookup.
   const reqId = draft.requestId || randomUUID();
@@ -1034,10 +1096,10 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
     }
 
     // 4. Explicit shipping detection & explicit shipping fee detection (NEVER guess shipFee when unstated)
-    if (/\b(shop\s*book|shop\s*ship|shop\s*giao|giao\s*tan\s*noi|khach\s*tu\s*book|tu\s*book|aha|grab|ghe\s*lay|tai\s*tiem|tu\s*qua\s*lay|tu\s*lay)\b/i.test(normLine)) {
+    if (/\b(shop\s*book|shop\s*ship|shop\s*giao|giao\s*tan\s*noi|khach\s*tu\s*book|tu\s*book|aha|grab|ghe\s*lay|tai\s*shop|nhan\s*tai\s*shop|tai\s*tiem|nhan\s*tai\s*tiem|tu\s*qua\s*lay|tu\s*lay)\b/i.test(normLine)) {
       if (/shop\s*book|shop\s*ship|shop\s*giao|giao\s*tan\s*noi/.test(normLine)) fields.shipping = 'Shop book ship';
       else if (/khach\s*tu\s*book|tu\s*book|aha|grab/.test(normLine)) fields.shipping = 'Khách tự book';
-      else if (/ghe\s*lay|tai\s*tiem|tu\s*qua\s*lay|tu\s*lay/.test(normLine)) fields.shipping = 'Ghé lấy';
+      else if (/ghe\s*lay|tai\s*shop|nhan\s*tai\s*shop|tai\s*tiem|nhan\s*tai\s*tiem|tu\s*qua\s*lay|tu\s*lay/.test(normLine)) fields.shipping = 'Ghé lấy';
     }
     const mShipFee = normLine.match(/(?:phi\s*ship|tien\s*ship|cuoc\s*ship)\s*[:=-]?\s*(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?\s*(?:k|tr|trieu|ngan|nghin|d)?)/i);
     if (mShipFee) {
@@ -1050,7 +1112,18 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
       }
     }
 
-    // 4b. Natural banner / card extraction (placed BEFORE address check so "2 banner ..." is never mistaken for a street number)
+    // 4b. Natural tag note free / customer note / banner / card extraction
+    // Tag note free & customer notes MUST be checked before address/flower/card so they are NEVER billed as a paid card (+10k).
+    const mNatTagNote = cleanLine.match(/^(?:(?:in|ghi|kèm|kem|thêm|them)\s+)?tag(?:\s*note)?(?:\s*(?:free|miễn\s*phí|mien\s*phi))?\s*[:=-]?\s*(.+)$/i);
+    if (mNatTagNote && mNatTagNote[1]?.trim() && /^(?:(?:in|ghi|kèm|kem|thêm|them)\s+)?tag(?:\s*note|\s*free|\s*miễn\s*phí|\s*mien\s*phi|\s*[:=-])/i.test(cleanLine)) {
+      fields.tagNoteFree = mNatTagNote[1].trim();
+      continue;
+    }
+    const mNatCustomerNote = cleanLine.match(/^(?:lưu\s*ý(?:\s*(?:của\s*)?(?:khách(?:\s*hàng)?|đơn(?:\s*hàng)?|giao|bó\s*hoa))?|luu\s*y(?:\s*(?:cua\s*)?(?:khach(?:\s*hang)?|don(?:\s*hang)?|giao|bo\s*hoa))?|khách\s*dặn|khach\s*dan|dặn\s*dò|dan\s*do|lời\s*dặn|loi\s*dan|note\s*(?:khách|khach|đơn|don)|ghi\s*chú|ghi\s*chu)\s*[:=-]?\s*(.+)$/i);
+    if (mNatCustomerNote && mNatCustomerNote[1]?.trim()) {
+      fields.note = fields.note ? `${fields.note}\n${mNatCustomerNote[1].trim()}` : mNatCustomerNote[1].trim();
+      continue;
+    }
     const mNatBanner = cleanLine.match(/^(?:(?:thêm|them|kèm|kem|lấy|lay|đặt|dat)\s+)?(?:(\d{1,2})\s*(?:cái|cai|tấm|tam)?\s+)?banner(?:\s+(\d{1,2})\s*(?:cái|cai|tấm|tam)?)?(?:\s*(?:nội\s*dung|noi\s*dung|nd)\b)?\s*[:=-]?\s*(.+)$/i);
     if (mNatBanner && mNatBanner[3]?.trim()) {
       const bQty = Number(mNatBanner[1] || mNatBanner[2] || 1);
@@ -1149,7 +1222,7 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
 
     // 7. Name detection: a shipping method or flower description is never a customer name.
     const NON_NAME_PHRASE = /\b(anh\s*mau|hinh\s*mau|mau\s*tham\s*khao|tham\s*khao|goc\s*chup|goc\s*khac|them\s*anh|them\s*hinh|bo\s*sung|gui\s*them|hinh\s*khac|anh\s*khac|xem\s*them|cam\s*on|ok|oke|vang|xong)\b/i;
-    const isShippingPhrase = /\b(shop\s*(?:book|ship|giao)|khach\s*tu\s*book|tu\s*book|ghe\s*lay|tai\s*tiem|tu\s*lay|grab|aha)\b/i.test(normLine);
+    const isShippingPhrase = /\b(shop\s*(?:book|ship|giao)|khach\s*tu\s*book|tu\s*book|ghe\s*lay|tai\s*shop|nhan\s*tai\s*shop|tai\s*tiem|nhan\s*tai\s*tiem|tu\s*lay|grab|aha)\b/i.test(normLine);
     const hasHonorific = /^(?:chị|anh|em|cô|bác|khách|bạn)\s+/i.test(cleanLine);
     const startsCapitalized = /^[A-ZÀ-Ỹ]/.test(cleanLine);
     if (
@@ -1297,25 +1370,45 @@ function applyFields(draft, text, options = {}) {
   const newFields = { ...(draft.fields || {}) };
   const unparsedLines = [];
 
-  // 1. First pass: Structured key: value lines
+  // 1. First pass: Structured key: value lines (plus safe multi-line continuation for note / tagNoteFree)
+  let activeFreeTextField = null;
   for (const line of lines) {
     const result = applyFieldLine(draft, line);
     if (!result) {
+      const trimmedLine = line.trim();
+      if (activeFreeTextField && trimmedLine) {
+        const probeCont = extractNaturalMessage(trimmedLine, { ...draft, fields: newFields }, options.referenceDate);
+        const hasOrderFields = Object.keys(probeCont.fields || {}).length > 0 || Object.keys(probeCont.uncertainFields || {}).length > 0;
+        if (!hasOrderFields && !/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFD]/.test(trimmedLine)) {
+          newFields[activeFreeTextField] = `${newFields[activeFreeTextField]}\n${trimmedLine}`;
+          const lastChange = [...changes].reverse().find(c => c.field === activeFreeTextField && !c.uncertain);
+          if (lastChange) lastChange.value = newFields[activeFreeTextField];
+          continue;
+        }
+      }
+      activeFreeTextField = null;
       unparsedLines.push(line);
       continue;
     }
     if (result.warning) {
+      activeFreeTextField = null;
       warnings.push(result.warning);
       continue;
     }
     const { field, value, isUncertain, reason, extra } = result;
+    activeFreeTextField = (!isUncertain && (field === 'note' || field === 'tagNoteFree')) ? field : null;
     if (isUncertain) {
       uncertain[field] = reason;
       changes.push({ field, value, uncertain: true, reason });
     } else {
       delete uncertain[field];
-      newFields[field] = value;
-      changes.push({ field, value });
+      const alreadySetInThisPass = (field === 'note' || field === 'tagNoteFree') &&
+        changes.some(c => c.field === field && !c.uncertain);
+      const effectiveVal = alreadySetInThisPass
+        ? `${newFields[field]}\n${value}`
+        : value;
+      newFields[field] = effectiveVal;
+      changes.push({ field, value: effectiveVal });
 
       if (extra) {
         if (extra.paymentState !== undefined) newFields.paymentState = extra.paymentState;
@@ -1437,14 +1530,17 @@ export function addBillRef(drafts, telegramFileId, caption) {
   const draft = activeDraft(drafts);
   if (!draft) return { ok: false, reply: 'Chưa có đơn nháp đang chọn. Dùng /new trước.' };
   if (draft.status === 'submitted') return { ok: false, reply: 'Đơn đã tạo trong OPS.' };
-  if (draft.status === 'confirming') return { ok: false, reply: '⏳ Đơn đang được tạo, không thể thêm ảnh lúc này.' };
+  if (draft.status === 'confirming') return { ok: false, reply: 'Đơn đang được tạo, không thể thêm ảnh lúc này.' };
   if ((draft.draftBillRefs || []).length >= 10) return { ok: false, reply: '⚠️ Tối đa 10 ảnh bill trong mỗi đơn nháp.' };
   const ref = { fileId: telegramFileId, caption: (caption || '').slice(0, 200), savedAt: new Date().toISOString() };
   const updated = { ...draft, draftBillRefs: [...(draft.draftBillRefs || []), ref], version: getDraftVersion(draft) + 1 };
   const next = { ...drafts, [draft.id]: updated };
+  const isFullPaid = draft.fields?.paymentState === 'fullpaid';
   return {
     ok: true,
-    reply: `🧾 Đã lưu ảnh bill vào nháp #${draft.id.slice(-6)} (${updated.draftBillRefs.length} ảnh).\n⚠️ Ảnh bill chỉ lưu trong nháp — KHÔNG tự xác nhận thanh toán. Dùng luồng tất toán trong OPS khi cần.`,
+    reply: isFullPaid
+      ? `Đã lưu ảnh bill vào nháp #${draft.id.slice(-6)} (${updated.draftBillRefs.length} ảnh).`
+      : `Đã lưu ảnh bill vào nháp #${draft.id.slice(-6)} (${updated.draftBillRefs.length} ảnh — chỉ lưu nháp, KHÔNG tự xác nhận thanh toán).`,
     drafts: next,
   };
 }
@@ -1457,14 +1553,14 @@ export function addSampleRef(drafts, telegramFileId, caption) {
   const draft = activeDraft(drafts);
   if (!draft) return { ok: false, reply: 'Chưa có đơn nháp đang chọn. Dùng /new trước.' };
   if (draft.status === 'submitted') return { ok: false, reply: 'Đơn đã tạo trong OPS.' };
-  if (draft.status === 'confirming') return { ok: false, reply: '⏳ Đơn đang được tạo, không thể thêm ảnh lúc này.' };
+  if (draft.status === 'confirming') return { ok: false, reply: 'Đơn đang được tạo, không thể thêm ảnh lúc này.' };
   if ((draft.sampleRefs || []).length >= 10) return { ok: false, reply: '⚠️ Tối đa 10 ảnh mẫu trong mỗi đơn nháp.' };
   const ref = { fileId: telegramFileId, caption: (caption || '').slice(0, 200), savedAt: new Date().toISOString() };
   const updated = { ...draft, sampleRefs: [...(draft.sampleRefs || []), ref], version: getDraftVersion(draft) + 1 };
   const next = { ...drafts, [draft.id]: updated };
   return {
     ok: true,
-    reply: `📷 Đã lưu ảnh mẫu vào nháp #${draft.id.slice(-6)} (${updated.sampleRefs.length} ảnh).`,
+    reply: `Đã lưu ảnh mẫu vào nháp #${draft.id.slice(-6)} (${updated.sampleRefs.length} ảnh).`,
     drafts: next,
   };
 }
@@ -1647,7 +1743,7 @@ export function classifyIncomingPhotoDraft(drafts, caption, isBill = false, opti
 
   const ORDER_CONCEPT_KEYS = [
     'customer', 'phone', 'flower', 'flowerTotal', 'date', 'time',
-    'shipping', 'address', 'note', 'paymentState', 'cardText', 'bannerText'
+    'shipping', 'address', 'note', 'tagNoteFree', 'paymentState', 'cardText', 'bannerText'
   ];
   const hasVal = (obj, k) => obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '';
   const incomingConcepts = ORDER_CONCEPT_KEYS.filter(k => hasVal(incoming, k));

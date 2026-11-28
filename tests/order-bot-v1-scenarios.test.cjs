@@ -1350,7 +1350,7 @@ Ngày 22/11 - 21h
   assert.ok(summary1.includes('Ly có nhuộm viền sơ sơ'));
   assert.ok(summary1.includes('400.000 đ'));
   assert.ok(summary1.includes('Đã thanh toán đủ tiền hoa (Full)'));
-  assert.ok(summary1.includes('2026-11-22'));
+  assert.ok(summary1.includes('22/11/2026'));
   assert.ok(summary1.includes('21:00'));
   assert.ok(summary1.includes('Địa chỉ báo sau'));
   assert.ok(!summary1.includes('Bắt buộc với đơn Fullpaid'), 'Bankfull không bắt buộc có bill');
@@ -1509,8 +1509,8 @@ Ship: Shop book ship
 
   // draftSummary gắn cờ chờ bổ sung và hiện dòng nhắc bổ sung (không chặn)
   const summary1 = draftSummary(drafts[d1]);
-  assert.ok(summary1.includes('📍 Địa chỉ: Địa chỉ báo sau (chờ bổ sung)'));
-  assert.ok(summary1.includes('💡 Nhắc bổ sung: địa chỉ giao hàng (Shop book ship)'));
+  assert.ok(summary1.includes('Địa chỉ: Địa chỉ báo sau (chờ bổ sung)'));
+  assert.ok(summary1.includes('Nhắc bổ sung: địa chỉ giao hàng (Shop book ship)'));
   assert.ok(!summary1.includes('⚠️ Còn thiếu: địa chỉ giao hàng'));
 
   // requiredMissing rỗng, reminders có địa chỉ, isConfirmable = true và /confirm cho phép tạo đơn
