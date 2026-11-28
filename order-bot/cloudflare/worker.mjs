@@ -2251,9 +2251,11 @@ export function textExplicitlyRequestsPaidCard(text) {
       continue;
     }
     const norm = trimmed.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
-    if (/^(?:[-*•]\s*)?(?:tag(?:\s*note)?(?:\s*(?:free|mien\s*phi))?|noi\s*dung\s*tag|ghi\s*chu|note)\s*[:=-]/i.test(norm)) {
-      skippingNoteBlock = true;
-      continue;
+    if (/^(?:[-*•]\s*)?(?:tag(?:\s*note)?(?:\s*(?:free|mien\s*phi))?|noi\s*dung\s*tag|ghi\s*chu|note(?:\s*(?:khach|don))?|luu\s*y(?:\s*(?:cua\s*)?(?:khach(?:\s*hang)?|don(?:\s*hang)?|giao|bo\s*hoa))?|khach\s*dan|dan\s*do|loi\s*dan|yeu\s*cau(?:\s*khach)?)\s*(?:[:=-]|\s|$)/i.test(norm)) {
+      if (/^(?:[-*•]\s*)?(?:tag(?:\s*note)?(?:\s*(?:free|mien\s*phi))?|noi\s*dung\s*tag|ghi\s*chu|note(?:\s*(?:khach|don))?|luu\s*y|khach\s*dan|dan\s*do|loi\s*dan|yeu\s*cau)/i.test(norm)) {
+        skippingNoteBlock = true;
+        continue;
+      }
     }
     if (skippingNoteBlock && !trimmed.includes(':') && !/\b(thiep|card)\b/i.test(norm)) {
       continue;

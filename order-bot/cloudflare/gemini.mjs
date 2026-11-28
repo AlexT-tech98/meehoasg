@@ -18,7 +18,7 @@ Quy tắc trích xuất:
 6. shipping: Chỉ được chọn 1 trong 3 giá trị chính xác: "Shop book ship", "Khách tự book", "Ghé lấy". Nếu không nói rõ thì để null.
 7. address: Địa chỉ giao hàng chi tiết (chuỗi). Nếu không nói rõ thì để null.
 8. flowerTotal: Tổng tiền hoa (số nguyên, ví dụ: 850k -> 850000, 1tr5 -> 1500000). Bỏ các phụ kiện. Nếu không rõ giá thì để null.
-9. note: Ghi chú lời dặn chung của khách (chuỗi, 0 đ). TUYỆT ĐỐI KHÔNG đưa nội dung dòng "Note" hay "Ghi chú" vào cardText.
+9. note: Lưu ý của khách / ghi chú đơn hàng / lời dặn gói hoa hoặc giao hàng (chuỗi, 0 đ). MỌI dòng ghi "Lưu ý khách", "Lưu ý", "Lưu ý đơn", "Khách dặn", "Note", "Ghi chú" PHẢI đưa vào note, TUYỆT ĐỐI KHÔNG đưa vào cardText.
 10. tagNoteFree: Nội dung in Tag note / Tag note free / tag miễn phí (chuỗi, 0 đ). MỌI dòng ghi "Tag note", "Tag note free", "tag miễn phí", "tag" PHẢI đưa vào tagNoteFree, TUYỆT ĐỐI KHÔNG đưa vào cardText hay cardQty.
 11. cardText: Nội dung viết THIỆP TRẢ PHÍ (+10.000 đ/cái). CHỈ trích xuất khi tin nhắn ghi rõ khách mua/lấy thiệp trả phí (có chữ "thiệp" hoặc "card" ngoài dòng Note/Tag note). Nếu không nói rõ lấy thiệp trả phí thì BẮT BUỘC để null.
 12. bannerText: Nội dung in banner/dải ruy băng (chuỗi).

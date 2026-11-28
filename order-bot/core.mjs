@@ -146,6 +146,18 @@ const FIELD_ALIASES = {
   dc: 'address', 'd/c': 'address',
   sdt: 'phone', 'số điện thoại': 'phone', phone: 'phone', 'điện thoại': 'phone', 'dien thoai': 'phone',
   'ghi chú': 'note', 'ghi chu': 'note', note: 'note',
+  'note đơn': 'note', 'note don': 'note', 'note khách': 'note', 'note khach': 'note',
+  'lưu ý': 'note', 'luu y': 'note',
+  'lưu ý khách': 'note', 'luu y khach': 'note',
+  'lưu ý của khách': 'note', 'luu y cua khach': 'note',
+  'lưu ý khách hàng': 'note', 'luu y khach hang': 'note',
+  'lưu ý đơn': 'note', 'luu y don': 'note',
+  'lưu ý đơn hàng': 'note', 'luu y don hang': 'note',
+  'lưu ý giao': 'note', 'luu y giao': 'note',
+  'lưu ý bó hoa': 'note', 'luu y bo hoa': 'note',
+  'khách dặn': 'note', 'khach dan': 'note',
+  'dặn dò': 'note', 'dan do': 'note', 'lời dặn': 'note', 'loi dan': 'note',
+  'yêu cầu': 'note', 'yeu cau': 'note', 'yêu cầu khách': 'note', 'yeu cau khach': 'note',
   'tag note free': 'tagNoteFree', 'tag note': 'tagNoteFree', tagnotefree: 'tagNoteFree', tagnote: 'tagNoteFree',
   'tag free': 'tagNoteFree', 'tag miễn phí': 'tagNoteFree', 'tag mien phi': 'tagNoteFree',
   'nội dung tag': 'tagNoteFree', 'noi dung tag': 'tagNoteFree', tag: 'tagNoteFree',
@@ -1100,11 +1112,16 @@ export function extractNaturalMessage(text, currentDraft = {}, referenceDate = n
       }
     }
 
-    // 4b. Natural tag note free / banner / card extraction
-    // Tag note free MUST be checked before address/flower/card so it is NEVER billed as a paid card (+10k).
+    // 4b. Natural tag note free / customer note / banner / card extraction
+    // Tag note free & customer notes MUST be checked before address/flower/card so they are NEVER billed as a paid card (+10k).
     const mNatTagNote = cleanLine.match(/^(?:(?:in|ghi|kèm|kem|thêm|them)\s+)?tag(?:\s*note)?(?:\s*(?:free|miễn\s*phí|mien\s*phi))?\s*[:=-]?\s*(.+)$/i);
     if (mNatTagNote && mNatTagNote[1]?.trim() && /^(?:(?:in|ghi|kèm|kem|thêm|them)\s+)?tag(?:\s*note|\s*free|\s*miễn\s*phí|\s*mien\s*phi|\s*[:=-])/i.test(cleanLine)) {
       fields.tagNoteFree = mNatTagNote[1].trim();
+      continue;
+    }
+    const mNatCustomerNote = cleanLine.match(/^(?:lưu\s*ý(?:\s*(?:của\s*)?(?:khách(?:\s*hàng)?|đơn(?:\s*hàng)?|giao|bó\s*hoa))?|luu\s*y(?:\s*(?:cua\s*)?(?:khach(?:\s*hang)?|don(?:\s*hang)?|giao|bo\s*hoa))?|khách\s*dặn|khach\s*dan|dặn\s*dò|dan\s*do|lời\s*dặn|loi\s*dan|note\s*(?:khách|khach|đơn|don)|ghi\s*chú|ghi\s*chu)\s*[:=-]?\s*(.+)$/i);
+    if (mNatCustomerNote && mNatCustomerNote[1]?.trim()) {
+      fields.note = fields.note ? `${fields.note}\n${mNatCustomerNote[1].trim()}` : mNatCustomerNote[1].trim();
       continue;
     }
     const mNatBanner = cleanLine.match(/^(?:(?:thêm|them|kèm|kem|lấy|lay|đặt|dat)\s+)?(?:(\d{1,2})\s*(?:cái|cai|tấm|tam)?\s+)?banner(?:\s+(\d{1,2})\s*(?:cái|cai|tấm|tam)?)?(?:\s*(?:nội\s*dung|noi\s*dung|nd)\b)?\s*[:=-]?\s*(.+)$/i);
@@ -1385,8 +1402,13 @@ function applyFields(draft, text, options = {}) {
       changes.push({ field, value, uncertain: true, reason });
     } else {
       delete uncertain[field];
-      newFields[field] = value;
-      changes.push({ field, value });
+      const alreadySetInThisPass = (field === 'note' || field === 'tagNoteFree') &&
+        changes.some(c => c.field === field && !c.uncertain);
+      const effectiveVal = alreadySetInThisPass
+        ? `${newFields[field]}\n${value}`
+        : value;
+      newFields[field] = effectiveVal;
+      changes.push({ field, value: effectiveVal });
 
       if (extra) {
         if (extra.paymentState !== undefined) newFields.paymentState = extra.paymentState;

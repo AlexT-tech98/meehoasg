@@ -509,4 +509,78 @@ describe('Operational Fixes: Full Paid Bill Flow, Tag Note Free vs Card, and Con
     assert.ok(formatted.includes('<b>ĐƠN NHÁP #85ba73</b>'));
     assert.ok(formatted.includes('<b>Tag note free:</b> Happy Anniversary!'));
   });
+
+  test('4. "Lưu ý khách" / "Lưu ý" / "Khách dặn" (with or without colon, multi-line, alongside Tag note free) saves cleanly into OPS orders.note (0 đ) and never triggers Thiệp (+10k)', async () => {
+    const { workerMod, coreMod, d1Store, supaOps } = await loadModules();
+    const pg = await createPreMigrationOpsPg();
+    const botD1 = createBotD1();
+    const botR2 = createMockR2();
+    const ops = createLiveV33Ops(pg, supaOps);
+    const sent = [];
+    const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x05, 0x06, 0xff, 0xd9]);
+
+    const env = {
+      ENVIRONMENT: 'production',
+      DB: botD1,
+      MEDIA_R2: botR2,
+      BOT_TOKEN: 'tok',
+      TELEGRAM_SECRET_TOKEN: WEBHOOK_SECRET,
+      ALLOWED_USER_IDS: String(OWNER_ID),
+      OPS_API_URL: PROD_OPS_URL,
+      OPS_TOKEN: CMUI_SESSION,
+      OPS_SUPABASE_ANON_KEY: VALID_JWT,
+      OPS_SERVICE: { fetch: ops.fetcher },
+      TELEGRAM_FETCHER: async (url, init = {}) => {
+        const u = String(url);
+        if (u.includes('/getFile')) return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/n.jpg', file_size: jpegBytes.length } }));
+        if (u.includes('/file/bot')) return new Response(jpegBytes, { status: 200 });
+        if (u.includes('/sendMessage')) {
+          sent.push(JSON.parse(init.body || '{}'));
+          return new Response(JSON.stringify({ ok: true, result: { message_id: sent.length } }));
+        }
+        return new Response(JSON.stringify({ ok: true, result: true }));
+      }
+    };
+
+    try {
+      // A. Caption with ALL 8 core fields + "Lưu ý khách:" (multi-line) + "Tag note free:" -> works 100% deterministically without Gemini!
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80201,
+        message: {
+          message_id: 21, chat: { id: OWNER_ID, type: 'private' }, from: { id: OWNER_ID },
+          photo: [{ file_id: 'f_luuy1', file_unique_id: 'u_luuy1' }],
+          caption: 'Khách: Minh Anh\nSĐT: 0909123456\nMẫu: Bó hồng pastel\nTổng 500k cọc 250k\n28/11/2026\n15h\nShop book ship\nĐịa chỉ: 123 Nguyễn Huệ Q1\nLưu ý khách: gói giấy màu kem, chọn hoa nụ tươi\nGiao gọi trước 15 phút\nTag note free: Chúc mừng sinh nhật!'
+        }
+      }), env);
+
+      const drafts1 = await d1Store.loadDrafts(botD1, OWNER_ID);
+      const d1 = drafts1[drafts1.__active];
+      assert.ok(d1.fields.note.includes('gói giấy màu kem, chọn hoa nụ tươi'));
+      assert.ok(d1.fields.note.includes('Giao gọi trước 15 phút'));
+      assert.equal(d1.fields.tagNoteFree, 'Chúc mừng sinh nhật!');
+      assert.equal(Boolean(d1.fields.card), false, 'Lưu ý khách & Tag note free must NEVER trigger +10k card');
+
+      await workerMod.handleTelegramWebhook(makeWebhookReq({
+        update_id: 80202,
+        message: { message_id: 22, chat: { id: OWNER_ID, type: 'private' }, from: { id: OWNER_ID }, text: '/confirm' }
+      }), env);
+
+      const drafts2 = await d1Store.loadDrafts(botD1, OWNER_ID);
+      const pgRow = (await pg.query('select note, tag_note_free, card, public.mee_ops_total(orders) total from public.orders where id = $1', [drafts2[drafts2.__active].opsOrderId])).rows[0];
+      assert.ok(pgRow.note.includes('gói giấy màu kem, chọn hoa nụ tươi'));
+      assert.ok(pgRow.note.includes('Giao gọi trước 15 phút'));
+      assert.equal(pgRow.tag_note_free, 'Chúc mừng sinh nhật!');
+      assert.equal(pgRow.card, false);
+      assert.equal(Number(pgRow.total), 500000);
+
+      // B. Colon-less natural forms: "Lưu ý khách ..." and "Khách dặn ..."
+      const parsedNatural = coreMod.applyFields({ id: 'd-nat', fields: {}, uncertainFields: {} }, 'Lưu ý khách không dùng giấy đen\nKhách dặn chụp ảnh trước khi giao');
+      assert.ok(parsedNatural.draft.fields.note.includes('không dùng giấy đen'));
+      assert.ok(parsedNatural.draft.fields.note.includes('chụp ảnh trước khi giao'));
+      assert.equal(Boolean(parsedNatural.draft.fields.card), false);
+      assert.equal(workerMod.textExplicitlyRequestsPaidCard('Lưu ý khách: ghi thiệp miễn phí không lấy thiệp trả phí'), false);
+    } finally {
+      await pg.close();
+    }
+  });
 });
