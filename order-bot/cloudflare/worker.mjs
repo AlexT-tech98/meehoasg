@@ -34,6 +34,7 @@ import {
   stripPaymentClaimTags,
   applyFields,
   draftSummary,
+  formatDateVNDisplay,
   requiredMissing,
   validateOrderAgainstRules,
   DEFAULT_BOT_SALE,
@@ -327,6 +328,29 @@ const html = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '"': '&quot;',
   "'": '&#39;'
 }[char]));
+
+/**
+ * Render `draftSummary()` as clean Telegram HTML with bold header and field labels
+ * (minimal icons, zero raw markdown asterisks, full HTML escaping).
+ */
+export function formatDraftSummaryHtml(draft, rules = DEFAULT_OPS_ORDER_RULES) {
+  const plain = draftSummary(draft, rules);
+  return plain.split('\n').map((line, idx) => {
+    if (!line) return '';
+    if (idx === 0 && line.startsWith('ĐƠN NHÁP #')) {
+      const sepIdx = line.indexOf(' · ');
+      if (sepIdx > 0) {
+        return `<b>${html(line.slice(0, sepIdx))}</b>${html(line.slice(sepIdx))}`;
+      }
+      return `<b>${html(line)}</b>`;
+    }
+    const labelMatch = line.match(/^(Khách|Mẫu hoa|Nhận|Địa chỉ|Tiền hoa|Thanh toán|Tag note free|Ghi chú|Thiệp \(\d+\)|Banner \(\d+\)|Phí charm|Phí giấy|VAT|Phí ship|Tổng đơn|Ảnh mẫu|Ảnh bill|Ảnh):\s*(.*)$/);
+    if (labelMatch) {
+      return `<b>${html(labelMatch[1])}:</b> ${html(labelMatch[2])}`;
+    }
+    return html(line);
+  }).join('\n');
+}
 
 /**
  * Read a stored photo from R2 and return a validated base64 data URL.
@@ -1721,14 +1745,14 @@ export async function handleTelegramWebhook(request, rawEnv) {
       }
 
       const isBill = isBillCaption(caption);
-      if (isBill && !isLegacyDraftBillsAllowed(env)) {
+      const currentActiveForBill = activeDraft(drafts);
+      const canAcceptBillPhoto = isLegacyDraftBillsAllowed(env) ||
+        currentActiveForBill?.fields?.paymentState === 'fullpaid';
+      if (isBill && !canAcceptBillPhoto) {
         await replyTg(
           env,
           chatId,
-          'ℹ️ Quy trình hiện hành không đính kèm ảnh bill trong luồng nhập đơn mới trên Telegram.\n' +
-          '• Khoản cọc/thanh toán được ghi nhận theo tin nhắn xác nhận của bạn.\n' +
-          '• Ảnh bill Full Paid / tất toán sẽ nộp sau trực tiếp trên OPS.\n' +
-          'Vui lòng chỉ gửi ảnh mẫu hoa kèm chú thích đơn hàng.'
+          'Đơn hiện tại chưa ở trạng thái Full Paid nên không đính kèm ảnh bill. Chỉ gửi ảnh bill khi thanh toán là Full Paid (đã thanh toán toàn bộ đơn).'
         );
         return;
       }
@@ -1903,7 +1927,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
           activeItem.lastMessageId = Math.max(Number(activeItem.lastMessageId) || 0, Number(message.message_id) || 0);
         }
 
-        let extraReply = '';
+        let extraWarnings = '';
         let captionApplied = false;
         let aiNotice = null;
         const opsRules = getCachedOpsOrderRules(env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core', env.OPS_TOKEN || '');
@@ -1921,16 +1945,11 @@ export async function handleTelegramWebhook(request, rawEnv) {
           if (changes && changes.length > 0) {
             drafts[drafts.__active] = updatedDraft;
             captionApplied = true;
-            const changedText = changes.map(c => c.uncertain ? `  ⚠️ ${c.field}: ${c.reason}` : `  ${c.field}: ${c.value}`).join('\n');
-            extraReply = `\n\n✏️ Đã nhận thông tin từ chú thích:\n${changedText}`;
           } else if (aiNotice && updatedDraft) {
             drafts[drafts.__active] = updatedDraft;
           }
           if (warnings?.length) {
-            extraReply += `\n${warnings.join('\n')}`;
-          }
-          if (aiNotice) {
-            extraReply += `\n\n${aiNotice}`;
+            extraWarnings += `\n${warnings.join('\n')}`;
           }
         }
 
@@ -1945,24 +1964,29 @@ export async function handleTelegramWebhook(request, rawEnv) {
 
         if (decision.action === 'create_new') {
           const newDraft = drafts[drafts.__active];
-          const newShort = newDraft.id.slice(-6);
-          const header = prevDraft && prevDraft.status !== 'submitted'
-            ? `🆕 Phát hiện đơn mới khác với nháp cũ #${prevDraft.id.slice(-6)} (${prevDraft.fields?.customer || 'chưa có tên'}).\nĐã giữ nguyên nháp cũ (dùng /list hoặc /select ${prevDraft.id.slice(-6)} để xem lại) và tạo nháp mới #${newShort}:`
-            : `🆕 Đã tạo đơn nháp mới #${newShort} kèm 1 ảnh mẫu:`;
-          const noticeBlock = aiNotice ? `\n\n${html(aiNotice)}` : '';
+          const switchNote = prevDraft && prevDraft.status !== 'submitted'
+            ? `Đã giữ nháp cũ #${prevDraft.id.slice(-6)} (${prevDraft.fields?.customer || 'chưa có tên'}) và tạo nháp mới.\n\n`
+            : '';
+          const noticeBlock = aiNotice ? `${html(aiNotice)}\n\n` : '';
+          const warnBlock = extraWarnings ? `${html(extraWarnings.trim())}\n\n` : '';
           await replyTg(
             env,
             chatId,
-            `${html(header)}${noticeBlock}\n\n${html(draftSummary(newDraft, opsRules))}`,
+            `${html(switchNote)}${noticeBlock}${warnBlock}${formatDraftSummaryHtml(newDraft, opsRules)}`,
             'HTML',
             { replyMarkup: buildDraftReplyMarkup(newDraft, opsRules) }
           );
-        } else if (captionApplied || aiNotice) {
+        } else if (captionApplied || aiNotice || (isBill && drafts[drafts.__active]?.fields?.paymentState === 'fullpaid')) {
           const updatedNow = drafts[drafts.__active];
+          const topNoteParts = [];
+          if (isBill) topNoteParts.push(html(result.reply));
+          if (aiNotice) topNoteParts.push(html(aiNotice));
+          if (extraWarnings) topNoteParts.push(html(extraWarnings.trim()));
+          const topPrefix = topNoteParts.length ? `${topNoteParts.join('\n')}\n\n` : '';
           await replyTg(
             env,
             chatId,
-            `${html(result.reply)}${html(extraReply)}\n\n${html(draftSummary(updatedNow, opsRules))}`,
+            `${topPrefix}${formatDraftSummaryHtml(updatedNow, opsRules)}`,
             'HTML',
             { replyMarkup: buildDraftReplyMarkup(updatedNow, opsRules) }
           );
@@ -1971,7 +1995,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
           await replyTg(
             env,
             chatId,
-            `${html(result.reply)}${html(extraReply)}`,
+            `${html(result.reply)}${extraWarnings ? '\n' + html(extraWarnings.trim()) : ''}`,
             'HTML',
             { replyMarkup: buildDraftReplyMarkup(updatedNow, opsRules) }
           );
@@ -2037,13 +2061,24 @@ export async function handleTelegramWebhook(request, rawEnv) {
         if (res.drafts) drafts = res.drafts;
         if (env.DB) await saveDrafts(env.DB, userId, drafts);
         const selected = activeDraft(drafts);
-        const reply = selected ? `Đang xem đơn #${selected.id.slice(-6)}.\n\n${draftSummary(selected, opsRules)}` : res.reply;
-        await replyTg(env, chatId, reply, null, { replyMarkup: selected ? buildDraftReplyMarkup(selected, opsRules) : null });
+        if (selected) {
+          await replyTg(env, chatId, formatDraftSummaryHtml(selected, opsRules), 'HTML', {
+            replyMarkup: buildDraftReplyMarkup(selected, opsRules)
+          });
+        } else {
+          await replyTg(env, chatId, res.reply);
+        }
       } else if (cmd === '/show') {
         const { rules: opsRules } = await loadCurrentOpsRules(env, { forceRefresh: false });
         const res = cmdShow(drafts, arg, opsRules);
         const shownDraft = activeDraft(drafts);
-        await replyTg(env, chatId, res.reply, null, { replyMarkup: shownDraft ? buildDraftReplyMarkup(shownDraft, opsRules) : null });
+        if (shownDraft) {
+          await replyTg(env, chatId, formatDraftSummaryHtml(shownDraft, opsRules), 'HTML', {
+            replyMarkup: buildDraftReplyMarkup(shownDraft, opsRules)
+          });
+        } else {
+          await replyTg(env, chatId, res.reply);
+        }
       } else if (cmd === '/reparse' || cmd === '/retry_ai') {
         await handleReparseCommand(drafts, arg, env, userId, chatId);
       } else if (cmd === '/cancel') {
@@ -2123,28 +2158,13 @@ export async function handleTelegramWebhook(request, rawEnv) {
       drafts = { ...drafts, [draft.id]: updated };
       if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
-      const changedText = changes.map(c => c.uncertain ? `  ⚠️ ${c.field}: ${c.reason}` : `  ${c.field}: ${c.value}`).join('\n');
-      const validation = validateOrderAgainstRules(updated, opsRules);
-      const uncertainCount = Object.keys(updated.uncertainFields || {}).length;
-
-      let extra = '';
-      if (validation.unsupportedRules.length) {
-        extra += `\n🚧 OPS vừa thêm quy tắc mới bot chưa hỗ trợ (${validation.unsupportedRules.join(', ')}). Nháp vẫn được giữ nguyên.`;
-      }
-      if (validation.missing.length) extra += `\n⚠️ Còn thiếu: ${validation.missing.join(', ')}`;
-      if (validation.ruleErrors.length) extra += `\n⛔ ${validation.ruleErrors.join(' | ')}`;
-      if (uncertainCount) extra += `\n❓ Có ${uncertainCount} trường cần làm rõ trước khi xác nhận.`;
-      if (validation.ok) extra += `\n✅ Đã đủ dữ liệu (Sale: ${formatSaleDisplay(updated.fields?.sale, opsRules)}) — dùng /confirm để tạo đơn.`;
-      const warnMsg = warnings?.length ? `\n${warnings.join('\n')}` : '';
-      const aiMsg = aiNotice ? `\n\n${aiNotice}` : '';
-
-      const prefix = changedText ? `✏️ Đã cập nhật:\n${changedText}` : '';
-      const headerBody = `${prefix}${extra}${warnMsg}${aiMsg}`.trim();
+      const warnMsg = warnings?.length ? `${html(warnings.join('\n'))}\n\n` : '';
+      const aiMsg = aiNotice ? `${html(aiNotice)}\n\n` : '';
       await replyTg(
         env,
         chatId,
-        `${headerBody}\n\n${draftSummary(updated, opsRules)}`,
-        null,
+        `${warnMsg}${aiMsg}${formatDraftSummaryHtml(updated, opsRules)}`,
+        'HTML',
         { replyMarkup: buildDraftReplyMarkup(updated, opsRules) }
       );
     } else if (aiNotice) {
@@ -2155,7 +2175,7 @@ export async function handleTelegramWebhook(request, rawEnv) {
       }
       drafts = { ...drafts, [draft.id]: updated };
       if (env.DB) await saveDrafts(env.DB, userId, drafts);
-      await replyTg(env, chatId, `${aiNotice}\n\n${draftSummary(updated, opsRules)}`, null, {
+      await replyTg(env, chatId, `${html(aiNotice)}\n\n${formatDraftSummaryHtml(updated, opsRules)}`, 'HTML', {
         replyMarkup: buildDraftReplyMarkup(updated, opsRules)
       });
     } else {
@@ -2212,8 +2232,37 @@ const hasExplicitEditIntent = text => {
 };
 const isShippingLikeName = val => {
   const norm = String(val || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
-  return /\b(shop\s*(?:book|ship|giao)|khach\s*tu\s*book|tu\s*book|ghe\s*lay|tai\s*tiem|tu\s*lay|grab|aha)\b/.test(norm);
+  return /\b(shop\s*(?:book|ship|giao)|khach\s*tu\s*book|tu\s*book|ghe\s*lay|tai\s*shop|nhan\s*tai\s*shop|tai\s*tiem|nhan\s*tai\s*tiem|tu\s*lay|grab|aha)\b/.test(norm);
 };
+
+/**
+ * Guardrail: returns true ONLY when the raw text requests a paid card (`thiệp` / `card`)
+ * OUTSIDE of explicit `Note:` / `Ghi chú:` / `Tag note:` / `Tag note free:` lines.
+ * Prevents Gemini from turning free `Tag note free:` or `Note:` lines into a paid `+10k` card.
+ */
+export function textExplicitlyRequestsPaidCard(text) {
+  const lines = String(text || '').split('\n');
+  const nonNoteLines = [];
+  let skippingNoteBlock = false;
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      skippingNoteBlock = false;
+      continue;
+    }
+    const norm = trimmed.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+    if (/^(?:[-*•]\s*)?(?:tag(?:\s*note)?(?:\s*(?:free|mien\s*phi))?|noi\s*dung\s*tag|ghi\s*chu|note)\s*[:=-]/i.test(norm)) {
+      skippingNoteBlock = true;
+      continue;
+    }
+    if (skippingNoteBlock && !trimmed.includes(':') && !/\b(thiep|card)\b/i.test(norm)) {
+      continue;
+    }
+    skippingNoteBlock = false;
+    nonNoteLines.push(norm);
+  }
+  return /\b(thiep|card)\b/i.test(nonNoteLines.join('\n'));
+}
 
 function mergePendingAiText(existingText, nextText) {
   const prev = String(existingText || '').trim();
@@ -2358,10 +2407,20 @@ export async function mergeAiFallback(baseDraft, text, structured, env, opsRules
   }
 
   const touched = new Set((result.changes || []).map(c => c.field));
+  const allowAiCard = textExplicitlyRequestsPaidCard(text);
+  const existingNoteNorm = String(after?.fields?.note || '').toLowerCase().trim();
+  const existingTagNorm = String(after?.fields?.tagNoteFree || '').toLowerCase().trim();
   const lines = Object.entries(aiExtracted)
     .filter(([k, v]) => {
       if (touched.has(k)) return false;
       if (k === 'customer' && isShippingLikeName(v)) return false;
+      if ((k === 'cardText' || k === 'cardQty') && !allowAiCard) return false;
+      if (k === 'cardText') {
+        const candNorm = String(v || '').toLowerCase().trim();
+        if (candNorm && ((existingTagNorm && existingTagNorm.includes(candNorm)) || (existingNoteNorm && existingNoteNorm.includes(candNorm)))) {
+          return false;
+        }
+      }
       if (isBlankField(after?.fields?.[k])) return true;
       return explicitEdit && k !== 'customer';
     })
@@ -2491,11 +2550,13 @@ async function loadCurrentOpsRules(env, { forceRefresh = false } = {}) {
   return { rules: res.rules || DEFAULT_OPS_ORDER_RULES, caller: res.caller || null };
 }
 
-function expectedPaymentDetails(fields = {}) {
+function expectedPaymentDetails(fields = {}, { fullPaidRequested = false } = {}) {
   const f = fields || {};
-  const expectedPayment = mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal);
+  const expectedPayment = mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal, { fullPaidRequested });
   let expectedPaid = 0;
-  if (f.paymentState === 'deposit' && Number(f.depositAmount) > 0) {
+  if (fullPaidRequested) {
+    expectedPaid = computeDraftTotal(f);
+  } else if (f.paymentState === 'deposit' && Number(f.depositAmount) > 0) {
     expectedPaid = Number(f.depositAmount);
   } else if (f.paymentState === 'bankfull' && Number(f.flowerTotal) > 0) {
     expectedPaid = Number(f.flowerTotal);
@@ -2549,10 +2610,17 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     return;
   }
 
-  const confirmResult = cmdConfirm(drafts, '', opsRules);
+  const opsUrlEarly = env.OPS_API_URL || 'https://meehoasg-ops-staging.meehoasg.workers.dev/api-core';
+  const opsApiKeyEarly = env.OPS_SUPABASE_ANON_KEY || '';
+  const isLegacyStagingBillMode = isLegacyDraftBillsAllowed(env) && !isSupabaseOpsUrl(opsUrlEarly) && !String(opsApiKeyEarly).trim();
+  const effectiveConfirmRules = isLegacyStagingBillMode
+    ? { ...opsRules, requireSampleForFullPaid: false }
+    : opsRules;
+
+  const confirmResult = cmdConfirm(drafts, '', effectiveConfirmRules);
   if (confirmResult.reply !== '__CONFIRM__') {
     await replyTg(env, chatId, confirmResult.reply, null, {
-      replyMarkup: buildDraftReplyMarkup(draft, opsRules)
+      replyMarkup: buildDraftReplyMarkup(draft, effectiveConfirmRules)
     });
     return;
   }
@@ -2568,7 +2636,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
   const runtime = resolveBotRuntimeInfo(env);
-  await replyTg(env, chatId, `⏳ Đang kiểm tra ảnh và gửi yêu cầu tạo đơn sang ${runtime.opsLabel}...`);
+  await replyTg(env, chatId, `Đang tạo đơn trên ${runtime.opsLabel}...`);
 
   // 3. Prepare images: load durably from R2 (fallback to Telegram ONLY for legacy refs without r2_key)
   const expectedSampleCount = (draft.sampleRefs || []).length;
@@ -2606,40 +2674,57 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     sampleFiles.push(previewDataUrl ? { data: dataUrl, previewData: previewDataUrl } : { data: dataUrl });
   }
 
+  const isFullPaidOrder = draft.fields?.paymentState === 'fullpaid';
   const legacyBillsEnabled = isLegacyDraftBillsAllowed(env);
-  const activeDraftBillRefs = legacyBillsEnabled ? (draft.draftBillRefs || []) : [];
-  const expectedBillCount = activeDraftBillRefs.length;
-  const unverifiedBillFiles = [];
-  for (const ref of activeDraftBillRefs) {
-    let dataUrl = null;
-    if (ref.r2_key) {
-      dataUrl = await evidenceDataUrl(ref, env);
-      if (!dataUrl) {
-        drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
-        if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await replyTg(env, chatId, '❌ Xác nhận bị hủy: Không đọc được ảnh bill đã lưu trong kho ảnh. Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.');
-        return;
-      }
-    } else if (ref.fileId || ref.file_id) {
-      const fileId = ref.fileId || ref.file_id;
-      const dl = await downloadTgPhoto(env, fileId, MAX_IMAGE_BYTES);
-      if (!dl.ok) {
-        drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
-        if (env.DB) await saveDrafts(env.DB, userId, drafts);
-        await replyTg(env, chatId, `❌ Xác nhận bị hủy: Không thể tải ảnh bill từ Telegram (${dl.error}). Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.`);
-        return;
-      }
-      dataUrl = dl.base64Url;
-    } else {
-      drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
-      if (env.DB) await saveDrafts(env.DB, userId, drafts);
-      await replyTg(env, chatId, '❌ Xác nhận bị hủy: Thiếu tham chiếu ảnh bill hợp lệ. Vui lòng gửi lại ảnh.');
-      return;
-    }
-    unverifiedBillFiles.push({ data: dataUrl });
-  }
+  const useLegacyUnverifiedFullPaid = isFullPaidOrder && isLegacyStagingBillMode && sampleFiles.length === 0;
+  const activeFullPaidBillRefs = (isFullPaidOrder && !useLegacyUnverifiedFullPaid) ? (draft.draftBillRefs || []) : [];
+  const activeLegacyBillRefs = ((!isFullPaidOrder || useLegacyUnverifiedFullPaid) && legacyBillsEnabled) ? (draft.draftBillRefs || []) : [];
+  const expectedFullPaidBillCount = activeFullPaidBillRefs.length;
+  const expectedBillCount = activeLegacyBillRefs.length;
 
-  if (sampleFiles.length !== expectedSampleCount || unverifiedBillFiles.length !== expectedBillCount) {
+  const loadBillFiles = async (refs) => {
+    const out = [];
+    for (const ref of refs) {
+      let dataUrl = null;
+      if (ref.r2_key) {
+        dataUrl = await evidenceDataUrl(ref, env);
+        if (!dataUrl) {
+          drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+          if (env.DB) await saveDrafts(env.DB, userId, drafts);
+          await replyTg(env, chatId, '❌ Xác nhận bị hủy: Không đọc được ảnh bill đã lưu trong kho ảnh. Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.');
+          return null;
+        }
+      } else if (ref.fileId || ref.file_id) {
+        const fileId = ref.fileId || ref.file_id;
+        const dl = await downloadTgPhoto(env, fileId, MAX_IMAGE_BYTES);
+        if (!dl.ok) {
+          drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+          if (env.DB) await saveDrafts(env.DB, userId, drafts);
+          await replyTg(env, chatId, `❌ Xác nhận bị hủy: Không thể tải ảnh bill từ Telegram (${dl.error}). Đơn nháp được giữ nguyên; vui lòng gửi lại ảnh.`);
+          return null;
+        }
+        dataUrl = dl.base64Url;
+      } else {
+        drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
+        if (env.DB) await saveDrafts(env.DB, userId, drafts);
+        await replyTg(env, chatId, '❌ Xác nhận bị hủy: Thiếu tham chiếu ảnh bill hợp lệ. Vui lòng gửi lại ảnh.');
+        return null;
+      }
+      out.push({ data: dataUrl });
+    }
+    return out;
+  };
+
+  const fullPaidBillFiles = await loadBillFiles(activeFullPaidBillRefs);
+  if (!fullPaidBillFiles) return;
+  const unverifiedBillFiles = await loadBillFiles(activeLegacyBillRefs);
+  if (!unverifiedBillFiles) return;
+
+  if (
+    sampleFiles.length !== expectedSampleCount ||
+    fullPaidBillFiles.length !== expectedFullPaidBillCount ||
+    unverifiedBillFiles.length !== expectedBillCount
+  ) {
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
     await replyTg(env, chatId, '❌ Xác nhận bị hủy: Số lượng ảnh đọc được không khớp với bản nháp. Vui lòng thử lại.');
@@ -2652,34 +2737,38 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   const directUploadMode = isSupabaseOpsUrl(opsUrl) || Boolean(String(opsApiKey).trim());
 
   // Respect OPS HTTP body size limit (12 MB) for base64-in-JSON payloads.
-  // Direct R2-staged JPEG samples upload outside the createOrder JSON body (each already <= 5 MB).
+  // Direct R2-staged JPEG samples/Full Paid bills upload outside the createOrder JSON body (each already <= 5 MB).
   const inlineSamplePayloadBytes = sampleFiles.reduce(
     (sum, f) => sum + ((directUploadMode && /^data:image\/jpeg;base64,/i.test(String(f.data || ''))) ? 0 : (f.data?.length || 0)),
     0
   );
+  const inlineFullPaidBillBytes = fullPaidBillFiles.reduce(
+    (sum, f) => sum + ((directUploadMode && /^data:image\/jpeg;base64,/i.test(String(f.data || ''))) ? 0 : (f.data?.length || 0)),
+    0
+  );
   const billPayloadBytes = unverifiedBillFiles.reduce((sum, f) => sum + (f.data?.length || 0), 0);
-  if (inlineSamplePayloadBytes > MAX_OPS_PAYLOAD_BYTES) {
+  if (inlineSamplePayloadBytes + inlineFullPaidBillBytes > MAX_OPS_PAYLOAD_BYTES) {
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
-    await replyTg(env, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh mẫu vượt quá giới hạn một lần gửi của OPS (tối đa ~8.5 MB tổng ảnh). Vui lòng gửi ảnh nhỏ hơn hoặc giảm số lượng ảnh.');
+    await replyTg(env, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh vượt quá giới hạn một lần gửi của OPS (tối đa ~8.5 MB tổng ảnh). Vui lòng gửi ảnh nhỏ hơn hoặc giảm số lượng ảnh.');
     return;
   }
 
   const allBillsInR2 = expectedBillCount > 0 && Boolean(env.DB && env.MEDIA_R2) &&
     !isSupabaseOpsUrl(opsUrl) &&
     (draft.draftBillRefs || []).every(ref => Boolean(ref.r2_key));
-  const billsForCreateOrder = (inlineSamplePayloadBytes + billPayloadBytes > MAX_OPS_PAYLOAD_BYTES && allBillsInR2)
+  const billsForCreateOrder = (inlineSamplePayloadBytes + inlineFullPaidBillBytes + billPayloadBytes > MAX_OPS_PAYLOAD_BYTES && allBillsInR2)
     ? []
     : unverifiedBillFiles;
 
-  if (inlineSamplePayloadBytes + billsForCreateOrder.reduce((sum, f) => sum + (f.data?.length || 0), 0) > MAX_OPS_PAYLOAD_BYTES) {
+  if (inlineSamplePayloadBytes + inlineFullPaidBillBytes + billsForCreateOrder.reduce((sum, f) => sum + (f.data?.length || 0), 0) > MAX_OPS_PAYLOAD_BYTES) {
     drafts = transitionDraftStatus(drafts, draft.id, 'confirmed', { failedAt: new Date().toISOString() });
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
     await replyTg(env, chatId, '❌ Xác nhận bị hủy: Tổng dung lượng ảnh vượt quá giới hạn một lần gửi của OPS. Vui lòng giảm dung lượng ảnh và thử lại.');
     return;
   }
 
-  // 4. Call OPS API (for Supabase Production, stages JPEG originals + `.preview.jpg` via prepareOrderUploads)
+  // 4. Call OPS API (for Supabase Production, stages JPEG sample originals + `.preview.jpg` and Full Paid bills via prepareOrderUploads)
   const fetcher = env.OPS_SERVICE ? env.OPS_SERVICE.fetch.bind(env.OPS_SERVICE) : fetch;
   const opsRes = await callCreateOrder(
     opsUrl,
@@ -2690,6 +2779,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     fetcher,
     {
       expectedBillCount,
+      fullPaidBillFiles,
       opsApiKey,
       cachedStagedUpload: drafts[draft.id]?.stagedOpsUpload || null,
       onStagedUpload: async (stagedUpload) => {
@@ -2706,13 +2796,14 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
   );
 
   if (opsRes.ok && opsRes.orderId) {
-    const { expectedPayment, expectedPaid } = expectedPaymentDetails(draft.fields);
+    const fullPaidConfirmed = Boolean(opsRes.fullPaidRequested);
+    const { expectedPayment, expectedPaid } = expectedPaymentDetails(draft.fields, { fullPaidRequested: fullPaidConfirmed });
     const paymentSyncRequestId = draft.paymentSyncRequestId || `${confirmedDraft.requestId}:pay:${draft.fields?.paymentState || 'unpaid'}:${expectedPaid}`;
 
     let finalOpsOrder = opsRes.order || null;
     const returnedPaid = finalOpsOrder ? Number(finalOpsOrder.paid) : null;
     const returnedPayment = finalOpsOrder ? String(finalOpsOrder.payment || '').trim() : '';
-    const needsPaymentSync = expectedPaid > 0 && (
+    const needsPaymentSync = !fullPaidConfirmed && expectedPaid > 0 && (
       !finalOpsOrder ||
       !Number.isFinite(returnedPaid) ||
       returnedPaid !== expectedPaid ||
@@ -2848,6 +2939,7 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     }
 
     const customer = finalOpsOrder?.customer || draft.fields.customer || '';
+    const phone = finalOpsOrder?.phone || draft.fields.phone || '';
     const flower = finalOpsOrder?.flower || draft.fields.flower || '';
     const date = finalOpsOrder?.date || draft.fields.date || '';
     const time = finalOpsOrder?.time || draft.fields.time || '';
@@ -2861,45 +2953,46 @@ async function handleConfirmCommand(drafts, env, userId, chatId) {
     const opsSaleUsername = String(finalOpsOrder?.saleUsername || '').trim();
     const opsSaleName = finalOpsOrder?.sale || formatSaleDisplay(expectedSaleUsername, opsRules);
     const saleLine = opsSaleUsername
-      ? `🧑‍💼 Sale phụ trách (OPS): ${html(opsSaleName)} (<code>${html(opsSaleUsername)}</code>)\n`
-      : `🧑‍💼 Sale phụ trách: ${html(opsSaleName)}\n`;
+      ? `<b>Sale:</b> ${html(opsSaleName)} (<code>${html(opsSaleUsername)}</code>)\n`
+      : `<b>Sale:</b> ${html(opsSaleName)}\n`;
     const saleMismatchWarning = (opsSaleUsername && opsSaleUsername.toLowerCase() !== expectedSaleUsername.toLowerCase())
-      ? `\n⚠️ <b>LƯU Ý SALE PHỤ TRÁCH:</b> OPS đang lưu tài khoản <code>${html(opsSaleUsername)}</code> thay vì <code>${html(expectedSaleUsername)}</code>.\n`
+      ? `\n⚠️ <b>Lưu ý Sale:</b> OPS đang lưu <code>${html(opsSaleUsername)}</code> thay vì <code>${html(expectedSaleUsername)}</code>.\n`
       : '';
+    const customerDisplay = phone ? `${html(customer)} · ${html(phone)}` : html(customer);
+    const moneyDisplay = totalDue !== flowerTotal
+      ? `${flowerTotal.toLocaleString('vi-VN')} đ (Tổng: ${totalDue.toLocaleString('vi-VN')} đ)`
+      : `${flowerTotal.toLocaleString('vi-VN')} đ`;
+    const mediaLine = fullPaidBillFiles.length > 0
+      ? `<b>Ảnh:</b> ${sampleFiles.length} ảnh mẫu · ${fullPaidBillFiles.length} ảnh bill\n`
+      : `<b>Ảnh mẫu:</b> ${sampleFiles.length} ảnh\n`;
 
-    let successMsg = `✅ <b>TẠO ĐƠN THÀNH CÔNG TRÊN ${html(runtime.opsLabel.toUpperCase())}!</b>\n\n` +
-      `🆔 <b>Mã đơn:</b> <code>${html(opsRes.orderId)}</code>\n` +
+    let successMsg = `✅ <b>TẠO ĐƠN THÀNH CÔNG TRÊN ${html(runtime.opsLabel.toUpperCase())}!</b>\n` +
+      `<b>Mã đơn:</b> <code>${html(opsRes.orderId)}</code>\n` +
       saleLine +
-      `👤 Khách: ${html(customer)}\n` +
-      `🌸 Mẫu hoa: ${html(flower)}\n` +
-      `📅 Ngày nhận: ${html(date)} lúc ${html(time)}\n` +
-      `🚚 Giao nhận: ${html(shipping)}\n` +
-      `💰 Tiền hoa: ${flowerTotal.toLocaleString('vi-VN')} đ\n` +
-      (totalDue !== flowerTotal ? `🧾 Tổng đơn: ${totalDue.toLocaleString('vi-VN')} đ\n` : '') +
-      `💳 Trạng thái OPS: ${html(opsPaymentStr)}\n` +
-      `💵 Đã thu: ${opsPaid.toLocaleString('vi-VN')} đ\n` +
-      `📌 Còn phải thu: ${opsDebt.toLocaleString('vi-VN')} đ\n` +
-      `🖼️ Ảnh mẫu: ${sampleFiles.length} ảnh\n` +
+      `<b>Khách:</b> ${customerDisplay}\n` +
+      `<b>Mẫu hoa:</b> ${html(flower)}\n` +
+      `<b>Nhận:</b> ${html(time)} · ${html(formatDateVNDisplay(date))} · ${html(shipping)}\n` +
+      `<b>Tiền hoa:</b> ${moneyDisplay}\n` +
+      `<b>Thanh toán:</b> ${html(opsPaymentStr)}\n` +
+      `<b>Đã thu:</b> ${opsPaid.toLocaleString('vi-VN')} đ · <b>Còn thu:</b> ${opsDebt.toLocaleString('vi-VN')} đ\n` +
+      mediaLine +
       saleMismatchWarning;
 
     if (!paymentSynced) {
-      successMsg += `\n⚠️ <b>CẢNH BÁO GHI NHẬN THANH TOÁN:</b>\n` +
-        `Đơn đã tạo trên OPS nhưng chưa ghi nhận được "${html(expectedPayment)}" (${html(paymentSyncError)}).\n` +
-        `👉 Gõ <code>/retry_payment</code> để thử ghi nhận lại vào mã đơn <code>${html(opsRes.orderId)}</code> mà không tạo đơn trùng.\n`;
+      successMsg += `\n⚠️ <b>Chưa đồng bộ thanh toán:</b> "${html(expectedPayment)}" (${html(paymentSyncError)}).\n` +
+        `Gõ <code>/retry_payment</code> để thử lại vào đơn <code>${html(opsRes.orderId)}</code>.\n`;
     }
 
     if (expectedBillCount > 0) {
       if (billLinkSuccess) {
-        successMsg += `🧾 <b>Bill đính kèm:</b> ${expectedBillCount} bill đã liên kết thành công (chưa xác minh — đối soát tại OPS).\n`;
+        successMsg += `<b>Bill đính kèm:</b> ${expectedBillCount} bill đã liên kết (chờ đối soát OPS).\n`;
       } else {
-        successMsg += `\n⚠️ <b>CẢNH BÁO LIÊN KẾT BILL:</b>\n` +
-          `Đã tạo đơn thành công nhưng chưa gắn được ${expectedBillCount} bill vào đơn (${html(billLinkError)}).\n` +
-          `👉 Gõ <code>/relink</code> để thử gắn lại bill vào mã đơn <code>${html(opsRes.orderId)}</code> mà không tạo lại đơn mới.\n`;
+        successMsg += `\n⚠️ <b>CẢNH BÁO LIÊN KẾT BILL:</b> chưa gắn được ${expectedBillCount} bill (${html(billLinkError)}).\n` +
+          `Gõ <code>/relink</code> để thử lại vào đơn <code>${html(opsRes.orderId)}</code>.\n`;
       }
     }
 
-    successMsg += `\nBấm "Tạo đơn khác", gửi thẳng ảnh mẫu + nội dung đơn mới, hoặc gõ /new để bắt đầu đơn hàng mới.`;
-    await replyTg(env, chatId, successMsg, 'HTML', {
+    await replyTg(env, chatId, successMsg.trim(), 'HTML', {
       replyMarkup: buildPostSubmitReplyMarkup(drafts[draft.id])
     });
   } else {
@@ -3100,9 +3193,7 @@ async function handleCallbackQuery(callbackQuery, drafts, env, userId, chatId, u
     await replyTg(
       env,
       chatId,
-      `✏️ Bạn đang sửa nháp #${shortTarget}.\n` +
-      `Hãy gửi nội dung cần sửa bằng tin nhắn thường (ví dụ: đổi giờ thành 16h, giá 450k, địa chỉ 88 Lê Lợi Q1, cọc 250k, ghi chú giao trước 17h...).\n` +
-      `Bot sẽ tự cập nhật vào đúng nháp #${shortTarget} và hiển thị lại bản tóm tắt kèm nút bấm để bạn duyệt.`
+      `Đang sửa nháp #${shortTarget}. Gửi nội dung cần sửa bằng tin nhắn thường (vd: giờ 16h, giá 450k, địa chỉ 88 Lê Lợi Q1, cọc 250k, tag note free: ...).`
     );
     return;
   }
@@ -3129,26 +3220,11 @@ async function handleCallbackQuery(callbackQuery, drafts, env, userId, chatId, u
     drafts = { ...drafts, [target.id]: updated, __active: target.id };
     if (env.DB) await saveDrafts(env.DB, userId, drafts);
 
-    const validation = validateOrderAgainstRules(updated, opsRules);
-    const lines = [`🚚 Đã cập nhật hình thức giao nhận: ${shippingValue}`];
-    if (shippingValue === 'Shop book ship' && validation.reminders?.length) {
-      lines.push('💡 Bạn chọn Shop book ship nhưng chưa có địa chỉ giao hàng — vui lòng nhắn bổ sung địa chỉ (hoặc bấm Tạo đơn nếu đủ mục bắt buộc).');
-    }
-    if (validation.missing.length) {
-      lines.push(`👉 Vui lòng nhắn bổ sung: ${validation.missing.join(', ')}`);
-    }
-    if (validation.ruleErrors.length) {
-      lines.push(`⛔ ${validation.ruleErrors.join(' | ')}`);
-    }
-    if (Object.keys(updated.uncertainFields || {}).length) {
-      lines.push('❓ Có thông tin cần làm rõ trước khi tạo đơn (xem chi tiết bên dưới).');
-    }
-
     await replyTg(
       env,
       chatId,
-      `${lines.join('\n')}\n\n${draftSummary(updated, opsRules)}`,
-      null,
+      `Đã chọn giao nhận: ${html(shippingValue)}\n\n${formatDraftSummaryHtml(updated, opsRules)}`,
+      'HTML',
       { replyMarkup: buildDraftReplyMarkup(updated, opsRules) }
     );
   }

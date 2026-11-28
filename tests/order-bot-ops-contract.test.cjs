@@ -928,10 +928,13 @@ test('Contract 11: Exact staging caption ("Tổng 350k cọc 200k / Như + 03942
     ALLOWED_USER_IDS: '5252724920'
   };
 
-  // Use the literal caption reported on staging
+  // Use the literal staging caption with a future date (+2 days) to avoid wall-clock drift
+  const futureDateObj = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+  const futureDD = String(futureDateObj.getUTCDate()).padStart(2, '0');
+  const futureMM = String(futureDateObj.getUTCMonth() + 1).padStart(2, '0');
   const literalCaption = `Tổng 350k cọc 200k
 Như + 0394200327
-27/11 & 13h30
+${futureDD}/${futureMM} & 13h30
 địa chỉ nhận: 102/34c Phan Huy Ích, P. Tân Sơn
 note: “Chúc mừng ngày nhận bằng thật rạng rỡ!”`;
 
@@ -972,7 +975,7 @@ note: “Chúc mừng ngày nhận bằng thật rạng rỡ!”`;
   assert.equal(newDraft.fields.paymentState, 'deposit');
   assert.equal(newDraft.fields.depositAmount, 200000);
   assert.equal(newDraft.fields.time, '13:30');
-  assert.match(newDraft.fields.date || '', /^\d{4}-11-27$/);
+  assert.match(newDraft.fields.date || '', new RegExp(`^\\d{4}-${futureMM}-${futureDD}$`));
   assert.equal(newDraft.fields.address, '102/34c Phan Huy Ích, P. Tân Sơn');
   assert.equal(newDraft.fields.note, '“Chúc mừng ngày nhận bằng thật rạng rỡ!”');
   // STRICT NO-GUESSING: flower and shipping must NOT be inherited from old draft or guessed
@@ -2431,7 +2434,8 @@ test('Contract 24: Gemini 4 Hydrogen omits deprecated temperature, uses response
   assert.ok(hBody.generationConfig.responseSchema?.properties?.cardQty);
   assert.ok(hBody.generationConfig.responseSchema?.properties?.bannerQty);
   assert.ok(hBody.generationConfig.responseSchema?.properties?.shipFee);
-  assert.equal(Object.keys(hBody.generationConfig.responseSchema.properties).length, 14);
+  assert.ok(hBody.generationConfig.responseSchema?.properties?.tagNoteFree);
+  assert.equal(Object.keys(hBody.generationConfig.responseSchema.properties).length, 15);
 
   const fBody = buildGeminiRequestBody('test text', 'gemini-2.5-flash');
   assert.equal(fBody.generationConfig.temperature, 0.1);
@@ -2541,7 +2545,7 @@ test('Contract 24: Gemini 4 Hydrogen omits deprecated temperature, uses response
 
     // 4. Telegram summary shows all 5 fields + C Mụi
     const reply = sentMessages[sentMessages.length - 1]?.text || '';
-    for (const expected of ['Thảo My', 'Kệ chúc mừng tông vàng', '650.000', 'Shop book ship', '88 Võ Văn Tần, Quận 3', '2026-12-29', '16:00', 'C Mụi']) {
+    for (const expected of ['Thảo My', 'Kệ chúc mừng tông vàng', '650.000', 'Shop book ship', '88 Võ Văn Tần, Quận 3', '29/12/2026', '16:00', 'C Mụi']) {
       assert.ok(reply.includes(expected), `Summary missing "${expected}": ${reply}`);
     }
 
@@ -3189,9 +3193,9 @@ test('Contract 27: Bot-to-OPS sync for bannerQty*35k + cardQty*10k, explicit-onl
       caption: 'Khách: Thảo Nguyên\nhoa: Kệ chúc mừng 500k\nngày: 2026-12-29\ngiờ: 15:00\nship: Shop book ship\n2 banner: Khai trương hồng phát\n3 thiệp: Chúc mừng phát tài\ncọc: 250k'
     });
     const summaryReply = sentMessages[sentMessages.length - 1].text;
-    assert.ok(summaryReply.includes('💡 Nhắc bổ sung: địa chỉ giao hàng (Shop book ship)'));
-    assert.ok(summaryReply.includes('💌 Thiệp (3): Chúc mừng phát tài (+30.000 đ)'));
-    assert.ok(summaryReply.includes('🎀 Banner (2): Khai trương hồng phát (+70.000 đ)'));
+    assert.ok(summaryReply.includes('Nhắc bổ sung: địa chỉ giao hàng (Shop book ship)'));
+    assert.ok(summaryReply.includes('<b>Thiệp (3):</b> Chúc mừng phát tài (+30.000 đ)'));
+    assert.ok(summaryReply.includes('<b>Banner (2):</b> Khai trương hồng phát (+70.000 đ)'));
     assert.ok(!summaryReply.includes('Phí ship'));
 
     await sendMsg(99902, { text: '/confirm' });
@@ -3360,7 +3364,7 @@ test('Contract 28: Corrupted AI address with ASCII control chars is retried, str
 
     await sendMsg(99953, { text: '/show' });
     const showReply = sentMessages[sentMessages.length - 1].text;
-    assert.ok(showReply.includes('💡 Nhắc bổ sung: địa chỉ giao hàng (Shop book ship)'));
+    assert.ok(showReply.includes('Nhắc bổ sung: địa chỉ giao hàng (Shop book ship)'));
     assert.equal(CORRUPTED_CONTROL_CHAR_REGEX.test(showReply), false);
 
     await sendMsg(99954, { text: '/confirm' });

@@ -333,9 +333,9 @@ async function putStagedUploadPart(bytes, part, uploadFetcher) {
 }
 
 /**
- * Upload JPEG sample images through OPS `prepareOrderUploads` -> direct R2/Storage PUT
- * (uploading BOTH `<uuid>.jpg` and `<uuid>.preview.jpg`) so OPS thumbnails render immediately
- * without modifying OPS v33 API or web code.
+ * Upload JPEG sample images (original + `.preview.jpg`) and optional Full Paid bill images
+ * through OPS `prepareOrderUploads` -> direct R2/Storage PUT so OPS thumbnails & Full Paid bills
+ * work natively on live OPS v33 without modifying OPS API or web code.
  */
 export async function prepareAndUploadOrderSamples({
   opsUrl,
@@ -343,6 +343,7 @@ export async function prepareAndUploadOrderSamples({
   opsApiKey = '',
   requestId,
   sampleFiles = [],
+  billFiles = [],
   cachedStagedUpload = null,
   fetcher = fetch,
   uploadFetcher = null
@@ -357,17 +358,40 @@ export async function prepareAndUploadOrderSamples({
     }
   }
 
-  if (!jpegSamples.length) {
-    return { ok: true, mode: 'legacy', reused: false, imageFiles: sampleFiles, preuploadedSamples: [], stagedOpsUpload: null };
+  const jpegBills = [];
+  const nonJpegBills = [];
+  for (const item of billFiles || []) {
+    if (/^data:image\/jpeg;base64,/i.test(String(item?.data || ''))) {
+      jpegBills.push(item);
+    } else {
+      nonJpegBills.push(item);
+    }
   }
+
+  if (!jpegSamples.length && !jpegBills.length) {
+    return {
+      ok: true,
+      mode: 'legacy',
+      reused: false,
+      imageFiles: sampleFiles,
+      billFiles,
+      preuploadedSamples: [],
+      preuploadedBills: [],
+      stagedOpsUpload: null
+    };
+  }
+
+  const cachedSamples = Array.isArray(cachedStagedUpload?.preuploadedSamples) ? cachedStagedUpload.preuploadedSamples : [];
+  const cachedBills = Array.isArray(cachedStagedUpload?.preuploadedBills) ? cachedStagedUpload.preuploadedBills : [];
 
   // Reuse already-uploaded claims for idempotent retries with the same requestId
   if (
     cachedStagedUpload &&
     cachedStagedUpload.requestId === requestId &&
-    Number(cachedStagedUpload.sampleCount) === jpegSamples.length &&
-    Array.isArray(cachedStagedUpload.preuploadedSamples) &&
-    cachedStagedUpload.preuploadedSamples.length === jpegSamples.length &&
+    Number(cachedStagedUpload.sampleCount || 0) === jpegSamples.length &&
+    Number(cachedStagedUpload.billCount || 0) === jpegBills.length &&
+    cachedSamples.length === jpegSamples.length &&
+    cachedBills.length === jpegBills.length &&
     Number(cachedStagedUpload.expiresAt) > Date.now() + DIRECT_UPLOAD_EXPIRY_BUFFER_MS
   ) {
     return {
@@ -375,7 +399,9 @@ export async function prepareAndUploadOrderSamples({
       mode: 'preuploaded',
       reused: true,
       imageFiles: nonJpegSamples,
-      preuploadedSamples: cachedStagedUpload.preuploadedSamples,
+      billFiles: nonJpegBills,
+      preuploadedSamples: cachedSamples,
+      preuploadedBills: cachedBills,
       stagedOpsUpload: cachedStagedUpload
     };
   }
@@ -392,6 +418,14 @@ export async function prepareAndUploadOrderSamples({
     return { ok: false, code: 'IMAGE_INVALID', message: 'File ảnh mẫu không hợp lệ hoặc vượt quá 5 MB.' };
   }
 
+  const parsedBills = jpegBills.map(item => {
+    const parsed = parseImageDataUrl(item?.data);
+    return { bytes: parsed?.bytes || null };
+  });
+  if (parsedBills.some(p => !p.bytes)) {
+    return { ok: false, code: 'BILL_INVALID', message: 'File ảnh bill không hợp lệ hoặc vượt quá 5 MB.' };
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
   let res;
@@ -405,7 +439,7 @@ export async function prepareAndUploadOrderSamples({
           token: opsToken,
           requestId,
           samples: jpegSamples.length,
-          bills: 0
+          bills: jpegBills.length
         }
       }),
       signal: controller.signal
@@ -418,8 +452,8 @@ export async function prepareAndUploadOrderSamples({
       ok: false,
       code: isTimeout ? 'TIMEOUT' : 'NETWORK_ERROR',
       message: isTimeout
-        ? 'Quá thời gian khi xin quyền tải ảnh mẫu lên OPS. Vui lòng thử lại.'
-        : 'Không thể kết nối đến OPS để tải ảnh mẫu do lỗi mạng.'
+        ? 'Quá thời gian khi xin quyền tải ảnh lên OPS. Vui lòng thử lại.'
+        : 'Không thể kết nối đến OPS để tải ảnh do lỗi mạng.'
     };
   }
 
@@ -438,13 +472,22 @@ export async function prepareAndUploadOrderSamples({
     return { ok: false, code: json?.code || 'AUTH_REQUIRED', message: msg || 'Phiên đăng nhập OPS không hợp lệ hoặc đã hết hạn.' };
   }
 
-  // Only fall back to legacy `imageFiles` when the upstream explicitly does not implement `prepareOrderUploads`
+  // Only fall back to legacy `imageFiles`/`fullPaidBillFiles` when the upstream explicitly does not implement `prepareOrderUploads`
   // (e.g., isolated test mocks or non-R2 staging endpoints). Live Production meehoasg-api-core v33 implements it.
   if (
     (!res.ok && (json?.code === 'UNSUPPORTED' || /không được hỗ trợ|\bunsupported\b/i.test(msg))) ||
     (json && json.ok === false && (json.code === 'UNSUPPORTED' || /không được hỗ trợ|\bunsupported\b/i.test(msg)))
   ) {
-    return { ok: true, mode: 'legacy', reused: false, imageFiles: sampleFiles, preuploadedSamples: [], stagedOpsUpload: null };
+    return {
+      ok: true,
+      mode: 'legacy',
+      reused: false,
+      imageFiles: sampleFiles,
+      billFiles,
+      preuploadedSamples: [],
+      preuploadedBills: [],
+      stagedOpsUpload: null
+    };
   }
 
   if (!res.ok) {
@@ -455,18 +498,22 @@ export async function prepareAndUploadOrderSamples({
     };
   }
 
+  const expectedTicketCount = jpegSamples.length + jpegBills.length;
   const tickets = json?.ok && Array.isArray(json.tickets) ? json.tickets : null;
-  if (!tickets || tickets.length !== jpegSamples.length) {
+  if (!tickets || tickets.length !== expectedTicketCount) {
     return {
       ok: false,
       code: json?.code || 'UPLOAD_TICKETS_INVALID',
-      message: msg || 'Không cấp được quyền tải ảnh mẫu lên OPS.'
+      message: msg || 'Không cấp được quyền tải ảnh lên OPS.'
     };
   }
 
+  const sampleTickets = tickets.slice(0, jpegSamples.length);
+  const billTickets = tickets.slice(jpegSamples.length);
   const doPutFetch = uploadFetcher || fetcher;
-  for (let offset = 0; offset < tickets.length; offset += 3) {
-    const batch = tickets.slice(offset, offset + 3).map(async (ticket, idx) => {
+
+  for (let offset = 0; offset < sampleTickets.length; offset += 3) {
+    const batch = sampleTickets.slice(offset, offset + 3).map(async (ticket, idx) => {
       const sample = parsedJpegs[offset + idx];
       if (!ticket || ticket.kind !== 'sample' || !ticket.uploadUrl || !ticket.proof || !ticket.preview?.uploadUrl || !ticket.preview?.proof) {
         return { ok: false, code: 'UPLOAD_TICKET_INVALID' };
@@ -488,10 +535,30 @@ export async function prepareAndUploadOrderSamples({
     }
   }
 
-  const preuploadedSamples = tickets.map(ticket => ({
+  for (let offset = 0; offset < billTickets.length; offset += 3) {
+    const batch = billTickets.slice(offset, offset + 3).map(async (ticket, idx) => {
+      const bill = parsedBills[offset + idx];
+      if (!ticket || ticket.kind !== 'bill' || !ticket.uploadUrl || !ticket.proof) {
+        return { ok: false, code: 'UPLOAD_TICKET_INVALID' };
+      }
+      return putStagedUploadPart(bill.bytes, ticket, doPutFetch);
+    });
+    const results = await Promise.all(batch);
+    const failed = results.find(r => !r.ok);
+    if (failed) {
+      return {
+        ok: false,
+        code: failed.code || 'UPLOAD_FAILED',
+        message: 'Không thể tải ảnh bill thanh toán lên kho ảnh OPS. Vui lòng thử lại.'
+      };
+    }
+  }
+
+  const preuploadedSamples = sampleTickets.map(ticket => ({
     ...makeUploadClaim(ticket),
     preview: makeUploadClaim(ticket.preview)
   }));
+  const preuploadedBills = billTickets.map(ticket => makeUploadClaim(ticket));
   const expiryCandidates = tickets
     .flatMap(t => [Number(t.expiresAt) || 0, Number(t.preview?.expiresAt) || 0])
     .filter(n => n > 0);
@@ -502,11 +569,15 @@ export async function prepareAndUploadOrderSamples({
     mode: 'preuploaded',
     reused: false,
     imageFiles: nonJpegSamples,
+    billFiles: nonJpegBills,
     preuploadedSamples,
+    preuploadedBills,
     stagedOpsUpload: {
       requestId,
       sampleCount: jpegSamples.length,
+      billCount: jpegBills.length,
       preuploadedSamples,
+      preuploadedBills,
       expiresAt
     }
   };
@@ -518,9 +589,9 @@ export async function prepareAndUploadOrderSamples({
  * @param {string} opsToken - Authentication token for OPS
  * @param {object} draft - Draft order object
  * @param {Array<{data: string, previewData?: string}>} sampleFiles - Sample flower image files (base64 Data URLs)
- * @param {Array<{data: string}>} unverifiedBillFiles - Bill image files (base64 Data URLs)
+ * @param {Array<{data: string}>} unverifiedBillFiles - Legacy staging bill image files (base64 Data URLs)
  * @param {Function} [fetcher=fetch] - Fetch implementation (injectable for testing)
- * @param {object} [options] - Optional overrides (e.g. expectedBillCount, opsApiKey, cachedStagedUpload, onStagedUpload)
+ * @param {object} [options] - Optional overrides (e.g. expectedBillCount, fullPaidBillFiles, opsApiKey, cachedStagedUpload, onStagedUpload)
  * @returns {Promise<{ok: boolean, orderId?: string, order?: object, message?: string, code?: string, unverifiedBillCount?: number}>}
  */
 export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [], unverifiedBillFiles = [], fetcher = fetch, options = {}) {
@@ -529,22 +600,32 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
   const cleanedUserNote = stripPaymentClaimTags(f.note);
   if (cleanedUserNote) noteParts.push(cleanedUserNote);
 
-  const effectiveBillCount = Math.max(
-    unverifiedBillFiles.length,
-    Number(options?.expectedBillCount) || 0
-  );
+  const rawFullPaidBills = Array.isArray(options?.fullPaidBillFiles) ? options.fullPaidBillFiles : [];
+  const hasConfirmedShipIfShop = f.shipping !== 'Shop book ship' || Number(f.shipFee) > 0;
+  // STRICT INVARIANT: Full Paid ONLY activates when ALL OPS v33 evidence rules hold
+  // (paymentState === 'fullpaid', >= 1 sample photo, >= 1 bill photo, and confirmed shipFee if Shop book ship).
+  const fullPaidRequested = f.paymentState === 'fullpaid' &&
+    sampleFiles.length > 0 &&
+    rawFullPaidBills.length > 0 &&
+    hasConfirmedShipIfShop;
+
+  const effectiveBillCount = fullPaidRequested
+    ? 0
+    : Math.max(unverifiedBillFiles.length, Number(options?.expectedBillCount) || 0);
   if (effectiveBillCount > 0 && !noteParts.some(p => p.includes('bill chưa xác minh'))) {
     noteParts.push(`[🧾 Đính kèm ${effectiveBillCount} bill chưa xác minh]`);
   }
 
   const note = noteParts.join(' ');
   const opsApiKey = String(options?.opsApiKey || '').trim();
-  const shouldUseDirectUpload = sampleFiles.length > 0 &&
+  const shouldUseDirectUpload = (sampleFiles.length > 0 || (fullPaidRequested && rawFullPaidBills.length > 0)) &&
     options?.disableDirectUpload !== true &&
     (isSupabaseOpsUrl(opsUrl) || Boolean(opsApiKey));
 
   let imageFilesToSend = sampleFiles.map(item => ({ data: item.data }));
+  let fullPaidBillFilesToSend = fullPaidRequested ? rawFullPaidBills.map(item => ({ data: item.data })) : [];
   let preuploadedSamples = null;
+  let preuploadedBills = null;
   let stagedOpsUpload = null;
 
   if (shouldUseDirectUpload) {
@@ -554,6 +635,7 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
       opsApiKey,
       requestId: draft.requestId,
       sampleFiles,
+      billFiles: fullPaidRequested ? rawFullPaidBills : [],
       cachedStagedUpload: options?.cachedStagedUpload || draft?.stagedOpsUpload || null,
       fetcher,
       uploadFetcher: options?.uploadFetcher || null
@@ -562,12 +644,20 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
       return {
         ok: false,
         code: prepared.code || 'UPLOAD_FAILED',
-        message: prepared.message || 'Không thể tải ảnh mẫu lên OPS.'
+        message: prepared.message || 'Không thể tải ảnh lên OPS.'
       };
     }
     if (prepared.mode === 'preuploaded') {
       imageFilesToSend = prepared.imageFiles.map(item => ({ data: item.data }));
-      preuploadedSamples = prepared.preuploadedSamples;
+      if (prepared.preuploadedSamples?.length) {
+        preuploadedSamples = prepared.preuploadedSamples;
+      }
+      if (fullPaidRequested) {
+        fullPaidBillFilesToSend = (prepared.billFiles || []).map(item => ({ data: item.data }));
+        if (prepared.preuploadedBills?.length) {
+          preuploadedBills = prepared.preuploadedBills;
+        }
+      }
       stagedOpsUpload = prepared.stagedOpsUpload;
       if (!prepared.reused && typeof options?.onStagedUpload === 'function') {
         await options.onStagedUpload(stagedOpsUpload);
@@ -590,13 +680,14 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
         order_time: String(f.time || '').trim(),
         flower: String(f.flower || '').trim(),
         note: note,
+        tagNoteFree: String(f.tagNoteFree || '').trim(),
+        tag_note_free: String(f.tagNoteFree || '').trim(),
         shipping: String(f.shipping || '').trim(),
         address: String(f.address || '').trim(),
         flowerTotal: Number(f.flowerTotal) || 0,
         flower_total: Number(f.flowerTotal) || 0,
-        // Owner-verified payment state ('Chưa thanh toán', 'Đã cọc <X> đ', 'Đã thanh toán đủ tiền hoa (Full)')
-        // Strict invariant: fullPaidRequested remains false (Full Paid requires bill + ship confirmation in OPS)
-        payment: mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal),
+        // Owner-verified payment state: unpaid, deposit, bankfull, or fullpaid (ONLY with sample + bill + shipFee if Shop book ship)
+        payment: mapPaymentToOps(f.paymentState, f.depositAmount, f.flowerTotal, { fullPaidRequested }),
         sale: String(f.sale || DEFAULT_BOT_SALE).trim(),
         card: Boolean(f.card),
         cardQty: f.card ? Math.max(1, Number(f.cardQty) || 1) : 0,
@@ -621,11 +712,12 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
         ship_fee: (f.shipping === 'Shop book ship' && Number(f.shipFee) > 0) ? Number(f.shipFee) : 0,
         shipFeeActive: (f.shipping === 'Shop book ship' && Number(f.shipFee) > 0) ? '1' : '0',
         ship_confirmed: f.shipping === 'Shop book ship' && Number(f.shipFee) > 0,
-        // STRICT INVARIANT: No auto-full-paid without OPS bill verification
-        fullPaidRequested: false,
+        fullPaidRequested,
         imageFiles: imageFilesToSend,
         ...(preuploadedSamples ? { preuploadedSamples } : {}),
-        unverifiedBillFiles: unverifiedBillFiles
+        ...(fullPaidRequested ? { fullPaidBillFiles: fullPaidBillFilesToSend } : {}),
+        ...(preuploadedBills ? { preuploadedBills } : {}),
+        unverifiedBillFiles: fullPaidRequested ? [] : unverifiedBillFiles
       }
     }
   };
@@ -659,8 +751,11 @@ export async function callCreateOrder(opsUrl, opsToken, draft, sampleFiles = [],
       code: json.code || null,
       message: json.message || (json.ok ? 'Đã tạo đơn thành công.' : 'Tạo đơn thất bại.'),
       unverifiedBillCount: effectiveBillCount,
+      fullPaidBillCount: fullPaidRequested ? rawFullPaidBills.length : 0,
+      fullPaidRequested,
       sampleCount: sampleFiles.length,
       usedPreuploadedSamples: Boolean(preuploadedSamples),
+      usedPreuploadedBills: Boolean(preuploadedBills),
       stagedOpsUpload
     };
   } catch (err) {
@@ -748,6 +843,10 @@ export async function callUpdateOrderPayment(opsUrl, opsToken, orderId, currentO
         time: String(currentOrder.time || '').trim(),
         flower: String(currentOrder.flower || '').trim(),
         note: cleanNote !== undefined ? String(cleanNote).trim() : stripPaymentClaimTags(currentOrder.note),
+        ...(currentOrder.tagNoteFree !== undefined ? {
+          tagNoteFree: String(currentOrder.tagNoteFree || '').trim(),
+          tag_note_free: String(currentOrder.tagNoteFree || '').trim()
+        } : {}),
         shipping: String(currentOrder.shipping || '').trim(),
         address: String(currentOrder.address || '').trim(),
         flowerTotal: Number(currentOrder.flowerTotal) || 0,
